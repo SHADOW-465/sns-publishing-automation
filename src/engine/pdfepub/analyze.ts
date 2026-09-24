@@ -154,7 +154,7 @@ export async function analyzePdf(
   const offsets = new Map<number, number>()
   folios.forEach((f, i) => f !== undefined && offsets.set(f - i, (offsets.get(f - i) ?? 0) + 1))
   const offset = [...offsets].sort((a, b) => b[1] - a[1])[0]?.[0]
-  const numbers = offset === undefined ? fillNumbers(folios) : folios.map((_, i) => i + offset)
+  const numbers = offset === undefined ? fillNumbers(folios).map((n, i) => (typeof n === 'number' ? n : i + 1)) : folios.map((_, i) => i + offset)
   // running heads that occur on too few pages to repeat ("Index 191"): small edge line holding the folio
   pages.forEach((p, i) => {
     const n = String(numbers[i])

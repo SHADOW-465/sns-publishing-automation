@@ -35,17 +35,24 @@ const META_FIELDS: [keyof BookMeta, string, string?][] = [
   ['conformsTo', 'Conforms to'],
 ]
 
-export function BookDetails({ meta, onChange, note }: { meta: BookMeta; onChange: (m: BookMeta) => void; note: string }) {
+export function BookDetails({ meta, onChange, note, sources = {} }: { meta: BookMeta; onChange: (m: BookMeta) => void; note: string; sources?: Partial<Record<keyof BookMeta, string>> }) {
   const ok = isbn13Valid(meta.eisbn)
+  const caps = (s: string) => s === s.toUpperCase() && /\p{L}{3}/u.test(s)
+  const suspicious = (k: keyof BookMeta) =>
+    (k === 'title' && (/_|\.(indd|pdf|docx?)\b/i.test(meta.title) || !meta.title.trim() || caps(meta.title))) ||
+    (k === 'authors' && (!meta.authors.trim() || caps(meta.authors))) ||
+    (k === 'publisher' && !meta.publisher.trim()) ||
+    /check/.test(sources[k] ?? '')
   return (
     <section className="card">
       <h2>Book details</h2>
       <p className="muted">{note}</p>
       <div className="form">
         {META_FIELDS.map(([k, label, hint]) => (
-          <label key={k} className={k === 'eisbn' && !ok ? 'bad' : ''}>
+          <label key={k} className={(k === 'eisbn' && !ok) || suspicious(k) ? 'bad' : ''}>
             <span>{label}</span>
             <input value={meta[k]} placeholder={hint} onChange={(e) => onChange({ ...meta, [k]: e.target.value })} />
+            {sources[k] && <small className="src">from the {sources[k]}</small>}
           </label>
         ))}
       </div>

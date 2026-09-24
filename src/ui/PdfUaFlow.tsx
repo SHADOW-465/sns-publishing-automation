@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { download, remember, useObjectUrls } from './shared.tsx'
+import { Help } from './wizard.tsx'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
 import type { UaAnalysis } from '../engine/pdfua/index.ts'
@@ -75,6 +76,10 @@ export function PdfUaFlow() {
     <div className="flow">
       <section className="card">
         <h2>1. Files</h2>
+        <p className="muted">
+          Makes the print PDF readable with a screen reader: every piece of text gets a tag (heading, paragraph, list, note…) in reading order, pictures get
+          descriptions, and decoration is hidden. The result follows PDF/UA, the standard that the PAC checker tests.
+        </p>
         <div className="drops">
           <FileDrop label="Print PDF" hint="the final PDF of the book" accept="application/pdf" value={pdf} onPick={setPdf} required />
           <FileDrop label="Cover image" hint="optional — placed as page 1" accept="image/jpeg,image/png" value={cover} onPick={setCover} />
@@ -85,7 +90,15 @@ export function PdfUaFlow() {
           <input type="file" accept="application/pdf" multiple onChange={(e) => pickExtras(e.target.files)} />
         </label>
         {extras.length > 0 && <p className="muted small">Appended in this order: {extras.map((x) => x.name).join(', ')}</p>}
-        <p className="muted small">Everything runs in this browser; nothing is uploaded.</p>
+        <Help title="What are these files for?">
+          <ul>
+            <li><strong>Print PDF</strong> — the book to make accessible.</li>
+            <li><strong>Cover image</strong> — added as page 1, as publishers deliver it.</li>
+            <li><strong>Alt text (Word)</strong> — descriptions of the pictures, if someone wrote them; they are matched to the pictures by label (“Abb. 3”) or order.</li>
+            <li><strong>Extra PDFs</strong> — plates or inserts printed separately, appended at the end.</li>
+          </ul>
+          Everything runs in this browser; nothing is uploaded. At the end, open the result in PAC (PDF Accessibility Checker) for the official report.
+        </Help>
         <button className="primary" disabled={!pdf || !!busy} onClick={onAnalyse}>
           Analyse
         </button>

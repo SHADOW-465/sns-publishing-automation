@@ -40,7 +40,7 @@ export interface ImageOut {
   data: Uint8Array
 }
 
-const FRONT: SectionType[] = ['halftitle', 'title', 'copyright', 'dedication', 'toc', 'list']
+const FRONT: SectionType[] = ['halftitle', 'title', 'copyright', 'dedication', 'epigraph', 'toc', 'list']
 export const isbnDigits = (s: string) => s.replace(/[^\dXx]/g, '').toUpperCase()
 
 export function isbn13Valid(s: string): boolean {
@@ -70,6 +70,9 @@ export function packageEpub(p: {
   const title = meta.subtitle ? `${meta.title}. ${meta.subtitle}` : meta.title
   const authors = meta.authors.split(/\s*[,;]\s*/).filter(Boolean)
 
+  if (!meta.title.trim()) review.push({ level: 'error', msg: 'The book has no title.' })
+  if (!authors.length) review.push({ level: 'warn', msg: 'No author is set.' })
+  if (!meta.publisher.trim()) review.push({ level: 'warn', msg: 'No publisher is set (it is left out of the package).' })
   if (!isbn13Valid(meta.eisbn)) review.push({ level: 'error', msg: `E-book ISBN "${meta.eisbn}" is missing or not a valid ISBN-13.` })
   if (meta.printIsbn && !isbn13Valid(meta.printIsbn)) review.push({ level: 'warn', msg: `Print ISBN "${meta.printIsbn}" is not a valid ISBN-13.` })
 
@@ -96,7 +99,7 @@ export function packageEpub(p: {
     `<ol class="nav">\n${es.map((e) => `<li><a href="${e.href}">${esc(e.label)}</a>${e.kids.length ? '\n' + ol(e.kids) : ''}</li>`).join('\n')}\n</ol>`
   const tocSec = sections.find((s) => s.type === 'toc')
   const titleSec = sections.find((s) => s.type === 'title')
-  const bodyStart = sections.find((s) => !FRONT.includes(s.type)) ?? sections[0]
+  const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
   put('OEBPS/nav.xhtml', xhtmlDoc(lang, L.navTitle, 'css/style.css', [
     // EPUBCheck's navigation schema rejects aria-label(ledby) on <nav>: the headings name them
     `<nav epub:type="toc" id="toc" role="doc-toc">`,
@@ -111,7 +114,7 @@ export function packageEpub(p: {
     `<ol class="nav">`,
     `<li><a epub:type="cover" href="cover.xhtml">${esc(L.cover)}</a></li>`,
     titleSec ? `<li><a epub:type="titlepage" href="${titleSec.file}">${esc(L.title)}</a></li>` : '',
-    `<li><a epub:type="toc" href="${tocSec ? tocSec.file : 'nav.xhtml'}">${esc(tocSec?.nav ?? L.navTitle)}</a></li>`,
+    tocSec ? `<li><a epub:type="toc" href="${tocSec.file}">${esc(tocSec.nav || L.navTitle)}</a></li>` : '',
     bodyStart ? `<li><a epub:type="bodymatter" href="${bodyStart.file}">${esc(L.startReading)}</a></li>` : '',
     `</ol>`,
     `</nav>`,
@@ -150,6 +153,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   const features = ['tableOfContents', 'readingOrder', 'structuralNavigation', 'displayTransformability', 'ARIA']
   if (pageList.length) features.push('pageNavigation')
   if (/<img alt="[^"]+"/.test(html) || coverAlt) features.push('alternativeText')
+  if (/doc-noteref/.test(html)) features.push('annotations')
   if (/<table/.test(html)) features.push('tableHeaders')
   if (sections.some((s) => s.type === 'index')) features.push('index')
   const unique = new Map<string, ImageOut>()
@@ -171,10 +175,10 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
 <dc:identifier id="pub-id">urn:isbn:${isbnDigits(meta.eisbn)}</dc:identifier>
 <dc:title id="pub-title">${esc(title)}</dc:title>
 <dc:language>${esc(lang)}</dc:language>
-${authors.map((a, i) => `<dc:creator id="author${i + 1}">${esc(a)}</dc:creator>`).join('\n')}
-<dc:publisher>${esc(meta.publisher)}</dc:publisher>
+${authors.map((a, i) => `<dc:creator id="author${i + 1}">${esc(a)}</dc:creator>\n<meta refines="#author${i + 1}" property="role" scheme="marc:relators">aut</meta>`).join('\n')}
+${meta.publisher.trim() ? `<dc:publisher>${esc(meta.publisher.trim())}</dc:publisher>` : ''}
 ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
-<dc:description>${esc(title)}</dc:description>
+<dc:description>${esc(title)}${authors.length ? ` — ${esc(authors.join(', '))}` : ''}</dc:description>
 <dc:date>${modified.slice(0, 10)}</dc:date>
 ${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}
 <meta property="dcterms:modified">${modified}</meta>

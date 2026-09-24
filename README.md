@@ -6,9 +6,10 @@ leave the machine: the same build works as a Vercel site now and as an offline d
 
 | Workflow | Status |
 |---|---|
-| InDesign EPUB export → accessible EPUB 3 | **working**: matches the reference EPUB |
+| InDesign EPUB export → accessible EPUB 3 | **working**: matches the reference EPUB; a second book with a different house style (*La cara oculta de Sheinbaum*) passes EPUBCheck and the built-in check with no findings |
 | Word / print PDF → EPUB 3 | **working**: matches the reference EPUB |
 | PDF → accessible PDF (PDF/UA-1) | **working**: built-in checks pass on both samples; PAC is the final manual check |
+| Check any EPUB | **working**: built-in quality report (validity, accessibility, completeness, book details) |
 
 ## Run
 
@@ -21,23 +22,82 @@ npm run sample:pdf # print PDF → EPUB on the Contemporary Ceramics sample (~3 
 node --import ./test/setup.ts test/run-ua-sample.ts simple out   # PDF/UA on a sample (medium|simple)
 node test/read-tags.ts out/file.pdf 1 10                          # read tags back like a screen reader
 npm run build      # static site in dist/
+node --import ./test/setup.ts test/run-indd.ts export.epub [print.pdf] [cover.jpg] [outDir] [eisbn]  # any InDesign book
+node --import ./test/setup.ts test/check-epub.ts book.epub [print.pdf]                               # quality check
 ```
+On a machine with little memory, run the type-check single-threaded: `node_modules/.bin/tsc -p . --singleThreaded`.
 
 **Vercel:** create a project with *Root Directory* `automation-app`. Vercel detects Vite and needs no other settings.
 **Desktop (later):** `dist/` is fully static, uses relative paths (`base: './'`) and bundles the
 pdf.js worker locally, so it can be wrapped as-is in Tauri or Electron and runs offline.
 
+## The screens
+
+A **Start** page explains the purpose and lets the operator pick by what they have. Each EPUB
+workflow is five steps, in plain words with a “What is this?” help under each:
+
+1. **Files** — what to add and why.
+2. **Book details** — title, subtitle, author, publisher, ISBNs. Each field says where it was found
+   (“from the copyright line”); doubtful values are shown in red.
+3. **Structure** — the book as a reader gets it: every part in order, labelled (half title, title
+   page, copyright, dedication, contents, chapter…), with its printed pages, word count, pictures
+   and notes, and a preview. The InDesign style table sits under *Advanced*; choices are saved per
+   publisher.
+4. **Pictures** — thumbnails with description fields and a “decorative” tick-box.
+5. **Check & download** — the built-in quality report and the automatic changes. The download
+   button is held back while anything must be fixed (a second click downloads anyway, for testing).
+
+**Check an EPUB** runs the same report on any EPUB (a supplier's, an older one), optionally
+against the print PDF.
+
+## Built-in quality check (`src/engine/check/epub.ts`)
+
+Runs in the browser after every build, on the finished zip:
+- **Valid EPUB file** (EPUBCheck's rules): zip layout, container, required and non-empty package
+  metadata, manifest ↔ files, media types read from the bytes (a PNG named `.jpg`), unique ids,
+  reading order, broken links and anchors, links to files outside the reading order, well-formed XML.
+- **Accessibility** (Ace by DAISY's rules): page language, titles, picture descriptions (missing,
+  empty, or a file name), empty or skipped headings, empty links, table headers, navigation menu
+  (entries with only a number, sections missing), page list and landmarks, page markers (named,
+  unique, in order), schema.org accessibility metadata and conformance.
+- **Content complete**: every word of the source (InDesign export or print PDF) is in the e-book,
+  apart from the lines deliberately removed; a page marker for every printed page with content;
+  no empty chapters, empty paragraphs, contents entries without titles, or text repeated back to back.
+- **Book details**: title not a file name or capitals, author not the title, publisher present,
+  valid e-ISBN, cover size.
+
+EPUBCheck and Ace stay the reference for delivery; the built-in check catches the common problems
+first. On the first Vercel test (*La cara oculta*), it reports every fault the review found.
+
 ## How it works (InDesign → EPUB)
 
-1. **Files**: the InDesign EPUB export (`.zip`), the final cover image, and optionally the print PDF.
-2. **Analyse**: reads the export and guesses what each InDesign paragraph style means
-   (chapter label, subheading, TOC entry, imprint…). It also pre-fills the book details and decides
-   where each image goes.
-3. **Human review**: the operator confirms or corrects the style table, enters the e-book ISBN
-   and alt text, then builds. The style choices are saved per publisher (and can be exported
-   as JSON), so the next book from the same InDesign template needs no corrections.
-4. **Review and download**: the report lists the problems to fix, the things to check, and
-   every automatic change. Each file can be previewed with its page markers shown.
+Code: `src/engine/` (no UI, also runs in Node), `src/ui/` (React), `test/`.
+
+### General rules (any book, any house style)
+Learned from the first samples and hardened on a second book whose layout and style names differ:
+- **Front matter by content, not position or style names** (`front.ts`): the pages before the first
+  chapter are sorted by what is on them. The line repeated on two display pages is the title; the
+  page with the title alone is the half title, the richest one the title page; a page with ©/ISBN/
+  edition/rights lines is the copyright page; short pages after it are the epigraph and dedication
+  (split line by line: “Con amor para…”, “To my…” → dedication).
+- **Book details from the book itself**: author = the person holding the © (“D. R. © 2026, Elena
+  Chávez”), confirmed against the title page; publisher = the company on the © line (the imprint
+  brand when several are named); title spelled as on the copyright page, or converted from
+  capitals; file-name titles (“…presidenta_Grijalbo”) are never used.
+- **Headings set in the chapter-title style** that are really *Contents*, *Prologue*,
+  *Acknowledgements*… get their real type.
+- **Contents repair**: entries whose title InDesign lost (“2.” linking nowhere) are rebuilt from the
+  chapter heading; continuation lines are merged; chapters missing from the printed contents are reported.
+- **Copyright page**: lines broken mid-sentence are joined; print-only lines (legal deposit,
+  printer, paper and forest notices) are removed; the e-ISBN is written like the print ISBN.
+- **Notes at the end of each chapter** (“Notas” + numbered paragraphs) are linked both ways from the
+  superscript numbers in the text.
+- **Acronyms typed in lowercase small caps** read as capitals in the navigation (“UNAM”).
+- **Text extraction**: a line break is a space (“OCULTA DE”), soft hyphens vanish.
+- **Page numbers from the PDF**: most folios agree on one offset; stray numbers (a “16” on a contents
+  page) no longer shift the front matter; unnumbered pages before page 1 get roman numerals.
+- **Files**: image types come from the bytes; an empty publisher is left out of the package; the
+  landmarks never point at the navigation file.
 
 Code: `src/engine/` (no UI, also runs in Node), `src/ui/` (React), `test/`.
 
@@ -202,5 +262,5 @@ npm run epubcheck -- "path/to/book.epub"
 - **PDF/UA tables:** tables (the Simple sample's chronology) are still tagged as paragraphs, not `Table/TR/TD`.
 - **PDF/UA automated validation:** PAC is manual (Windows GUI). veraPDF could run the same checks in the tests.
 - **Numbered subheads** (`1: Deseas…`) with a hanging number (`span.list`) aren't done yet; they stay as plain `h3`.
-- **Alt text:** captions give a starting point, but pictures still need real descriptions by a person (the review screen lists them).
+- **Alt text:** captions give a starting point, but pictures still need real descriptions by a person. A picture with no description is now an error, unless it is ticked as decorative.
 - **Final QA outside the app:** DAISY Ace for accessibility (EPUBCheck already runs in the tests).

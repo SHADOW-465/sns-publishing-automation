@@ -19,4 +19,21 @@ export function imageSize(b: Uint8Array): { width: number; height: number } {
 }
 
 export const mediaType = (path: string) =>
-  /\.png$/i.test(path) ? 'image/png' : /\.gif$/i.test(path) ? 'image/gif' : /\.svg$/i.test(path) ? 'image/svg+xml' : 'image/jpeg'
+  /\.png$/i.test(path) ? 'image/png' : /\.gif$/i.test(path) ? 'image/gif' : /\.svg$/i.test(path) ? 'image/svg+xml' : /\.webp$/i.test(path) ? 'image/webp' : 'image/jpeg'
+
+/** File extension from the bytes, not the name: a PNG uploaded as "cover.jpg" must be stored as .png. */
+export function extOf(b: Uint8Array): 'png' | 'gif' | 'jpg' | 'svg' | 'webp' | '' {
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png'
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpg'
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return 'gif'
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45) return 'webp'
+  const head = new TextDecoder().decode(b.subarray(0, 300))
+  if (/<svg[\s>]|<\?xml/.test(head)) return 'svg'
+  return ''
+}
+
+/** Same path with the extension that matches the bytes. */
+export const withRealExt = (path: string, data: Uint8Array) => {
+  const e = extOf(data)
+  return e ? path.replace(/(\.[a-z0-9]+)?$/i, '.' + e) : path
+}

@@ -1,12 +1,15 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
-import { inlineHtml, type InlineCtx } from './inline.ts'
+import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
 import { px, type Decls } from './css.ts'
 import { type Files } from '../zip.ts'
 import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type Labels, type SectionType } from '../epub/locale.ts'
 import { packageEpub, type BookMeta, type Section, type ReviewItem, type ImageOut } from '../epub/package.ts'
-import { imageSize } from '../epub/image.ts'
+import { imageSize, withRealExt } from '../epub/image.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
+import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
+import { wordsOf, type CheckSource } from '../check/epub.ts'
+import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
 
 // =============================================================================================
@@ -19,6 +22,8 @@ export interface ImageChoice {
   src: string // path inside the export
   placement: 'inline' | 'logo' | 'drop'
   alt: string
+  /** purely decorative: empty alt on purpose (screen readers skip it) */
+  decorative?: boolean
   width: number
   height: number
 }
@@ -27,6 +32,8 @@ export interface Analysis {
   ex: Export
   styles: StyleInfo[]
   meta: BookMeta
+  /** where each detected book detail was found, shown next to the field */
+  sources: Partial<Record<keyof BookMeta, string>>
   images: ImageChoice[]
   review: ReviewItem[]
 }
@@ -45,13 +52,11 @@ export interface BuildResult {
   files: Files
   sections: Section[]
   review: ReviewItem[]
+  /** what the quality check compares the EPUB against */
+  source: CheckSource
 }
 
 type PBlock = Extract<Block, { t: 'p' }>
-
-const PRINT_ONLY = /dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt in|imprim[ée] en|stampato|impresso (em|no)|print(ed)? by/i
-const ISBN_LINE = /i\.?\s?s\.?\s?b\.?\s?n/i
-const COMPANY = /\b(s\.?\s?l\.?|s\.?\s?a\.?|ltd|limited|llc|inc|gmbh|books|editorial|ediciones|publishing|press|verlag|[ée]ditions)\b/i
 
 // ---------------------------------------------------------------------------------------------
 // Step 1: analyse — everything the reviewer needs to confirm before the EPUB is generated
@@ -63,34 +68,24 @@ export function analyze(files: Files, saved: Profile = {}): Analysis {
   const role = new Map(styles.map((s) => [s.key, s.role]))
   const review: ReviewItem[] = []
 
-  const imprint = ex.blocks.filter((b): b is PBlock => b.t === 'p' && role.get(b.key) === 'imprint' && !!b.text).map((b) => b.text)
-  const firstHeading = ex.blocks.findIndex((b) => b.t === 'p' && /section-title|chapter-label|chapter-title|part-label/.test(role.get(b.key) ?? ''))
-  const opening = ex.blocks.slice(0, firstHeading < 0 ? 0 : firstHeading).filter((b): b is PBlock => b.t === 'p' && !!b.text && role.get(b.key) !== 'imprint')
-
-  const title = ex.opfTitle.replace(/^\d[\w-]*\s+/, '').trim() || opening[0]?.text || ''
-  const copyrights = imprint.map((l) => l.match(/^©\s*(?:(\d{4}),?\s*)?(.+?)(?:,\s*(\d{4}))?\.?$/)).filter((m) => m) as RegExpMatchArray[]
-  const personalCopy = copyrights.find((m) => !COMPANY.test(m[2]))
-  // proper-case the author from the imprint (title pages are usually set in capitals)
-  const author = personalCopy?.[2].trim() ?? opening.find((b) => b.text === b.text.toUpperCase() && b.text.length < 40 && b.text !== title.toUpperCase())?.text ?? ''
-  const pubLine = [...copyrights].reverse().find((m) => COMPANY.test(m[2]))
-  const publisher = pubLine ? pubLine[2].split(',').map((s) => s.trim()).filter((s) => !/^\d{4}$/.test(s)).pop() ?? '' : ''
-  const isNorm = (a: string, b: string) => norm(a) === norm(b)
-  const subtitle = opening
-    .filter((b) => !isNorm(b.text, title) && !isNorm(b.text, author) && b.text.length > title.length)
-    .sort((a, b) => b.text.length - a.text.length)[0]?.text ?? ''
-  const printIsbn = imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
-
+  const fm = detectMeta(ex, (b) => role.get(b.key) ?? 'p')
   const meta: BookMeta = {
-    title,
-    subtitle,
-    authors: author,
-    publisher,
+    title: fm.title,
+    subtitle: fm.subtitle,
+    authors: fm.author,
+    publisher: fm.publisher,
     language: ex.lang,
     eisbn: '',
-    printIsbn,
-    rights: pubLine?.[0] ?? '',
-    certifiedBy: publisher,
+    printIsbn: fm.printIsbn,
+    rights: fm.rights,
+    certifiedBy: fm.publisher,
     conformsTo: 'EPUB Accessibility 1.1 - WCAG 2.0 Level AA',
+  }
+  const publisher = fm.publisher
+  for (const [k, label] of [['title', 'Title'], ['author', 'Author'], ['publisher', 'Publisher']] as const) {
+    const v = k === 'author' ? fm.author : fm[k]
+    if (!v) review.push({ level: 'warn', msg: `${label} could not be found in the book — type it in under Book details.` })
+    else if (/check/.test(fm.source[k])) review.push({ level: 'warn', msg: `${label} “${v}” was taken from the ${fm.source[k]}.` })
   }
 
   // images: guess where each belongs (cover placeholder is replaced by the uploaded cover)
@@ -100,16 +95,18 @@ export function analyze(files: Files, saved: Profile = {}): Analysis {
     if (src === ex.coverImage) continue
     const { width, height } = imageSize(data)
     const at = ex.blocks.findIndex((b) => b.t === 'img' && b.src === src)
+    const given = at < 0 ? '' : (ex.blocks[at] as { alt: string }).alt // alt text set in InDesign's object export options
     const logo = width > 0 && width / Math.max(1, height) > 2.5 && width < 1200
     const placement = logo ? 'logo' : at < 0 || at > lastText ? 'drop' : 'inline'
     images.push({
       src, width, height, placement,
-      alt: logo ? `${labelsFor(ex.lang).logoAlt}: ${publisher}` : '',
+      alt: logo ? `${labelsFor(ex.lang).logoAlt}: ${publisher}` : /\.(jpe?g|png|gif|tiff?|psd|ai|eps)$/i.test(given) ? '' : given,
     })
   }
   if (!ex.footnotes.size && ex.blocks.some((b) => b.t === 'p' && b.el.querySelector('a[href*="footnote"]')))
     review.push({ level: 'warn', msg: 'Footnote references found but no footnote text — check the InDesign export options.' })
-  return { ex, styles, meta, images, review }
+  const sources = { title: fm.source.title, subtitle: fm.source.subtitle, authors: fm.source.author, publisher: fm.source.publisher, printIsbn: fm.printIsbn ? 'copyright page' : '' }
+  return { ex, styles, meta, sources, images, review }
 }
 
 export const norm = (s: string) =>
@@ -138,6 +135,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const { meta } = input
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = [...a.review]
+  const dropped: string[] = [] // text deliberately left out, for the completeness check
   const prof = new Map(input.styles.map((s) => [s.key, s]))
   const roleOf = (b: PBlock): Role => prof.get(b.key)?.role ?? 'p'
   const classOf = (b: PBlock) => prof.get(b.key)?.outClass ?? 'noindent'
@@ -152,6 +150,17 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   // page markers after the last line of text are back-cover / blank pages: not in the e-book
   const lastText = ex.blocks.findLastIndex((b) => b.t === 'p' && !!b.text)
   const blocks = ex.blocks.filter((b, i) => i <= lastText || b.t !== 'pb')
+  // everything before the first chapter / known section is front matter, sorted by content in 2b
+  const start = bodyStart(blocks, roleOf)
+  for (const b of blocks.slice(0, start)) {
+    if (b.t === 'p' && !b.text) {
+      for (const el of Array.from(b.el.querySelectorAll('*'))) {
+        const n = pageBreakOf(el)
+        if (n !== null) opening.push({ t: 'pb', n })
+      }
+    } else if (b.t !== 'p' || roleOf(b) !== 'drop') opening.push(b)
+    else dropped.push(b.text)
+  }
   const newSec = (type: SectionType): Sec => {
     const s: Sec = { type, stem: '', headId: '', label: [], title: [], items: [], labelText: '', titleText: '', nav: '' }
     // page markers right before a heading belong to the new section
@@ -165,7 +174,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     cur = s
     return s
   }
-  for (let i = 0; i < blocks.length; i++) {
+  for (let i = start; i < blocks.length; i++) {
     const b = blocks[i]
     if (b.t !== 'p') {
       ;(cur ? cur.items : opening).push(b)
@@ -184,7 +193,10 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       imprint.push(b)
       continue
     }
-    if (r === 'drop') continue
+    if (r === 'drop') {
+      dropped.push(b.text)
+      continue
+    }
     const takeFollowing = (want: Role, into: PBlock[]) => {
       while (i + 1 < blocks.length) {
         const n = blocks[i + 1]
@@ -204,7 +216,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       takeFollowing('chapter-title', s.title)
       seenChapter = true
     } else if (r === 'chapter-title') {
-      const s = newSec('chapter')
+      // "Índice", "Prólogo", "Agradecimientos" set in the chapter-title style are not chapters
+      const t = sectionTypeOf(b.text)
+      const s = newSec(t && t !== 'chapter' ? t : 'chapter')
       s.title.push(b)
       takeFollowing('chapter-title', s.title)
       seenChapter = true
@@ -215,30 +229,37 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     } else (cur ? cur.items : opening).push(b)
   }
 
-  // ---- 2b. opening pages → half-title + title page; imprint → copyright page ----------------
-  const pages: Block[][] = [[]]
-  for (const b of opening) {
-    const g = pages[pages.length - 1]
-    if (b.t === 'pb' && g.some((x) => x.t !== 'pb')) pages.push([b])
-    else g.push(b)
-  }
-  const withContent = pages.filter((g) => g.some((x) => x.t !== 'pb'))
-  const front: Sec[] = []
+  // ---- 2b. front pages by content: half-title, title page, copyright, dedication, epigraph ----
   const mk = (type: SectionType, items: Block[]): Sec => ({ type, stem: '', headId: '', label: [], title: [], items, labelText: '', titleText: '', nav: '' })
-  if (withContent.length >= 2) {
-    front.push(mk('halftitle', withContent[0]))
-    front.push(mk('title', withContent.slice(1).flat()))
-  } else if (withContent.length === 1) front.push(mk('title', withContent[0]))
-  // blank-page markers before the first content page
-  const leading = pages.slice(0, pages.indexOf(withContent[0] ?? [])).flat()
-  if (front.length) front[0].items.unshift(...leading)
-  else if (leading.length && secs[0]) secs[0].items.unshift(...leading)
+  const front: Sec[] = []
+  for (const fp of classifyFront(splitPages(opening), roleOf, meta.title)) {
+    const type: SectionType = fp.kind
+    const last = front[front.length - 1]
+    if (last && last.type === type && type !== 'other') last.items.push(...fp.blocks)
+    else front.push(mk(type, fp.blocks))
+  }
+  // headings of known kinds that sat among the front pages keep their own section
+  for (const f of front) {
+    if (f.type !== 'other') continue
+    const h = f.items.find((x): x is PBlock => x.t === 'p' && !!x.text && roleOf(x) === 'section-title')
+    if (h) {
+      f.title.push(h)
+      f.items = f.items.filter((x) => x !== h)
+    }
+  }
+  // imprint lines printed elsewhere in the book (often on the last page) join the copyright page
+  let cp = front.find((f) => f.type === 'copyright')
   if (imprint.length) {
-    const cp = mk('copyright', [...imprint])
-    const tp = front[front.length - 1]
-    if (tp) while (tp.items.length && tp.items[tp.items.length - 1].t === 'pb') cp.items.unshift(tp.items.pop()!)
-    front.push(cp)
-  } else review.push({ level: 'warn', msg: 'No imprint / copyright text found — the EPUB has no copyright page.' })
+    if (!cp) {
+      cp = mk('copyright', [])
+      const tp = front.findLastIndex((f) => f.type === 'title' || f.type === 'halftitle')
+      const prev = front[tp]
+      if (prev) while (prev.items.length && prev.items[prev.items.length - 1].t === 'pb') cp.items.unshift(prev.items.pop()!)
+      front.splice(tp + 1, 0, cp)
+    }
+    cp.items.push(...imprint)
+  }
+  if (!cp) review.push({ level: 'warn', msg: 'No imprint / copyright text found — the EPUB has no copyright page.' })
   const all = [...front, ...secs]
 
   // ---- 2c. names, ids, navigation labels -----------------------------------------------------
@@ -260,8 +281,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       s.stem = s.type === 'other' ? `${all.indexOf(s) < all.findIndex((x) => x.type === 'chapter') ? 'fm' : 'bm'}${n}` : n > 1 ? `${m.file}${n}` : m.file
       s.headId = s.stem
     }
-    s.labelText = s.label.map((b) => b.text).join(' ')
-    s.titleText = s.title.map((b) => b.text).join(' ')
+    const say = (b: PBlock) => inlineText(b.el, ex.css, meta.language)
+    s.labelText = s.label.map(say).join(' ')
+    s.titleText = s.title.map(say).join(' ')
     s.nav =
       s.type === 'part' && s.labelText
         ? `${sentence(s.labelText)}: ${s.titleText}`
@@ -282,6 +304,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const headingIds = new Map<PBlock, string>()
   const tocHtml = new Map<Sec, string[]>()
   let secNo = 0
+  const repaired: string[] = []
   const headings = all.flatMap((s) =>
     s.items.filter((b): b is PBlock => b.t === 'p' && /^h[345]$/.test(roleOf(b))).map((b) => ({ b, s })),
   )
@@ -290,6 +313,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const tocLike = s.type === 'toc' || s.type === 'list' || (entries.length > 2 && entries.filter((b) => roleOf(b) === 'toc').length / entries.length >= 0.5)
     if (!tocLike) continue
     const out: string[] = []
+    let lastTarget: Sec | undefined
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
       const raw = e.el.textContent ?? ''
@@ -306,13 +330,24 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         out.push(`<p class="toc_2"><a href="${labelOnly.stem}.xhtml">${headingInner(labelOnly, 'toc_2a')}</a></p>`)
         continue
       }
+      // a line that only continues the previous entry's title ("…débil / de Sheinbaum 175") is not an entry
+      if (!target && lastTarget && n && norm(lastTarget.titleText).endsWith(n) && n !== norm(lastTarget.titleText)) {
+        dropped.push(e.text)
+        continue
+      }
       if (target) {
+        lastTarget = target
         const cls = target.type === 'part' ? 'toc_2' : target.label.length || target.type === 'chapter' ? 'toc_1a' : 'toc_1'
         out.push(`<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`)
         continue
       }
       if (labelOnly) {
-        out.push(`<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`)
+        lastTarget = labelOnly
+        // the export lost the chapter title ("2." only): rebuild the entry from the chapter heading
+        if (s.type === 'toc' && labelOnly.titleText && !n.replace(norm(labelOnly.labelText), '')) {
+          out.push(`<p class="toc_1a"><a href="${labelOnly.stem}.xhtml">${esc(labelOnly.nav)}</a></p>`)
+          repaired.push(labelOnly.nav)
+        } else out.push(`<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`)
         continue
       }
       const h = headings.find((x) => norm(x.b.text) === n) ?? headings.find((x) => page && x.b.page === page && (norm(x.b.text).includes(n) || n.includes(norm(x.b.text))))
@@ -322,6 +357,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         continue
       }
       const byPage = page && all.find((x) => x.firstPage === page)
+      if (byPage && byPage === lastTarget) continue
       if (byPage) {
         out.push(`<p class="toc_1"><a href="${byPage.stem}.xhtml">${html}</a></p>`)
         review.push({ level: 'warn', msg: `TOC entry "${e.text}" linked by page number only (text did not match a heading).`, where: s.stem })
@@ -331,6 +367,11 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       review.push({ level: 'error', msg: `TOC entry "${e.text}" could not be linked to any section.`, where: s.stem })
     }
     tocHtml.set(s, out)
+    if (repaired.length) review.push({ level: 'info', msg: `Contents: ${repaired.length} entr${repaired.length === 1 ? 'y' : 'ies'} had lost their chapter title in the InDesign export and were rebuilt from the chapter headings (${repaired.slice(0, 3).join('; ')}${repaired.length > 3 ? '…' : ''}).`, where: s.stem })
+    // every chapter and part should be reachable from the printed contents
+    const linked = new Set([...out.join('\n').matchAll(/href="([^"#]+)\.xhtml/g)].map((m) => m[1]))
+    const missing = all.filter((x) => (x.type === 'chapter' || x.type === 'part') && !linked.has(x.stem))
+    if (s.type === 'toc' && missing.length) review.push({ level: 'warn', msg: `Contents page does not list: ${missing.map((x) => x.nav).slice(0, 5).join('; ')}${missing.length > 5 ? '…' : ''}. They are still in the navigation menu.`, where: s.stem })
   }
 
   // ---- 2e. render every section ---------------------------------------------------------------
@@ -339,7 +380,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const usedClasses = new Map<string, { tag: string; decls: Decls }>()
   const imgOut: ImageOut[] = []
   const imgChoice = new Map(input.images.map((i) => [i.src, i]))
-  const imgName = (src: string) => 'images/' + src.split('/').pop()!.toLowerCase().replace(/[^a-z0-9._-]+/g, '_')
+  const imgName = (src: string) => withRealExt('images/' + src.split('/').pop()!.toLowerCase().replace(/[^a-z0-9._-]+/g, '_'), ex.images.get(src) ?? new Uint8Array())
+  let linkedNotes = 0
   let fnNo = 0
   const fnSeen = new Map<string, string>()
   const logos = input.images.filter((i) => i.placement === 'logo')
@@ -374,8 +416,10 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     let body = ''
     const meta0 = SECTION_META[s.type]
     const heading = renderHeading(s, ctx, classOf, declsOf, use)
-    const items: { kind: 'li' | 'inset' | 'other'; html: string }[] = []
+    const items: Item[] = []
     const isFront = s.type === 'halftitle' || s.type === 'title' || s.type === 'copyright'
+    // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
+    let inNotes = false
     for (const b of isFront ? [] : s.items) {
       if (b.t === 'pb') {
         items.push({ kind: 'other', html: ctx.pageMarker(b.n) })
@@ -386,8 +430,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         if (!c || c.placement !== 'inline') continue
         const name = imgName(b.src)
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
-        if (!c.alt) review.push({ level: 'warn', msg: `Image ${name} has no alt text (treated as decorative).`, where: file })
-        items.push({ kind: 'other', html: `<p class="img"><img alt="${esc(c.alt)}" src="${name}"/></p>` })
+        if (!c.alt && !c.decorative) review.push({ level: 'error', msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
+        items.push({ kind: 'other', html: `<p class="img"><img alt="${c.decorative ? '' : esc(c.alt)}"${c.decorative ? ' role="presentation"' : ''} src="${name}"/></p>` })
         continue
       }
       if (b.t === 'table') {
@@ -405,21 +449,24 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       } else if (r === 'h3' || r === 'h4' || r === 'h5') {
         use(r, cls, declsOf(b))
         const id = headingIds.get(b)
-        items.push({ kind: 'other', html: `<${r} class="${cls}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true })}</${r}>` })
+        inNotes = sectionTypeOf(b.text) === 'notes'
+        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${cls}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true })}</${r}>` })
       } else {
         const d = declsOf(b)
         use('p', cls, d)
         // a whole block set in from the margin (exercises, extracts) — not just a first-line indent
         const inset = px(d['margin-left']) > 0 && px(d['margin-left']) + px(d['text-indent']) > 0
-        items.push({ kind: inset ? 'inset' : 'other', html: `<p class="${cls}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
+        const note = inNotes ? b.text.match(/^(\d{1,3})(?!\d)/)?.[1] : undefined
+        items.push({ kind: inNotes ? 'note' : inset ? 'inset' : 'other', note, html: `<p class="${cls}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
       }
     }
+    linkedNotes += linkNotes(items, s.headId || s.stem)
     if (tocHtml.has(s)) {
       // keep page markers of the printed TOC pages, then the rebuilt linked entries
       body += items.filter((x) => x.html.startsWith('<span')).map((x) => x.html).join('\n') + '\n'
       body += heading + '\n' + tocHtml.get(s)!.join('\n')
     } else if (isFront) {
-      body += renderFront(s, ctx, meta, logos, imgName, imgOut, ex, L, review, declsOf)
+      body += renderFront(s, ctx, meta, logos, imgName, imgOut, ex, L, review, declsOf, dropped)
     } else {
       // page markers that precede the heading stay above it
       let k = 0
@@ -427,9 +474,11 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       body += heading + '\n' + groupItems(items.slice(k))
     }
     if (notes.length) body += `\n<div class="footnotes">\n${notes.join('\n')}\n</div>`
-    const lbl = s.headId && heading ? ` aria-labelledby="${s.headId}"` : ` aria-label="${esc(s.nav)}"`
-    const sectionHtml = `<section${lbl} epub:type="${meta0.epubType}"${meta0.role ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`
-    sections.push({ file, id: s.stem, type: s.type, nav: s.nav, parent: s.parent ? `${s.parent.stem}.xhtml` : undefined, body: sectionHtml, title: s.nav })
+    const name = s.nav || (s.type === 'dedication' ? L.dedication : s.type === 'epigraph' ? L.epigraph : L.front)
+    const lbl = s.headId && heading ? ` aria-labelledby="${s.headId}"` : ` aria-label="${esc(name)}"`
+    const etype = s.type === 'other' && s.stem.startsWith('fm') ? 'frontmatter' : meta0.epubType
+    const sectionHtml = `<section${lbl} epub:type="${etype}"${meta0.role ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`
+    sections.push({ file, id: s.stem, type: s.type, nav: s.nav, parent: s.parent ? `${s.parent.stem}.xhtml` : undefined, body: sectionHtml, title: s.nav || name })
   }
 
   // cross references (InDesign hyperlinks to text anchors) → the file that now holds the anchor
@@ -445,14 +494,15 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   if (gaps.removed.length) review.push({ level: 'info', msg: `Removed page markers of blank printed pages: ${gaps.removed.join(', ')}.` })
   if (gaps.missing.length)
     review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
+  if (linkedNotes) review.push({ level: 'info', msg: `Linked ${linkedNotes} note number(s) in the text to their notes and back.` })
   if (fnSeen.size < ex.footnotes.size)
     review.push({ level: 'warn', msg: `${ex.footnotes.size - fnSeen.size} footnote(s) are never referenced in the text and were dropped.` })
 
   // cover
   let cover: ImageOut
-  if (input.cover) cover = { path: 'images/cover.' + (input.cover.name.split('.').pop() ?? 'jpg').toLowerCase().replace('jpeg', 'jpg'), data: input.cover.data }
+  if (input.cover) cover = { path: withRealExt('images/cover.jpg', input.cover.data), data: input.cover.data }
   else if (ex.coverImage && ex.images.get(ex.coverImage)) {
-    cover = { path: 'images/cover.jpg', data: ex.images.get(ex.coverImage)! }
+    cover = { path: withRealExt('images/cover.jpg', ex.images.get(ex.coverImage)!), data: ex.images.get(ex.coverImage)! }
     review.push({ level: 'error', msg: 'No cover uploaded — used the cover image from the InDesign export. InDesign often exports a blank placeholder: check it.' })
   } else throw new Error('A cover image is required.')
 
@@ -461,7 +511,13 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     bodyDecls: ex.css.decls('p', a.ex.blocks.find((b): b is PBlock => b.t === 'p' && prof.get(b.key)?.outClass === 'indent')?.classes ?? []),
     review,
   })
-  return { epub, files, sections, review }
+  // the source text the e-book must contain: every paragraph, table cell and footnote of the export
+  const srcText = [
+    ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? textOf(b.el) : '')),
+    ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
+  ]
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank).map((p) => p.n) }
+  return { epub, files, sections, review, source }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -506,8 +562,34 @@ function renderHeading(
   return `<${h} class="${c}" id="${s.headId}">${html(only)}</${h}>`
 }
 
-/** consecutive list items → <ul>, consecutive indented blocks → <div class="top"> */
-function groupItems(items: { kind: 'li' | 'inset' | 'other'; html: string }[]): string {
+type Item = { kind: 'li' | 'inset' | 'note' | 'other'; html: string; note?: string }
+
+/** Note numbers in the text (<sup>3</sup>) ↔ numbered notes under the "Notes" subheading: links both ways. */
+function linkNotes(items: Item[], key: string): number {
+  const nums = new Set(items.filter((x) => x.note).map((x) => x.note!))
+  if (!nums.size) return 0
+  const refd = new Set<string>()
+  const SUP = /<sup>(?:<span[^>]*>)?\s*(\d{1,3})\s*(?:<\/span>)?<\/sup>/g
+  for (const it of items) {
+    if (it.kind === 'note') continue
+    it.html = it.html.replace(SUP, (m, n: string) => {
+      if (!nums.has(n)) return m
+      const first = !refd.has(n)
+      refd.add(n)
+      return `<sup><a epub:type="noteref" href="#${key}-n${n}"${first ? ` id="${key}-r${n}"` : ''} role="doc-noteref">${n}</a></sup>`
+    })
+  }
+  for (const it of items) {
+    if (!it.note) continue
+    const n = it.note
+    it.html = it.html.replace(/^<p([^>]*)>\s*(?:<sup>)?(?:<span[^>]*>)?\s*(\d{1,3})\s*(?:<\/span>)?(?:<\/sup>)?[\s.]*/, (_, attrs: string) =>
+      `<p${attrs} epub:type="endnote" id="${key}-n${n}">${refd.has(n) ? `<a epub:type="backlink" href="#${key}-r${n}" role="doc-backlink">${n}</a>` : n} `)
+  }
+  return refd.size
+}
+
+/** consecutive list items → <ul>, indented blocks → <div class="top">, notes → <section role="doc-endnotes"> */
+function groupItems(items: Item[]): string {
   const out: string[] = []
   for (let i = 0; i < items.length; ) {
     const k = items[i].kind
@@ -526,7 +608,13 @@ function groupItems(items: { kind: 'li' | 'inset' | 'other'; html: string }[]): 
       } else run.push(it.html)
       i++
     }
-    out.push(k === 'li' ? `<ul class="bull">\n${run.map((r) => (r.endsWith('</li>') ? r : r.replace(/<\/li>(.*)$/, '$1</li>'))).join('\n')}\n</ul>` : `<div class="top">\n${run.join('\n')}\n</div>`)
+    out.push(
+      k === 'li'
+        ? `<ul class="bull">\n${run.map((r) => (r.endsWith('</li>') ? r : r.replace(/<\/li>(.*)$/, '$1</li>'))).join('\n')}\n</ul>`
+        : k === 'note'
+          ? `<section epub:type="endnotes" role="doc-endnotes">\n${run.join('\n')}\n</section>`
+          : `<div class="top">\n${run.join('\n')}\n</div>`,
+    )
   }
   return out.join('\n')
 }
@@ -585,14 +673,39 @@ function renderTable(el: Element, ctx: InlineCtx, ex: Export): string {
 
 function renderFront(
   s: Sec, ctx: InlineCtx, meta: BookMeta, logos: ImageChoice[], imgName: (s: string) => string, imgOut: ImageOut[],
-  ex: Export, L: Labels, review: ReviewItem[], declsOf: (b: PBlock) => Decls,
+  ex: Export, L: Labels, review: ReviewItem[], declsOf: (b: PBlock) => Decls, dropped: string[],
 ): string {
   const out: string[] = []
   const eq = (a: string, b: string) => !!b && norm(a) === norm(b)
   const authors = meta.authors.split(/\s*[,;&]\s*|\s+y\s+|\s+and\s+/).filter(Boolean)
   let isbnDone = false
   let first = true
+  // the e-ISBN is written with the same hyphenation as the print ISBN it replaces
+  const eisbnShown = /[ -]/.test(meta.eisbn) || !meta.printIsbn ? meta.eisbn : formatLike(meta.eisbn, meta.printIsbn)
+  // copyright page: print lines broken mid-sentence become one paragraph again
+  // ("…en el ámbito de las ideas y el conocimiento," + "promueve la libre expresión…")
+  const items: Block[] = []
+  const joined = new Map<PBlock, PBlock[]>()
+  let prev: PBlock | undefined
   for (const b of s.items) {
+    const cont =
+      s.type === 'copyright' && b.t === 'p' && prev && b.text &&
+      !/[.!?…»”")\]]$/.test(prev.text) && !/^(https?:|www\.|\S+@\S+$|[\w-]+(\.[\w-]+)+(\/\S*)?$)/i.test(b.text) &&
+      !ISBN_LINE.test(b.text) && !ISBN_LINE.test(prev.text) && !b.text.includes('©') &&
+      (/^[\p{Ll}(]/u.test(b.text) || /[,;:–-]$/.test(prev.text))
+    if (cont && prev) {
+      joined.get(prev)!.push(b)
+      prev.text += ' ' + b.text
+      continue
+    }
+    if (b.t === 'p') {
+      prev = { ...b }
+      joined.set(prev, [b])
+      items.push(prev)
+    } else items.push(b)
+  }
+  const html = (b: PBlock) => (joined.get(b) ?? [b]).map((x) => inlineHtml(x.el, ctx)).join(' ')
+  for (const b of s.type === 'copyright' ? items : s.items) {
     if (b.t === 'pb') {
       out.push(ctx.pageMarker(b.n))
       continue
@@ -612,19 +725,21 @@ function renderFront(
     // copyright page
     if (PRINT_ONLY.test(b.text)) {
       review.push({ level: 'info', msg: `Removed print-only imprint line: "${b.text}"`, where: 'copyright.xhtml' })
+      dropped.push(b.text)
       continue
     }
     const cls = first ? 'copy_top' : px(declsOf(b)['margin-left']) > 0 ? 'copy_t' : 'copy1'
     first = false
     if (ISBN_LINE.test(b.text)) {
-      if (!isbnDone && meta.eisbn) out.push(`<p class="${cls}">${esc(L.eisbn)}: ${esc(meta.eisbn)}</p>`)
+      if (!isbnDone && meta.eisbn) out.push(`<p class="${cls}">${esc(L.eisbn)}: ${esc(eisbnShown)}</p>`)
       if (!isbnDone) review.push({ level: 'info', msg: `Print ISBN line "${b.text}" replaced by the e-book ISBN.`, where: 'copyright.xhtml' })
+      dropped.push(b.text)
       isbnDone = true
       continue
     }
-    out.push(`<p class="${cls}">${inlineHtml(b.el, ctx)}</p>`)
+    out.push(`<p class="${cls}">${html(b)}</p>`)
   }
-  if (s.type === 'copyright' && !isbnDone && meta.eisbn) out.push(`<p class="copy1">${esc(L.eisbn)}: ${esc(meta.eisbn)}</p>`)
+  if (s.type === 'copyright' && !isbnDone && meta.eisbn) out.push(`<p class="copy1">${esc(L.eisbn)}: ${esc(eisbnShown)}</p>`)
   if (s.type === 'title') {
     if (!out.some((h) => h.includes('class="title_1"'))) review.push({ level: 'warn', msg: `Title page: no line matches the book title "${meta.title}", so no <h1> was set.`, where: 'title.xhtml' })
     for (const l of logos) {

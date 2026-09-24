@@ -5,7 +5,7 @@
 //    (Crowood reference); the Spanish reference keeps its print wording.
 
 export const PRINT_ONLY =
-  /dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt|imprim[ée] (en|au|par)|stampato|impresso (em|no)|printed by|typeset by|typesetting by|composici[óo]n|maquetaci[óo]n/i
+  /dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt|imprim[ée] (en|au|par)|stampato|impresso (em|no)|printed by|typeset by|typesetting by|composici[óo]n|maquetaci[óo]n|papel (utilizado|empleado)|para la impresi[óo]n de este libro|paper (used|in this book|from responsible)|printed on (acid|recycled|fsc|paper)|\bfsc\b|papier (utilis|issu|aus)|carta (utilizzata|certificata)|papel (certificado|reciclado)|bosques (y plantaciones )?gestionad|se termin[óo] de imprimir|terminó de imprimirse|acab[óo]se de imprimir|achev[ée] d.imprimer|finito di stampare|this book was printed/i
 export const ISBN_LINE = /\bi\.?\s?s\.?\s?b\.?\s?n\b/i
 export const PRINT_RIGHTS = /all rights reserved\. no part of this (publication|book)|no part of this (publication|book) may be reproduced/i
 

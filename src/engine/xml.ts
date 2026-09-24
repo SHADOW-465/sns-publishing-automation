@@ -22,9 +22,20 @@ export const elementChildren = (el: Element) => Array.from(el.children)
 
 export const classesOf = (el: Element) => (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)
 
-/** Whitespace-collapsed text content. */
-export const textOf = (el: Element | null | undefined) =>
-  (el?.textContent ?? '').replace(/[\s­]+/g, ' ').trim()
+/** Whitespace-collapsed text content: a line break counts as a space ("OCULTA<br/>DE" → "OCULTA DE"),
+ *  soft hyphens vanish ("go&shy;bierno" → "gobierno"). */
+export function textOf(el: Element | null | undefined): string {
+  if (!el) return ''
+  let s = ''
+  const walk = (n: Node) => {
+    for (const c of Array.from(n.childNodes)) {
+      if (c.nodeType === 3) s += c.textContent ?? ''
+      else if (c.nodeType === 1) (c as Element).localName === 'br' ? (s += ' ') : walk(c)
+    }
+  }
+  walk(el)
+  return s.replace(/­/g, '').replace(/\s+/g, ' ').trim()
+}
 
 export const epubType = (el: Element) =>
   el.getAttributeNS(OPS_NS, 'type') ?? el.getAttribute('epub:type') ?? ''

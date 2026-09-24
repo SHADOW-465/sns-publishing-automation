@@ -39,7 +39,8 @@ test('print PDF → EPUB matches the hand-made Contemporary Ceramics EPUB', { sk
   const review: never[] = []
   const cover = await coverFromSpread(pdfjs, read(resolve(DIR, 'Input/9780719847110_Contemporary Ceramics_FAW.pdf')), book.pages[0], nodeRaster, review, 1200)
   const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '9780719847127' }, rules: rulesFor('en'), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
-  assert.deepEqual(r.review.filter((x) => x.level === 'error'), [], 'no validation errors')
+  // pictures without a caption need a description from a person: the only error allowed here
+  assert.deepEqual(r.review.filter((x) => x.level === 'error' && !/need a description/.test(x.msg)), [], 'no validation errors')
 
   const ref = unzip(read(reference))
   for (const [p, d] of ref) {

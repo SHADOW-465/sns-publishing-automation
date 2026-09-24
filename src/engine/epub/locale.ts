@@ -15,6 +15,9 @@ export interface Labels {
   logoAlt: string // "Logotipo del editor"
   coverAlt: (t: { title: string; authors: string; publisher: string }) => string
   a11ySummary: string
+  dedication: string
+  epigraph: string
+  front: string
 }
 
 const es: Labels = {
@@ -29,8 +32,11 @@ const es: Labels = {
   page: 'página',
   eisbn: 'I.S.B.N. digital',
   logoAlt: 'Logotipo del editor',
-  coverAlt: ({ title, authors, publisher }) => `Título: ${title}. Autor: ${authors}. Logotipo del editor: ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logotipo del editor: ${publisher}` : ''),
   a11ySummary: 'Esta publicación cumple las pautas WCAG 2.0 nivel AA.',
+  dedication: 'Dedicatoria',
+  epigraph: 'Epígrafe',
+  front: 'Preliminares',
 }
 
 const en: Labels = {
@@ -45,8 +51,11 @@ const en: Labels = {
   page: 'page',
   eisbn: 'eISBN',
   logoAlt: 'Publisher logo',
-  coverAlt: ({ title, authors, publisher }) => `Title: ${title}. Author: ${authors}. Publisher logo: ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Title: ${title}.` + (authors ? ` Author: ${authors}.` : '') + (publisher ? ` Publisher logo: ${publisher}` : ''),
   a11ySummary: 'This publication conforms to WCAG 2.0 Level AA.',
+  dedication: 'Dedication',
+  epigraph: 'Epigraph',
+  front: 'Front matter',
 }
 
 const de: Labels = {
@@ -54,8 +63,9 @@ const de: Labels = {
   cover: 'Cover', halftitle: 'Schmutztitel', title: 'Titelseite', copyright: 'Impressum',
   navTitle: 'Inhaltsverzeichnis', landmarks: 'Orientierungspunkte', pageList: 'Seitenliste',
   startReading: 'Lesen beginnen', page: 'Seite', eisbn: 'ISBN E-Book', logoAlt: 'Verlagslogo',
-  coverAlt: ({ title, authors, publisher }) => `Titel: ${title}. Autor: ${authors}. Verlagslogo: ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Verlagslogo: ${publisher}` : ''),
   a11ySummary: 'Diese Publikation entspricht WCAG 2.0 Level AA.',
+  dedication: 'Widmung', epigraph: 'Motto', front: 'Titelei',
 }
 
 const fr: Labels = {
@@ -63,8 +73,9 @@ const fr: Labels = {
   cover: 'Couverture', halftitle: 'Faux-titre', title: 'Page de titre', copyright: 'Mentions légales',
   navTitle: 'Table des matières', landmarks: 'Repères', pageList: 'Liste des pages',
   startReading: 'Commencer la lecture', page: 'page', eisbn: 'ISBN numérique', logoAlt: "Logo de l'éditeur",
-  coverAlt: ({ title, authors, publisher }) => `Titre : ${title}. Auteur : ${authors}. Logo de l'éditeur : ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Titre : ${title}.` + (authors ? ` Auteur : ${authors}.` : '') + (publisher ? ` Logo de l'éditeur : ${publisher}` : ''),
   a11ySummary: 'Cette publication est conforme aux WCAG 2.0 niveau AA.',
+  dedication: 'Dédicace', epigraph: 'Épigraphe', front: 'Pages liminaires',
 }
 
 const it: Labels = {
@@ -72,8 +83,9 @@ const it: Labels = {
   cover: 'Copertina', halftitle: 'Occhietto', title: 'Frontespizio', copyright: 'Colophon',
   navTitle: 'Indice', landmarks: 'Punti di riferimento', pageList: 'Elenco delle pagine',
   startReading: 'Inizia a leggere', page: 'pagina', eisbn: 'ISBN digitale', logoAlt: "Logo dell'editore",
-  coverAlt: ({ title, authors, publisher }) => `Titolo: ${title}. Autore: ${authors}. Logo dell'editore: ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Titolo: ${title}.` + (authors ? ` Autore: ${authors}.` : '') + (publisher ? ` Logo dell'editore: ${publisher}` : ''),
   a11ySummary: 'Questa pubblicazione è conforme alle WCAG 2.0 livello AA.',
+  dedication: 'Dedica', epigraph: 'Epigrafe', front: 'Pagine iniziali',
 }
 
 const pt: Labels = {
@@ -81,8 +93,9 @@ const pt: Labels = {
   cover: 'Capa', halftitle: 'Anterrosto', title: 'Folha de rosto', copyright: 'Ficha técnica',
   navTitle: 'Índice', landmarks: 'Pontos de referência', pageList: 'Lista de páginas',
   startReading: 'Começar a ler', page: 'página', eisbn: 'ISBN digital', logoAlt: 'Logótipo da editora',
-  coverAlt: ({ title, authors, publisher }) => `Título: ${title}. Autor: ${authors}. Logótipo da editora: ${publisher}`,
+  coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logótipo da editora: ${publisher}` : ''),
   a11ySummary: 'Esta publicação está em conformidade com as WCAG 2.0 nível AA.',
+  dedication: 'Dedicatória', epigraph: 'Epígrafe', front: 'Pré-textuais',
 }
 
 const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es }
@@ -91,7 +104,7 @@ export const labelsFor = (lang: string): Labels => TABLE[lang.slice(0, 2).toLowe
 
 // Section types recognised from heading text (all supported languages at once).
 export type SectionType =
-  | 'halftitle' | 'title' | 'copyright' | 'dedication' | 'toc' | 'list' | 'introduction' | 'preface'
+  | 'halftitle' | 'title' | 'copyright' | 'dedication' | 'epigraph' | 'toc' | 'list' | 'introduction' | 'preface'
   | 'foreword' | 'prologue' | 'part' | 'chapter' | 'conclusion' | 'epilogue' | 'afterword' | 'glossary'
   | 'appendix' | 'bibliography' | 'notes' | 'index' | 'about' | 'contributors' | 'acknowledgments' | 'other'
 
@@ -126,6 +139,7 @@ export const SECTION_META: Record<SectionType, { epubType: string; role: string;
   title: { epubType: 'titlepage', role: '', file: 'title' },
   copyright: { epubType: 'copyright-page', role: '', file: 'copyright' },
   dedication: { epubType: 'dedication', role: 'doc-dedication', file: 'ded' },
+  epigraph: { epubType: 'epigraph', role: 'doc-epigraph', file: 'epig' },
   toc: { epubType: 'frontmatter', role: 'doc-toc', file: 'toc' },
   list: { epubType: 'frontmatter', role: '', file: 'list' },
   introduction: { epubType: 'introduction', role: 'doc-introduction', file: 'intro' },

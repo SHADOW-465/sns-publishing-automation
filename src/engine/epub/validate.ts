@@ -7,7 +7,7 @@ import type { ReviewItem } from './package.ts'
 
 const KNOWN_TYPES = new Set([
   'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'titlepage', 'copyright-page',
-  'dedication', 'toc', 'landmarks', 'page-list', 'introduction', 'preface', 'foreword', 'prologue', 'part',
+  'dedication', 'epigraph', 'endnote', 'toc', 'landmarks', 'page-list', 'introduction', 'preface', 'foreword', 'prologue', 'part',
   'chapter', 'conclusion', 'epilogue', 'afterword', 'glossary', 'appendix', 'bibliography', 'endnotes',
   'index', 'contributors', 'acknowledgments', 'pagebreak', 'noteref', 'footnote', 'backlink', 'bodymatter',
 ])

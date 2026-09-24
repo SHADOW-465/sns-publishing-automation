@@ -70,6 +70,27 @@ export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): s
   return render(autolink(merge(segs)), base, ctx.lang, !!opts.heading)
 }
 
+/** Plain text as a reader sees it, for navigation labels: a lone lowercase word in small caps is an
+ *  acronym typed in lowercase ("unam" → "UNAM"); other small caps keep their spelling ("Capítulo"). */
+export function inlineText(p: Element, css: StyleSheet, lang: string): string {
+  let out = ''
+  const walk = (el: Element, face: Face) => {
+    for (const n of Array.from(el.childNodes)) {
+      if (n.nodeType === 3) {
+        const t = (n.textContent ?? '').replace(/­/g, '')
+        out += face.upper || (face.smallCaps && /^\s*\p{Ll}{2,6}\s*$/u.test(t)) ? t.toLocaleUpperCase(lang) : t
+      } else if (n.nodeType === 1) {
+        const c = n as Element
+        if (pageBreakOf(c) !== null || isNoteRef(c)) continue
+        if (tag(c) === 'br') out += ' '
+        else walk(c, css.spanFace(classesOf(c), face))
+      }
+    }
+  }
+  walk(p, css.paragraphFace(classesOf(p)))
+  return out.replace(/\s+/g, ' ').trim()
+}
+
 const isNoteRef = (a: Element) =>
   epubType(a) === 'noteref' || a.getAttribute('role') === 'doc-noteref' || classesOf(a).includes('_idFootnoteLink')
 

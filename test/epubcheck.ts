@@ -22,7 +22,7 @@ export function epubcheck(epub: Uint8Array | string): { errors: string[]; warnin
   if (typeof epub !== 'string') writeFileSync((file = join(mkdtempSync(join(tmpdir(), 'epc-')), 'book.epub')), epub)
   let output: string
   try {
-    output = execFileSync(p.java, ['-jar', p.jar, file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    output = execFileSync(p.java, ['-Xmx384m', '-Xss2m', '-XX:+UseSerialGC', '-jar', p.jar, file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (e) {
     const x = e as { stdout?: string; stderr?: string }
     output = (x.stdout ?? '') + (x.stderr ?? '')

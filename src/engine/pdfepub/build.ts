@@ -5,6 +5,8 @@ import { esc } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type SectionType } from '../epub/locale.ts'
 import { packageEpub, type BookMeta, type ReviewItem, type Section, type ImageOut } from '../epub/package.ts'
 import { transformImprint, type CopyrightRules, type ImprintPara } from '../epub/imprint.ts'
+import { wordsOf, type CheckSource } from '../check/epub.ts'
+import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
 
 // =============================================================================================
@@ -27,6 +29,8 @@ export interface PdfBuildResult {
   sections: Section[]
   review: ReviewItem[]
   pictures: { path: string; alt: string; caption: string }[]
+  /** what the quality check compares the EPUB against */
+  source: CheckSource
 }
 
 type Seg = { t: string; b?: boolean; i?: boolean; raw?: boolean }
@@ -85,6 +89,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const { meta } = input
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = []
+  const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
   const roleOf = (l: PLine): PdfRole => role.get(l.key) ?? 'text'
   const printNo = (pdfIdx: number) => String(book.numbers[pdfIdx])
@@ -452,6 +457,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const year = paras.map((p) => p.text).join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
     const res = transformImprint(paras, { eisbn: meta.eisbn, eisbnLabel: meta.language.startsWith('en') ? undefined : L.eisbn, rules: input.rules, author: meta.authors, year, esc })
     for (const r of res.removed) review.push({ level: 'info', msg: `Removed print-only imprint line: "${r}"`, where: 'copyright.xhtml' })
+    dropped.push(...res.removed, res.isbnReplaced ?? '')
     if (res.isbnReplaced) review.push({ level: 'info', msg: `Print ISBN line "${res.isbnReplaced}" replaced by the e-book ISBN.`, where: 'copyright.xhtml' })
     copyright = {
       type: 'copyright', stem: 'copyright', title: [], headRole: 'title', raw: [], nav: L.copyright,
@@ -524,14 +530,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
 
   // ---------------------------------------------------------------- cover
   let cover: ImageOut
-  if (input.cover) cover = { path: 'images/cover.' + (/\.png$/i.test(input.cover.name) ? 'png' : 'jpg'), data: input.cover.data }
+  if (input.cover) cover = { path: withRealExt('images/cover.jpg', input.cover.data), data: input.cover.data }
   else throw new Error('A cover image is required (upload the front cover, or the cover PDF).')
 
   // ---------------------------------------------------------------- review notes
   const noAlt = pictures.filter((p) => !p.alt)
   const capAlt = pictures.filter((p) => p.alt && p.alt === p.caption)
   if (capAlt.length) review.push({ level: 'warn', msg: `${capAlt.length} picture(s) use their caption as alt text. Replace with a description where the caption doesn't describe the image.` })
-  if (noAlt.length) review.push({ level: 'warn', msg: `${noAlt.length} picture(s) have no alt text (treated as decorative): ${noAlt.slice(0, 8).map((p) => p.path.replace('images/', '')).join(', ')}${noAlt.length > 8 ? '…' : ''}` })
+  if (noAlt.length) review.push({ level: 'error', msg: `${noAlt.length} picture(s) need a description (alt text): ${noAlt.slice(0, 8).map((p) => p.path.replace('images/', '')).join(', ')}${noAlt.length > 8 ? '…' : ''}` })
   const failed = book.pages.flatMap((p) => p.images.filter((i) => !i.jpeg).map(() => printNo(p.index)))
   if (failed.length) review.push({ level: 'warn', msg: `Could not extract ${failed.length} picture(s) (pages ${[...new Set(failed)].join(', ')}): check against the PDF.` })
 
@@ -539,7 +545,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     meta, sections: navSections, cover, images, review,
     usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book)),
   })
-  return { epub, files, sections: navSections, review, pictures }
+  // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
+  for (const p of book.pages) for (const l of p.lines) if (roleOf(l) === 'drop') dropped.push(l.text)
+  const srcText = book.pages.map((p) => p.lines.map((l) => l.text).join('\n')).join('\n').replace(/(\p{L})[-­]\n(\p{Ll})/gu, '$1$2')
+  const source: CheckSource = { words: wordsOf(srcText), dropped, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String) }
+  return { epub, files, sections: navSections, review, pictures, source }
 
   // ================================================================ helpers (need closure state)
   function renderBlocks(blocks: Block[]): string {

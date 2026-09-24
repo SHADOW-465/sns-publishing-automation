@@ -1,6 +1,7 @@
 import { StyleSheet, isOverride, px, em, type Decls } from './css.ts'
 import { type Files, text } from '../zip.ts'
 import { parseXml, resolvePath, tag, classesOf, textOf, pageBreakOf, epubType } from '../xml.ts'
+import { pickLanguage } from '../lang.ts'
 
 // ---------------------------------------------------------------------------------------------
 // Reading an InDesign "Export > EPUB (reflowable)" package and flattening it to a block stream.
@@ -10,7 +11,7 @@ export type Block =
   | { t: 'pb'; n: string }
   | { t: 'p'; el: Element; key: string; classes: string[]; text: string; page: string }
   | { t: 'table'; el: Element; page: string }
-  | { t: 'img'; src: string; page: string }
+  | { t: 'img'; src: string; page: string; alt: string }
 
 export interface Export {
   opfPath: string
@@ -50,11 +51,11 @@ export function readExport(files: Files): Export {
   for (const it of items.values()) if (it.type.startsWith('image/') && files.has(it.href)) images.set(it.href, files.get(it.href)!)
 
   const pkg = opf.documentElement
-  const lang =
-    pkg.getAttribute('xml:lang') ??
-    pkg.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang') ??
-    opf.getElementsByTagName('dc:language')[0]?.textContent ??
-    'en'
+  // InDesign lists every language used in the document (en-GB, en-US, es-ES…): the text decides
+  const declared = [
+    pkg.getAttribute('xml:lang') || pkg.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang') || '',
+    ...Array.from(opf.getElementsByTagName('dc:language')).map((e) => (e.textContent ?? '').trim()),
+  ].filter(Boolean)
 
   const blocks: Block[] = []
   const footnotes = new Map<string, Element>()
@@ -89,7 +90,7 @@ export function readExport(files: Files): Export {
         } else if (tg === 'table') {
           blocks.push({ t: 'table', el: c, page })
         } else if (tg === 'img') {
-          blocks.push({ t: 'img', src: resolvePath(it.href, c.getAttribute('src') ?? ''), page })
+          blocks.push({ t: 'img', src: resolvePath(it.href, c.getAttribute('src') ?? ''), page, alt: (c.getAttribute('alt') ?? '').trim() })
         } else if (tg !== 'hr' && tg !== 'script' && tg !== 'style') {
           walk(c)
         }
@@ -98,6 +99,7 @@ export function readExport(files: Files): Export {
     walk(doc.body ?? doc.documentElement)
   }
 
+  const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
   return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', css, blocks, footnotes, images, coverImage }
 }
 
