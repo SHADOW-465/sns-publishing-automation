@@ -1,6 +1,7 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
 import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
-import { px, type Decls } from './css.ts'
+import { px, isOverride, type Decls } from './css.ts'
+import { ruleFor } from '../epub/css.ts'
 import { type Files } from '../zip.ts'
 import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type Labels, type SectionType } from '../epub/locale.ts'
@@ -142,6 +143,12 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const roleOf = (b: PBlock): Role => prof.get(b.key)?.role ?? 'p'
   const classOf = (b: PBlock) => prof.get(b.key)?.outClass ?? 'noindent'
   const declsOf = (b: PBlock): Decls => ex.css.decls('p', b.classes)
+  // a style's own definition, without the one-off overrides of a particular paragraph: the epigraph's
+  // "align right" must not become the alignment of every paragraph in that style
+  const styleDeclsOf = (b: PBlock): Decls => {
+    const named = b.classes.filter((c) => !isOverride(c))
+    return named.length ? ex.css.decls('p', named) : declsOf(b)
+  }
 
   // ---- 2a. split the block stream into sections --------------------------------------------
   const opening: Block[] = []
@@ -381,6 +388,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const seenPages = new Set<string>()
   const idFile = new Map<string, string>()
   const usedClasses = new Map<string, { tag: string; decls: Decls }>()
+  const variants = new Map<string, string>() // "p.Style|rule" → variant class name
+  const alignTally = new Map<string, Map<string, number>>() // how the source aligns each style's paragraphs
   const imgOut: ImageOut[] = []
   const imgChoice = new Map(input.images.map((i) => [i.src, i]))
   const imgName = (src: string) => withRealExt('images/' + src.split('/').pop()!.toLowerCase().replace(/[^a-z0-9._-]+/g, '_'), ex.images.get(src) ?? new Uint8Array())
@@ -416,9 +425,27 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const use = (tg: string, cls: string, d: Decls) => {
       if (!usedClasses.has(`${tg}.${cls}`)) usedClasses.set(`${tg}.${cls}`, { tag: tg, decls: d })
     }
+    /** class attribute for a paragraph: its style, plus a variant class when its own overrides change the look */
+    const classAttr = (tg: string, b: PBlock, cls: string): string => {
+      const base = styleDeclsOf(b)
+      use(tg, cls, base)
+      const full = declsOf(b)
+      const t = alignTally.get(`${tg}.${cls}`) ?? new Map<string, number>()
+      t.set(full['text-align'] ?? '', (t.get(full['text-align'] ?? '') ?? 0) + 1)
+      alignTally.set(`${tg}.${cls}`, t)
+      const look = ruleFor(tg, 'x', full, {})
+      if (look === ruleFor(tg, 'x', base, {})) return cls
+      let name = variants.get(`${tg}.${cls}|${look}`)
+      if (!name) {
+        name = `${cls}_${[...variants.keys()].filter((k) => k.startsWith(`${tg}.${cls}|`)).length + 1}`
+        variants.set(`${tg}.${cls}|${look}`, name)
+      }
+      use(tg, name, full)
+      return `${cls} ${name}`
+    }
     let body = ''
     const meta0 = SECTION_META[s.type]
-    const heading = renderHeading(s, ctx, classOf, declsOf, use)
+    const heading = renderHeading(s, ctx, classOf, styleDeclsOf, use)
     const items: Item[] = []
     const isFront = s.type === 'halftitle' || s.type === 'title' || s.type === 'copyright'
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
@@ -450,17 +477,17 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         use('li', 'bull', {})
         items.push({ kind: 'li', html: inlineHtml(b.el, ctx, { stripBullet: true }) })
       } else if (r === 'h3' || r === 'h4' || r === 'h5') {
-        use(r, cls, declsOf(b))
+        const ca = classAttr(r, b, cls)
         const id = headingIds.get(b)
         inNotes = sectionTypeOf(b.text) === 'notes'
-        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${cls}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true })}</${r}>` })
+        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true })}</${r}>` })
       } else {
         const d = declsOf(b)
-        use('p', cls, d)
+        const ca = classAttr('p', b, cls)
         // a whole block set in from the margin (exercises, extracts) — not just a first-line indent
         const inset = px(d['margin-left']) > 0 && px(d['margin-left']) + px(d['text-indent']) > 0
         const note = inNotes ? b.text.match(/^(\d{1,3})(?!\d)/)?.[1] : undefined
-        items.push({ kind: inNotes ? 'note' : inset ? 'inset' : 'other', note, html: `<p class="${cls}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
+        items.push({ kind: inNotes ? 'note' : inset ? 'inset' : 'other', note, html: `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
       }
     }
     linkedNotes += linkNotes(items, s.headId || s.stem)
@@ -497,6 +524,14 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   if (gaps.removed.length) review.push({ level: 'info', msg: `Removed page markers of blank printed pages: ${gaps.removed.join(', ')}.` })
   if (gaps.missing.length)
     review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
+  // self-check: a style must look the way most of its paragraphs look in the source
+  for (const [key, t] of alignTally) {
+    const total = [...t.values()].reduce((a, b) => a + b, 0)
+    const [maj, n] = [...t].sort((a, b) => b[1] - a[1])[0]
+    const set = usedClasses.get(key)?.decls['text-align'] ?? ''
+    if (total >= 3 && n / total > 0.5 && set !== maj)
+      review.push({ level: 'error', msg: `Style ${key} is set to “${set || 'default'}” alignment, but ${n} of ${total} of its paragraphs are “${maj || 'default'}” in the source.` })
+  }
   if (linkedNotes) review.push({ level: 'info', msg: `Linked ${linkedNotes} note number(s) in the text to their notes and back.` })
   if (fnSeen.size < ex.footnotes.size)
     review.push({ level: 'warn', msg: `${ex.footnotes.size - fnSeen.size} footnote(s) are never referenced in the text and were dropped.` })
