@@ -227,7 +227,12 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     if (!hs.length && !d.querySelector('[aria-label], [aria-labelledby]') && it.href !== coverDoc(files, spine)) a11y.push({ level: 'warn', msg: 'Page has no heading and no label: it will be hard to find with a screen reader.', where: it.href })
     for (const a of Array.from(d.querySelectorAll('a'))) if (!(a.textContent ?? '').trim() && !a.querySelector('img[alt]')) a11y.push({ level: 'error', msg: 'A link has no text: screen readers announce just "link".', where: it.href })
     // a printed contents page whose entries lost their titles ("2.", "3." …)
-    const bareLinks = Array.from(d.querySelectorAll('a[href]')).filter((a) => /^[\divxlc]+\.?$/i.test((a.textContent ?? '').trim()) && !/noteref|backlink/.test(epubType(a) + (a.getAttribute('role') ?? '')))
+    // (index page numbers are links too, but share their line with the entry's words)
+    const bareLinks = Array.from(d.querySelectorAll('a[href]')).filter((a) => {
+      const t = (a.textContent ?? '').trim()
+      const line = (a.closest('p, li') ?? a).textContent ?? ''
+      return /^[\divxlc]+\.?$/i.test(t) && line.replace(/\s+/g, ' ').trim() === t && !/noteref|backlink/.test(epubType(a) + (a.getAttribute('role') ?? ''))
+    })
     if (bareLinks.length >= 3) content.push({ level: 'error', msg: `${bareLinks.length} contents entries show only a number (${bareLinks.slice(0, 4).map((a) => (a.textContent ?? '').trim()).join(', ')}…): the chapter titles are missing.`, where: it.href })
     for (const t of Array.from(d.querySelectorAll('table'))) if (!t.querySelector('th')) a11y.push({ level: 'warn', msg: 'A table has no header cells (th).', where: it.href })
     for (const pb of Array.from(d.querySelectorAll('*')).filter((e) => /\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak')) {

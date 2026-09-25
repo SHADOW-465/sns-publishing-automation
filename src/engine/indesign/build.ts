@@ -45,6 +45,8 @@ export interface BuildInput {
   cover?: { name: string; data: Uint8Array }
   /** pages read from the print PDF: used to restore page markers InDesign left out */
   printPages?: PrintPage[]
+  /** reviewer corrections: section index (reading order) → section type */
+  sectionTypes?: Record<number, SectionType>
 }
 
 export interface BuildResult {
@@ -261,6 +263,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   }
   if (!cp) review.push({ level: 'warn', msg: 'No imprint / copyright text found — the EPUB has no copyright page.' })
   const all = [...front, ...secs]
+  for (const [i, t] of Object.entries(input.sectionTypes ?? {})) if (all[Number(i)]) all[Number(i)].type = t
 
   // ---- 2c. names, ids, navigation labels -----------------------------------------------------
   const counters = new Map<string, number>()
@@ -511,12 +514,16 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     bodyDecls: ex.css.decls('p', a.ex.blocks.find((b): b is PBlock => b.t === 'p' && prof.get(b.key)?.outClass === 'indent')?.classes ?? []),
     review,
   })
+  // pages that held only the imprint moved to the copyright page: they keep no marker of their own
+  const sq = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+  const firstLine = imprint[0] ? sq(imprint[0].text).slice(0, 40) : ''
+  const movedPages = new Set((input.printPages ?? []).filter((p) => firstLine && sq(p.text).includes(firstLine)).map((p) => p.n))
   // the source text the e-book must contain: every paragraph, table cell and footnote of the export
   const srcText = [
     ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? textOf(b.el) : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
-  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank).map((p) => p.n) }
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !movedPages.has(p.n)).map((p) => p.n) }
   return { epub, files, sections, review, source }
 }
 

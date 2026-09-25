@@ -4,7 +4,7 @@ import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type SectionType } from '../epub/locale.ts'
 import { packageEpub, type BookMeta, type ReviewItem, type Section, type ImageOut } from '../epub/package.ts'
-import { transformImprint, type CopyrightRules, type ImprintPara } from '../epub/imprint.ts'
+import { transformImprint, PRINT_RIGHTS, type CopyrightRules, type ImprintPara } from '../epub/imprint.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
@@ -99,6 +99,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   // words the book hyphenates mid-line: line-end hyphens in these words are kept
   const hyphenated = new Set<string>()
   for (const p of book.pages) for (const l of p.lines) for (const m of l.text.matchAll(/(\p{L}+)-(\p{L}+)(?!$)/gu)) hyphenated.add(m[0].toLowerCase())
+  // every word the book prints whole: "sixteen-|year-old" keeps its hyphen (both halves are words,
+  // "sixteenyear" never occurs), "recon-|figura" is joined ("recon" is not a word of the book)
+  const known = new Set<string>()
+  for (const p of book.pages) for (const l of p.lines) for (const w of l.text.replace(/\p{L}+-$/u, '').match(/\p{L}+/gu) ?? []) known.add(w.toLowerCase())
+  const keepHyphen = (a: string, b: string) => {
+    const [x, y] = [a.toLowerCase(), b.toLowerCase()]
+    return hyphenated.has(`${x}-${y}`) || (known.has(x) && known.has(y) && !known.has(x + y) && x.length > 1 && y.length > 1)
+  }
 
   // ---------------------------------------------------------------- pictures & page markers
   const images: ImageOut[] = []
@@ -140,7 +148,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     para = null
     let html = segHtml(p.segs)
     if (!html) return
-    if (p.dropcap) html = `<span class="dropcap">${esc(p.dropcap)}</span>${html}`
+    // a page marker at the start stays before the drop cap, so the first word is not split ("I|n this")
+    if (p.dropcap) html = html.replace(/^((?:<span[^>]*epub:type="pagebreak"[^>]*\/>)*)/, `$1<span class="dropcap">${esc(p.dropcap)}</span>`)
     const sec = cur
     if (p.kind === 'extract') sec.blocks.push({ kind: 'extract', html, cls: p.cont ? 'cont' : 'start' })
     else {
@@ -174,7 +183,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const nextWord = next?.t.trim().match(/^\p{L}+/u)?.[0]
       if (m && nextWord && /^\p{Ll}/u.test(nextWord)) {
         // line-end hyphen: keep it only for words the book writes hyphenated
-        if (!hyphenated.has(`${m[1]}-${nextWord}`.toLowerCase())) {
+        if (!keepHyphen(m[1], nextWord)) {
           const last = [...into.segs].reverse().find((s) => !s.raw && s.t.trim())!
           last.t = last.t.replace(/-\s*$/, '')
         }
@@ -273,7 +282,20 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const name = `images/pg-${printNo(page.index)}${pics.length > 1 ? `-${k + 1}` : ''}.jpg`
       images.push({ path: name, data: im.jpeg! })
       const g = capOf.get(im)
-      const capSegs = g ? g.lines.flatMap((l, i) => [...(i ? [{ t: ' ' }] : []), ...segsOf(l)]) : []
+      const capSegs: Seg[] = []
+      for (const l of g?.lines ?? []) {
+        const segs = segsOf(l)
+        const tail = plain(capSegs).match(/(\p{L}+)-$/u)?.[1]
+        const head = segs.find((s) => s.t.trim())?.t.trim().match(/^\p{Ll}+/u)?.[0]
+        if (tail && head) {
+          // line-end hyphen in a caption: "smoke-|fired" stays hyphenated, "recon-|figura" is joined
+          if (!keepHyphen(tail, head)) {
+            const last = [...capSegs].reverse().find((s) => !s.raw && s.t.trim())!
+            last.t = last.t.replace(/-\s*$/, '')
+          }
+        } else if (capSegs.length) capSegs.push({ t: ' ' })
+        capSegs.push(...segs)
+      }
       const caption = g ? segHtml(capSegs) : ''
       const alt = input.alt?.[name] ?? (g ? plain(capSegs) : '')
       pictures.push({ path: name, alt, caption: g ? plain(capSegs) : '' })
@@ -457,7 +479,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const year = paras.map((p) => p.text).join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
     const res = transformImprint(paras, { eisbn: meta.eisbn, eisbnLabel: meta.language.startsWith('en') ? undefined : L.eisbn, rules: input.rules, author: meta.authors, year, esc })
     for (const r of res.removed) review.push({ level: 'info', msg: `Removed print-only imprint line: "${r}"`, where: 'copyright.xhtml' })
-    dropped.push(...res.removed, res.isbnReplaced ?? '')
+    dropped.push(...res.removed, res.isbnReplaced ?? '', ...(input.rules.rightsStatement ? paras.filter((p) => PRINT_RIGHTS.test(p.text)).map((p) => p.text) : []))
     if (res.isbnReplaced) review.push({ level: 'info', msg: `Print ISBN line "${res.isbnReplaced}" replaced by the e-book ISBN.`, where: 'copyright.xhtml' })
     copyright = {
       type: 'copyright', stem: 'copyright', title: [], headRole: 'title', raw: [], nav: L.copyright,
@@ -547,7 +569,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   })
   // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
   for (const p of book.pages) for (const l of p.lines) if (roleOf(l) === 'drop') dropped.push(l.text)
-  const srcText = book.pages.map((p) => p.lines.map((l) => l.text).join('\n')).join('\n').replace(/(\p{L})[-­]\n(\p{Ll})/gu, '$1$2')
+  // line-end hyphens are joined like the build joins them: kept in words the book hyphenates mid-line
+  const srcText = book.pages
+    // drop caps are separate text in the PDF ("T" + "his"): joined back to their word, as in the e-book
+    .map((p) => p.lines.filter((l) => roleOf(l) !== 'dropcap').map((l) => (l.dropcap ?? '') + l.text).join('\n'))
+    .join('\n')
+    .replace(/(\p{L}+)[-­]\n(\p{Ll}+)/gu, (_, a: string, b: string) => (keepHyphen(a, b) ? `${a}-${b}` : a + b))
   const source: CheckSource = { words: wordsOf(srcText), dropped, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String) }
   return { epub, files, sections: navSections, review, pictures, source }
 
@@ -608,7 +635,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       prev = l
     }
     flush('box-noindent')
-    const headHtml = head.length ? `<div class="brownbox">\n<h2 class="box-head">${lead0}${segHtml(head.flatMap((l) => segsOf(l)))}</h2>\n</div>\n` : lead0
+    const headHtml = head.length ? `<div class="brownbox">\n<h2 class="box-head">${lead0}${segHtml(head.flatMap((l, i) => [...(i ? [{ t: " " }] : []), ...segsOf(l)]))}</h2>\n</div>\n` : lead0
     return `<aside class="box">\n${headHtml}<div class="brownbox_1">\n${out.join('\n')}\n</div>\n</aside>`
   }
 

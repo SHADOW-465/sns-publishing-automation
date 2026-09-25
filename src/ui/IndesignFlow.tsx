@@ -7,6 +7,7 @@ import { analyze, build, type Analysis, type BuildResult, type ImageChoice } fro
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
+import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 
 const toProfile = (styles: StyleInfo[]): Profile => Object.fromEntries(styles.map((s) => [s.key, { role: s.role, outClass: s.outClass }]))
@@ -29,6 +30,7 @@ export function IndesignFlow() {
   const [result, setResult] = useState<BuildResult>()
   const [report, setReport] = useState<CheckReport>()
   const [stale, setStale] = useState(true)
+  const [types, setTypes] = useState<Record<number, SectionType>>({})
 
   const thumbs = useObjectUrls(useMemo(() => [...(analysis?.ex.images ?? [])], [analysis]))
 
@@ -59,6 +61,7 @@ export function IndesignFlow() {
       setMeta(a.meta)
       setImages(a.images)
       setResult(undefined)
+      setTypes({})
       setStale(true)
       if (pdf) {
         setBusy('Reading the print PDF (page numbers)…')
@@ -71,7 +74,7 @@ export function IndesignFlow() {
   /** builds the EPUB (fast) and runs the quality check on it */
   const rebuild = (then?: number) =>
     run('Building the e-book and checking it…', () => {
-      const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages })
+      const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types })
       setResult(r)
       setReport(checkEpub(r.files, r.source))
       setStale(false)
@@ -148,15 +151,16 @@ export function IndesignFlow() {
         <section className="card">
           <h2>3. Check the structure</h2>
           <p className="muted">
-            This is the book as a reader will get it: each line is one part of the e-book, in reading order, with its printed pages. Click a line to see it. Look for
-            parts with the wrong label (a dedication marked as a chapter), missing titles or chapters that are far too short.
+            This is the book as a reader will get it: each line is one part of the e-book, in reading order, with its printed pages. Click a line to see it. If a
+            part has the wrong label (a dedication marked as a chapter), change it in its drop-down and update the preview. Also look for missing titles or chapters
+            that are far too short.
           </p>
           {stale && (
             <p className="note warnbox">
               Settings changed. <button onClick={() => rebuild()}>Update the preview</button>
             </p>
           )}
-          <Outline sections={result.sections} files={result.files} />
+          <Outline sections={result.sections} files={result.files} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
           <details className="advanced">
             <summary>Advanced: how the InDesign styles are read ({styles.filter((s) => s.unsure).length} guesses to confirm)</summary>
             <p className="muted small">

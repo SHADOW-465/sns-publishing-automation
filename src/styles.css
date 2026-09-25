@@ -171,3 +171,4 @@ h3 { font-size: 15px; margin: 18px 0 8px; }
 .findings .pass .ic { color: var(--ok); }
 .findings .lvl { font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .findings li.pass .lvl { display: none; }
+.kindsel { font-size: 11.5px; padding: 1px 2px; margin: 4px 0 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); max-width: 140px; }

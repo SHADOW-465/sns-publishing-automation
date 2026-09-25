@@ -9,6 +9,8 @@ import { coverFromSpread } from '../src/engine/pdfepub/cover.ts'
 import { rulesFor } from '../src/engine/epub/imprint.ts'
 import { nodeRaster } from './raster-node.ts'
 import { AUTOMATION, read } from './samples.ts'
+import { checkEpubBytes } from '../src/engine/check/epub.ts'
+import { printReport } from './check-epub.ts'
 
 const DIR = resolve(AUTOMATION, 'WORD-to-EPUB-Automation/Input')
 const out = resolve(process.argv[2] ?? 'out')
@@ -25,4 +27,5 @@ for (const [p, d] of r.files) {
 }
 console.log(r.sections.map((s) => `${s.file.padEnd(18)} ${s.type.padEnd(15)} ${s.nav}`).join('\n'))
 for (const x of r.review) console.log(`${x.level.padEnd(5)} ${x.msg}${x.where ? `  [${x.where}]` : ''}`)
+printReport(checkEpubBytes(r.epub, r.source))
 console.log(`\n→ ${file}  (${((Date.now() - t) / 1000).toFixed(0)} s)`)
