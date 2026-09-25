@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { PrintPage } from '../engine/pdf/pages.ts'
 import type { CheckReport, Finding } from '../engine/check/epub.ts'
 import type { ReviewItem, Section } from '../engine/epub/package.ts'
 import { text, type Files } from '../engine/zip.ts'
@@ -132,6 +133,88 @@ export function Outline({ sections, files, base = 'OEBPS/', onType }: { sections
 // ---------------------------------------------------------------------------------------------
 // quality report
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// side by side: the printed page next to the same page of the e-book
+// ---------------------------------------------------------------------------------------------
+
+/** Printed pages named in the "Looks like the print book" part of a report. */
+export const flaggedPages = (r?: CheckReport) =>
+  (r?.groups.find((g) => g.id === 'look')?.findings ?? []).filter((f) => f.level !== 'pass').map((f) => f.msg.match(/^Page (\S+):/)?.[1] ?? '').filter(Boolean)
+
+export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files; pages: PrintPage[]; pdf: Uint8Array; flagged?: string[] }) {
+  // printed pages that have a marker in the e-book, and the file holding each
+  const where = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const [p, d] of files) if (/\.xhtml$/.test(p) && !p.endsWith('nav.xhtml')) for (const x of text(d).matchAll(/id="page-([^"]+)"/g)) m.set(x[1], p.replace(/^OEBPS\//, ''))
+    return m
+  }, [files])
+  const list = pages.filter((p) => !p.blank && where.has(p.n))
+  const [n, setN] = useState(flagged[0] ?? list[0]?.n ?? '')
+  const [img, setImg] = useState<string>()
+  const doc = useRef<{ task: { promise: Promise<{ getPage: (i: number) => Promise<unknown> }>; destroy: () => void } }>(undefined)
+  useEffect(() => () => doc.current?.task.destroy(), [])
+  useEffect(() => {
+    const pg = pages.find((p) => p.n === n)
+    if (!pg) return
+    let url = ''
+    let live = true
+    ;(async () => {
+      const { pdfjs } = await import('./pdf.ts')
+      const { browserRaster } = await import('./raster-browser.ts')
+      doc.current ??= { task: pdfjs.getDocument({ data: pdf.slice() }) as never }
+      const page = (await (await doc.current.task.promise).getPage(pg.pdfPage)) as { getViewport: (o: { scale: number }) => { width: number; height: number } }
+      const vp = page.getViewport({ scale: 1 })
+      const w = pg.half === undefined ? vp.width : vp.width / 2
+      const x0 = pg.half === 1 ? w : 0
+      const jpg = await browserRaster.page(page, 1100, { x0, y0: 0, x1: x0 + w, y1: vp.height })
+      if (!live) return
+      url = URL.createObjectURL(new Blob([jpg as BlobPart], { type: 'image/jpeg' }))
+      setImg(url)
+    })()
+    return () => {
+      live = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [n, pages, pdf])
+  const at = list.findIndex((p) => p.n === n)
+  return (
+    <div className="compare">
+      <div className="row" style={{ marginTop: 0 }}>
+        <button onClick={() => at > 0 && setN(list[at - 1].n)} disabled={at <= 0}>← Previous page</button>
+        <label className="small">
+          Printed page{' '}
+          <select value={n} onChange={(e) => setN(e.target.value)}>
+            {list.map((p) => (
+              <option key={p.n} value={p.n}>
+                {p.n}{flagged.includes(p.n) ? ' — check' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button onClick={() => at < list.length - 1 && setN(list[at + 1].n)} disabled={at >= list.length - 1}>Next page →</button>
+        {flagged.length > 0 && (
+          <span className="small">
+            Pages to look at:{' '}
+            {[...new Set(flagged)].slice(0, 12).map((f) => (
+              <button key={f} className="chip" onClick={() => setN(f)}>{f}</button>
+            ))}
+          </span>
+        )}
+      </div>
+      <div className="compare-grid">
+        <figure>
+          <figcaption>Print — page {n}</figcaption>
+          {img ? <img src={img} alt={`Printed page ${n}`} /> : <p className="muted small">Rendering…</p>}
+        </figure>
+        <figure>
+          <figcaption>E-book — from page {n}</figcaption>
+          <Preview files={files} file={where.get(n)} anchor={`page-${n}`} />
+        </figure>
+      </div>
+    </div>
+  )
+}
 
 const ICON: Record<Finding['level'], string> = { error: '✕', warn: '!', pass: '✓' }
 const WORD: Record<Finding['level'], string> = { error: 'Must fix', warn: 'Check', pass: 'OK' }

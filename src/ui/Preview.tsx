@@ -5,7 +5,7 @@ import { useObjectUrls } from './shared.tsx'
 
 /** Renders one XHTML file of an EPUB with its own stylesheets and images (sandboxed, no scripts).
  *  `file` is relative to `base` (our EPUBs keep everything in OEBPS/; others may not). */
-export function Preview({ files, file, base = 'OEBPS/' }: { files: Files; file?: string; base?: string }) {
+export function Preview({ files, file, base = 'OEBPS/', anchor }: { files: Files; file?: string; base?: string; anchor?: string }) {
   const images = useMemo(() => [...files].filter(([p]) => /\.(jpe?g|png|gif|svg|webp)$/i.test(p)), [files])
   const urls = useObjectUrls(images)
 
@@ -23,5 +23,13 @@ export function Preview({ files, file, base = 'OEBPS/' }: { files: Files; file?:
       .replace(/<span([^>]*)id="page-([^"]+)"([^>]*)\/>/g, (_, a: string, n: string, b: string) => `<span${a}id="page-${n}"${b} class="pb">${n}</span>`)
   }, [files, file, base, urls])
 
-  return <iframe className="preview" title={`Preview of ${file}`} sandbox="allow-same-origin" srcDoc={doc} />
+  return (
+    <iframe
+      className="preview"
+      title={`Preview of ${file}`}
+      sandbox="allow-same-origin"
+      srcDoc={doc}
+      onLoad={(e) => anchor && e.currentTarget.contentDocument?.getElementById(anchor)?.scrollIntoView({ block: 'start' })}
+    />
+  )
 }

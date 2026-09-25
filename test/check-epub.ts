@@ -16,6 +16,6 @@ export function printReport(r: CheckReport) {
 
 if (process.argv[1]?.endsWith('check-epub.ts')) {
   const [epub, pdf] = process.argv.slice(2)
-  const printPages = pdf ? (await readPrintPages(pdfjs as never, read(resolve(pdf)))).filter((p) => !p.blank).map((p) => p.n) : undefined
-  printReport(checkEpubBytes(read(resolve(epub)), { printPages }))
+  const layout = pdf ? await readPrintPages(pdfjs as never, read(resolve(pdf))) : undefined
+  printReport(checkEpubBytes(read(resolve(epub)), { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout }))
 }

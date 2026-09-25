@@ -2,6 +2,9 @@ import { type Files, text, unzip } from '../zip.ts'
 import { parseXml, resolvePath, epubType } from '../xml.ts'
 import { extOf, imageSize } from '../epub/image.ts'
 import { isbn13Valid } from '../epub/package.ts'
+import { settings } from '../settings.ts'
+import { compareLook } from './look.ts'
+import type { PrintPage } from '../pdf/pages.ts'
 
 // =============================================================================================
 // Built-in quality check for any EPUB 3: what EPUBCheck (file validity), Ace by DAISY
@@ -17,7 +20,7 @@ export interface Finding {
   where?: string
 }
 export interface CheckGroup {
-  id: 'valid' | 'a11y' | 'content' | 'details'
+  id: 'valid' | 'a11y' | 'content' | 'look' | 'details'
   title: string
   /** one sentence for people who don't know the jargon */
   explain: string
@@ -37,6 +40,8 @@ export interface CheckSource {
   dropped?: string[]
   /** printed page numbers of the source book, for the page-marker check */
   printPages?: string[]
+  /** the print PDF's pages with line positions, for the visual comparison */
+  printLayout?: PrintPage[]
 }
 
 const KNOWN_TYPES = new Set([
@@ -322,7 +327,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     const nLost = [...lost.values()].reduce((a, b) => a + b, 0)
     const share = nLost / src.words.length
     const sample = [...lost].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([w, n]) => (n > 1 ? `${w} ×${n}` : w)).join(', ')
-    if (share > 0.01) content.push({ level: 'error', msg: `${nLost} of ${src.words.length} source words (${(share * 100).toFixed(1)}%) are not in the e-book: ${sample}` })
+    if (share * 100 > settings().lostWordsErrorPct) content.push({ level: 'error', msg: `${nLost} of ${src.words.length} source words (${(share * 100).toFixed(1)}%) are not in the e-book: ${sample}` })
     else if (nLost > 0) content.push({ level: 'warn', msg: `${nLost} source word(s) not found in the e-book (${(share * 100).toFixed(2)}%): ${sample}` })
     else content.push({ level: 'pass', msg: `All ${src.words.length.toLocaleString()} words of the source are in the e-book.` })
   }
@@ -343,7 +348,8 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   if (/^urn:isbn:/i.test(idEl?.textContent ?? '') && !isbn13Valid(isbn)) details.push({ level: 'error', msg: `E-book ISBN ${isbn} is not a valid ISBN-13 (check digit).` })
   if (coverItem && files.has(coverItem.href)) {
     const { width, height } = imageSize(files.get(coverItem.href)!)
-    if (width && Math.max(width, height) < 1400) details.push({ level: 'warn', msg: `Cover is only ${width}×${height} px; stores ask for at least 1400 px on the long side (1600×2560 recommended).` })
+    const min = settings().minCoverPx
+    if (width && Math.max(width, height) < min) details.push({ level: 'warn', msg: `Cover is only ${width}×${height} px; the house minimum is ${min} px on the long side (stores recommend 1600×2560).` })
     else if (width) details.push({ level: 'pass', msg: `Cover image ${width}×${height} px.` })
   }
 
@@ -353,7 +359,20 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   ok(a11y, `Language, headings, picture descriptions, navigation, ${stats.pages} page markers and accessibility metadata are in place.`)
   ok(content, `${stats.words.toLocaleString()} words in ${stats.documents} files; no empty chapters.`)
   if (title) details.unshift({ level: 'pass', msg: `Title: ${title}${creators.length ? ` — ${creators.join(', ')}` : ''}` })
-  return report([group('valid', valid), group('a11y', a11y), group('content', content), group('details', details)], stats)
+  const groups = [group('valid', valid), group('a11y', a11y), group('content', content)]
+  // ---- looks like the print book ----
+  if (src.printLayout?.length) {
+    const look: Finding[] = []
+    const name: Record<string, string> = { left: 'flush left', justify: 'justified', center: 'centred', right: 'right-aligned' }
+    const { checked, findings } = compareLook(files, src.printLayout)
+    // a real fault repeats (a whole style set wrong); a lone difference may be a quirk of the print layout
+    const level = findings.length >= 3 ? 'error' : 'warn'
+    for (const f of findings) look.push({ level, msg: `Page ${f.page}: “${f.text}” is ${name[f.ebook]} in the e-book but ${name[f.print]} in print.`, where: f.file })
+    if (!findings.length) look.push({ level: 'pass', msg: `${checked.toLocaleString()} paragraphs are aligned as in the print book.` })
+    groups.push(group('look', look))
+  }
+  groups.push(group('details', details))
+  return report(groups, stats)
 }
 
 const coverDoc = (files: Files, spine: ({ href: string } | undefined)[]) => {
@@ -386,6 +405,7 @@ const GROUPS: Record<CheckGroup['id'], [string, string]> = {
   valid: ['Valid EPUB file', 'What EPUBCheck, the validator every store runs, looks at: the file structure, package, links and pictures.'],
   a11y: ['Accessibility', 'What Ace by DAISY looks at: people using screen readers need language, headings, picture descriptions, navigation and page numbers.'],
   content: ['Content complete', 'Nothing lost or duplicated compared with the source, every printed page has a marker, no empty chapters.'],
+  look: ['Looks like the print book', 'Each paragraph compared with the print PDF: text centred, right-aligned or justified where print has it so.'],
   details: ['Book details', 'Title, author, publisher, ISBN and cover as the stores will show them.'],
 }
 const group = (id: CheckGroup['id'], findings: Finding[]): CheckGroup => ({ id, title: GROUPS[id][0], explain: GROUPS[id][1], findings: dedupe(findings) })

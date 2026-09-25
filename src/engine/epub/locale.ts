@@ -1,3 +1,5 @@
+import { settings } from '../settings.ts'
+
 // Reader-facing labels the house EPUBs use, per book language (taken from the reference EPUBs
 // for Spanish; other languages follow the same pattern).
 
@@ -100,7 +102,15 @@ const pt: Labels = {
 
 const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es }
 
-export const labelsFor = (lang: string): Labels => TABLE[lang.slice(0, 2).toLowerCase()] ?? en
+/** Built-in labels for the language, with the house's own wording from Settings on top. */
+export const labelsFor = (lang: string): Labels => {
+  const code = lang.slice(0, 2).toLowerCase()
+  return { ...(TABLE[code] ?? en), ...(settings().labels[code] ?? {}) }
+}
+
+/** Label keys the Settings screen lets a house reword. */
+export const LABEL_KEYS = ['cover', 'halftitle', 'title', 'copyright', 'navTitle', 'landmarks', 'pageList', 'startReading', 'page', 'eisbn', 'logoAlt', 'a11ySummary', 'dedication', 'epigraph', 'front'] as const
+export const builtInLabels = (code: string) => TABLE[code] ?? en
 
 // Section types recognised from heading text (all supported languages at once).
 export type SectionType =

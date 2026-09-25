@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
-import { Status, Outline, CheckReportView, Help } from './wizard.tsx'
+import { Status, Outline, CheckReportView, Help, ComparePrint, flaggedPages } from './wizard.tsx'
+import type { PrintPage } from '../engine/pdf/pages.ts'
 import { checkEpubBytes, type CheckReport } from '../engine/check/epub.ts'
 import { text, unzip, type Files } from '../engine/zip.ts'
 import { parseXml, resolvePath, epubType } from '../engine/xml.ts'
@@ -14,23 +15,23 @@ export function CheckFlow() {
   const [pdf, setPdf] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
   const [error, setError] = useState<string>()
-  const [out, setOut] = useState<{ report: CheckReport; files: Files; base: string; sections: { file: string; type: SectionType; nav: string }[] }>()
+  const [out, setOut] = useState<{ report: CheckReport; files: Files; base: string; sections: { file: string; type: SectionType; nav: string }[]; layout?: PrintPage[] }>()
 
   const onCheck = async () => {
     setBusy('Checking…')
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
-      let printPages: string[] | undefined
+      let layout: PrintPage[] | undefined
       if (pdf) {
-        setBusy('Reading the print PDF (page numbers)…')
+        setBusy('Reading the print PDF (page numbers and layout)…')
         const { printPagesOf } = await import('./pdf.ts')
-        printPages = (await printPagesOf(pdf.data)).filter((p) => !p.blank).map((p) => p.n)
+        layout = await printPagesOf(pdf.data)
       }
       setBusy('Checking the EPUB…')
-      const report = checkEpubBytes(epub!.data, { printPages })
+      const report = checkEpubBytes(epub!.data, { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout })
       const files = unzip(epub!.data)
-      setOut({ report, files, ...spineOf(files) })
+      setOut({ report, files, ...spineOf(files), layout })
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -70,6 +71,12 @@ export function CheckFlow() {
         <section className="card">
           <h2>Report</h2>
           <CheckReportView report={out.report} />
+          {out.layout && pdf && out.base === 'OEBPS/' && (
+            <>
+              <h3>Compare with the print book</h3>
+              <ComparePrint files={out.files} pages={out.layout} pdf={pdf.data} flagged={flaggedPages(out.report)} />
+            </>
+          )}
           {out.sections.length > 0 && (
             <>
               <h3>Preview</h3>

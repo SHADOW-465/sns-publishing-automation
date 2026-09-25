@@ -10,6 +10,7 @@ import { unzip, text } from '../src/engine/zip.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
 import { readPrintPages } from '../src/engine/pdf/pages.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
+import { compareLook } from '../src/engine/check/look.ts'
 import { epubcheck } from './epubcheck.ts'
 import { AUTOMATION, has, read } from './samples.ts'
 
@@ -67,6 +68,13 @@ test('La cara oculta de Sheinbaum: front matter, metadata, contents, notes, page
   const problems = report.groups.flatMap((g) => g.findings).filter((f) => f.level !== 'pass')
   assert.deepEqual(problems, [], 'built-in check is clean')
   assert.ok(report.stats.pages >= 190, `${report.stats.pages} page markers`)
+  // visual comparison: the first Vercel delivery had body text right-aligned; it must be flagged
+  const old = resolve(AUTOMATION, '../Outputs/La cara oculta de la presidenta_Grijalbo (1)-automated.epub')
+  if (printPages && has(old)) {
+    const bad = compareLook(unzip(read(old)), printPages)
+    assert.ok(bad.findings.filter((f) => f.ebook === 'right').length >= 20, `old delivery flagged (${bad.findings.length})`)
+    assert.deepEqual(compareLook(r.files, printPages).findings, [], 'new build looks like print')
+  }
   const ec = epubcheck(r.epub)
   if (ec) assert.deepEqual(ec.errors, [], 'EPUBCheck reports no errors')
 })

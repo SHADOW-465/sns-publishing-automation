@@ -50,6 +50,29 @@ workflow is five steps, in plain words with a “What is this?” help under eac
 **Check an EPUB** runs the same report on any EPUB (a supplier's, an older one), optionally
 against the print PDF.
 
+## Settings (`src/engine/settings.ts`, Settings tab)
+
+House rules a team adjusts without code, saved in the browser and exportable as a JSON file:
+- **House style options** (from client feedback on the Cambia reference, all on by default):
+  `role="heading"` + `aria-level` on each part's heading (the reference had `role="heading"` alone,
+  which EPUBCheck 5.4 rejects: 25 errors on the reference itself); `<div xml:lang>` inside every
+  section; numbered heading series ("Hábito 1…12") all in small caps when some are; a quotation
+  broken into short lines set as verse (`extract1` lines, `extract2` last line).
+- **Print-only phrases** added to the built-in list (removed from the copyright page).
+- **Reader-facing labels** per language ("Portada", "Créditos"…).
+- **Extra CSS** appended to every e-book.
+- **Quality check** thresholds (cover size, missing-words limit).
+
+## Looks like the print book (`src/engine/check/look.ts`)
+
+With the print PDF, each paragraph's alignment in the e-book (from the stylesheet the reader applies)
+is compared with how its lines sit in the printed text column (single or two-column pages, left and
+right pages measured separately). Body text set right-aligned or centred where print is justified —
+the fault in the first *La cara* delivery (45 paragraphs flagged) — is reported with page numbers;
+cover, title, copyright and contents pages follow the house layout and are skipped. The Check step
+also shows the printed page next to the same e-book page (**Compare with the print book**).
+Measured: 0 differences on Cambia and *La cara*, 1 of 1,143 on Ceramics (shown as “Check”).
+
 ## Built-in quality check (`src/engine/check/epub.ts`)
 
 Runs in the browser after every build, on the finished zip:

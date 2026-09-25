@@ -59,3 +59,15 @@ test('quality check catches the faults of the first test delivery', () => {
   assert.match(all, /source words .* not in the e-book|source word\(s\) not found/)
   assert.ok(r.errors >= 5)
 })
+
+test('house settings: own print-only phrases and reader labels', async () => {
+  const { setSettings, isHousePrintOnly, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
+  const { labelsFor } = await import('../src/engine/epub/locale.ts')
+  setSettings({ printOnly: ['papel ecológico'], labels: { es: { copyright: 'Página de créditos' } } })
+  assert.ok(isHousePrintOnly('Impreso en PAPEL ECOLÓGICO certificado'))
+  assert.ok(!isHousePrintOnly('Primera edición: 2026'))
+  assert.equal(labelsFor('es-ES').copyright, 'Página de créditos')
+  assert.equal(labelsFor('es-ES').cover, 'Cubierta') // untouched labels keep the default
+  setSettings(DEFAULT_SETTINGS)
+  assert.equal(labelsFor('es-ES').copyright, 'Créditos')
+})

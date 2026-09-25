@@ -172,3 +172,16 @@ h3 { font-size: 15px; margin: 18px 0 8px; }
 .findings .lvl { font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .findings li.pass .lvl { display: none; }
 .kindsel { font-size: 11.5px; padding: 1px 2px; margin: 4px 0 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); max-width: 140px; }
+/* ---- settings ---- */
+.checks { display: grid; gap: 12px; }
+.checks label { display: grid; grid-template-columns: 22px 1fr; column-gap: 6px; font-size: 14px; }
+.checks small { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+textarea.big { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: var(--bg); font: inherit; color: inherit; }
+textarea.mono { font: 12.5px ui-monospace, Consolas, monospace; }
+/* ---- print vs e-book ---- */
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+.compare-grid figure { margin: 0; display: grid; gap: 4px; align-content: start; }
+.compare-grid figcaption { font-size: 12.5px; color: var(--muted); }
+.compare-grid img { width: 100%; height: 560px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.chip { padding: 1px 8px; font-size: 12px; border-radius: 999px; margin: 0 2px; }
+@media (max-width: 720px) { .compare-grid { grid-template-columns: 1fr; } .compare-grid img { height: auto; } }

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages } from './wizard.tsx'
+import type { PrintPage } from '../engine/pdf/pages.ts'
 import { browserRaster } from './raster-browser.ts'
 import { PDF_ROLES, PDF_ROLE_HELP, type PdfBook, type PdfProfile, type PdfRole, type PdfStyleInfo } from '../engine/pdfepub/analyze.ts'
 import type { PdfBuildResult } from '../engine/pdfepub/build.ts'
@@ -28,6 +29,7 @@ export function PdfFlow() {
   const [report, setReport] = useState<CheckReport>()
   const [alt, setAlt] = useState<Record<string, string>>({})
   const [stale, setStale] = useState(true)
+  const [layout, setLayout] = useState<PrintPage[]>()
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label)
@@ -55,6 +57,7 @@ export function PdfFlow() {
       setBook(b)
       setMeta(b.meta)
       setResult(undefined)
+      setLayout(undefined)
       setAlt({})
       setStale(true)
       setStep(1)
@@ -74,7 +77,13 @@ export function PdfFlow() {
       const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt }, browserRaster)
       setResult(r)
       setAlt(Object.fromEntries(r.pictures.map((p) => [p.path, p.alt])))
-      setReport(checkEpub(r.files, r.source))
+      let lay = layout
+      if (!lay) {
+        setBusy('Comparing with the print book…')
+        const { printPagesOf } = await import('./pdf.ts')
+        setLayout((lay = await printPagesOf(pdf!.data)))
+      }
+      setReport(checkEpub(r.files, { ...r.source, printLayout: lay }))
       setStale(false)
       remember('pdfprofile', meta!.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
       remember('copyright', meta!.publisher, rules)
@@ -226,6 +235,13 @@ export function PdfFlow() {
             Run EPUBCheck (file validity) and Ace by DAISY (accessibility) as the final check before delivery, and look through the book in a reader such as Apple Books
             or Thorium.
           </Help>
+          {layout && pdf && (
+            <>
+              <h3>Compare with the print book</h3>
+              <p className="muted small">The printed page next to the same page of the e-book. Pages the check flagged come first.</p>
+              <ComparePrint files={result.files} pages={layout} pdf={pdf.data} flagged={flaggedPages(report)} />
+            </>
+          )}
           <h3>Preview</h3>
           <Outline sections={result.sections} files={result.files} />
         </section>

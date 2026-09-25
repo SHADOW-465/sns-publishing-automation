@@ -9,6 +9,7 @@ import { packageEpub, type BookMeta, type Section, type ReviewItem, type ImageOu
 import { imageSize, withRealExt } from '../epub/image.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
+import { settings, isHousePrintOnly } from '../settings.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
@@ -398,6 +399,23 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const fnSeen = new Map<string, string>()
   const logos = input.images.filter((i) => i.placement === 'logo')
 
+  // numbered heading series ("Hábito 1: …" … "Hábito 12: …") look alike: when part of a series is set
+  // in small caps and the rest is not (a style mix-up in InDesign), the whole series gets small caps
+  const seriesCaps = new Set<PBlock>()
+  {
+    const series = new Map<string, PBlock[]>()
+    for (const s of all) for (const b of s.items) {
+      if (b.t !== 'p' || !/^h[345]$/.test(roleOf(b))) continue
+      const k = b.text.match(/^(\p{L}+)\s+\d+\s*[:.]/u)?.[1]?.toLocaleLowerCase()
+      if (k) series.set(k, [...(series.get(k) ?? []), b])
+    }
+    for (const bs of series.values()) {
+      const caps = bs.filter((b) => ex.css.paragraphFace(b.classes).smallCaps)
+      if (settings().seriesSmallCaps && bs.length >= 3 && caps.length && caps.length < bs.length) for (const b of bs) if (!caps.includes(b)) seriesCaps.add(b)
+    }
+    if (seriesCaps.size) review.push({ level: 'info', msg: `${seriesCaps.size} heading(s) of a numbered series set in small caps like the rest of their series (e.g. “${[...seriesCaps][0].text}”).` })
+  }
+
   const sections: Section[] = []
   for (const s of all) {
     const file = `${s.stem}.xhtml`
@@ -450,6 +468,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const isFront = s.type === 'halftitle' || s.type === 'title' || s.type === 'copyright'
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
     let inNotes = false
+    const verse = settings().verseLines ? verseLines(s.items) : new Map<PBlock, string>()
     for (const b of isFront ? [] : s.items) {
       if (b.t === 'pb') {
         items.push({ kind: 'other', html: ctx.pageMarker(b.n) })
@@ -480,14 +499,17 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         const ca = classAttr(r, b, cls)
         const id = headingIds.get(b)
         inNotes = sectionTypeOf(b.text) === 'notes'
-        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true })}</${r}>` })
+        const sc = seriesCaps.has(b) ? { base: { ...ex.css.paragraphFace(b.classes), smallCaps: true } } : {}
+        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true, ...sc })}</${r}>` })
       } else {
         const d = declsOf(b)
-        const ca = classAttr('p', b, cls)
+        const vc = verse.get(b)
+        if (vc) use('p', vc, {})
+        const ca = vc ?? classAttr('p', b, cls)
         // a whole block set in from the margin (exercises, extracts) — not just a first-line indent
         const inset = px(d['margin-left']) > 0 && px(d['margin-left']) + px(d['text-indent']) > 0
         const note = inNotes ? b.text.match(/^(\d{1,3})(?!\d)/)?.[1] : undefined
-        items.push({ kind: inNotes ? 'note' : inset ? 'inset' : 'other', note, html: `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
+        items.push({ kind: inNotes ? 'note' : inset && !vc ? 'inset' : 'other', note, html: `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
       }
     }
     linkedNotes += linkNotes(items, s.headId || s.stem)
@@ -558,7 +580,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? textOf(b.el) : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
-  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !movedPages.has(p.n)).map((p) => p.n) }
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
   return { epub, files, sections, review, source }
 }
 
@@ -596,15 +618,33 @@ function renderHeading(
     const tc = classOf(s.title[0])
     use(h, lc, declsOf(s.label[0]))
     use('span', tc, declsOf(s.title[0]))
-    return `<${h} class="${lc}" id="${s.headId}">${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
+    return `<${h} class="${lc}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
   }
   const only = s.label.length ? s.label : s.title
   const c = classOf(only[0])
   use(h, c, declsOf(only[0]))
-  return `<${h} class="${c}" id="${s.headId}">${html(only)}</${h}>`
+  return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
 }
 
 type Item = { kind: 'li' | 'inset' | 'note' | 'other'; html: string; note?: string }
+
+/** A quotation broken into short lines (a mantra, a poem: "«Mi poder… se elevan," / "…disfraces!»."):
+ *  set as verse — extract1 per line, extract2 on the last line (space after the block). */
+function verseLines(items: Block[]): Map<PBlock, string> {
+  const out = new Map<PBlock, string>()
+  const ps = items.filter((b): b is PBlock => b.t === 'p' && !!b.text)
+  const open = (t: string) => (t.match(/[«“]/g) ?? []).length - (t.match(/[»”]/g) ?? []).length
+  for (let i = 0; i < ps.length; i++) {
+    if (!/^[«“]/.test(ps[i].text) || open(ps[i].text) <= 0 || ps[i].text.length > 80) continue
+    let depth = open(ps[i].text)
+    let j = i
+    while (depth > 0 && j + 1 < ps.length && j - i < 12 && ps[j + 1].text.length <= 80) depth += open(ps[++j].text)
+    if (depth !== 0 || j === i) continue
+    for (let k = i; k <= j; k++) out.set(ps[k], k === j ? 'extract2' : 'extract1')
+    i = j
+  }
+  return out
+}
 
 /** Note numbers in the text (<sup>3</sup>) ↔ numbered notes under the "Notes" subheading: links both ways. */
 function linkNotes(items: Item[], key: string): number {
@@ -765,7 +805,7 @@ function renderFront(
       continue
     }
     // copyright page
-    if (PRINT_ONLY.test(b.text)) {
+    if (PRINT_ONLY.test(b.text) || isHousePrintOnly(b.text)) {
       review.push({ level: 'info', msg: `Removed print-only imprint line: "${b.text}"`, where: 'copyright.xhtml' })
       dropped.push(b.text)
       continue

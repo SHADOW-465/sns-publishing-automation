@@ -3,6 +3,9 @@ import { IndesignFlow } from './ui/IndesignFlow.tsx'
 import { PdfFlow } from './ui/PdfFlow.tsx'
 import { PdfUaFlow } from './ui/PdfUaFlow.tsx'
 import { CheckFlow } from './ui/CheckFlow.tsx'
+import { SettingsFlow, loadSettings } from './ui/SettingsFlow.tsx'
+
+loadSettings() // house settings saved in this browser apply from the first build
 
 const WORKFLOWS = [
   {
@@ -38,7 +41,7 @@ const WORKFLOWS = [
     gives: 'quality report',
   },
 ] as const
-type Tab = 'home' | (typeof WORKFLOWS)[number]['id']
+type Tab = 'home' | 'settings' | (typeof WORKFLOWS)[number]['id']
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home')
@@ -58,6 +61,9 @@ export function App() {
               {w.label}
             </button>
           ))}
+          <button className={tab === 'settings' ? 'tab on' : 'tab'} onClick={() => setTab('settings')} aria-pressed={tab === 'settings'}>
+            Settings
+          </button>
         </nav>
       </header>
       <main>
@@ -76,6 +82,9 @@ export function App() {
         </div>
         <div hidden={tab !== 'check'}>
           <CheckFlow />
+        </div>
+        <div hidden={tab !== 'settings'}>
+          <SettingsFlow />
         </div>
       </main>
       <footer className="foot muted small">Everything runs in this browser — files never leave this computer.</footer>

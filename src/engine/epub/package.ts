@@ -5,6 +5,7 @@ import { labelsFor, type SectionType } from './locale.ts'
 import { buildCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
+import { settings } from '../settings.ts'
 
 export interface BookMeta {
   title: string
@@ -78,10 +79,17 @@ export function packageEpub(p: {
 
   // ---- content documents ----
   const coverAlt = L.coverAlt({ title, authors: authors.join(', '), publisher: meta.publisher })
+  // house style: the content of every page sits in <div xml:lang="…"> inside its section
+  const langDiv = (body: string) =>
+    !settings().langWrapper ? body :
+    /^<section[^>]*>/.test(body) && body.trimEnd().endsWith('</section>')
+      ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
+      : `<div xml:lang="${lang}">\n${body}\n</div>`
   put('OEBPS/cover.xhtml', xhtmlDoc(lang, L.cover, 'css/style.css',
-    `<section epub:type="cover">\n<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg" role="doc-cover" src="${p.cover.path}"/></p>\n</section>`))
-  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(lang, s.title, 'css/style.css', s.body))
-  put('OEBPS/css/style.css', p.css ?? buildCss(p.usedClasses, p.bodyDecls))
+    `<section epub:type="cover">\n${langDiv(`<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg" role="doc-cover" src="${p.cover.path}"/></p>`)}\n</section>`))
+  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(lang, s.title, 'css/style.css', langDiv(s.body)))
+  const extra = settings().extraCss.trim()
+  put('OEBPS/css/style.css', (p.css ?? buildCss(p.usedClasses, p.bodyDecls)) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
   files.set(`OEBPS/${p.cover.path}`, p.cover.data)
   for (const im of p.images) files.set(`OEBPS/${im.path}`, im.data)
 
@@ -102,6 +110,8 @@ export function packageEpub(p: {
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
   put('OEBPS/nav.xhtml', xhtmlDoc(lang, L.navTitle, 'css/style.css', [
     // EPUBCheck's navigation schema rejects aria-label(ledby) on <nav>: the headings name them
+    `<section epub:type="frontmatter">`,
+    settings().langWrapper ? `<div xml:lang="${lang}">` : '',
     `<nav epub:type="toc" id="toc" role="doc-toc">`,
     `<h1 id="toc01">${esc(L.navTitle)}</h1>`,
     ol(tree),
@@ -118,6 +128,8 @@ export function packageEpub(p: {
     bodyStart ? `<li><a epub:type="bodymatter" href="${bodyStart.file}">${esc(L.startReading)}</a></li>` : '',
     `</ol>`,
     `</nav>`,
+    settings().langWrapper ? `</div>` : '',
+    `</section>`,
   ].filter(Boolean).join('\n')))
 
   let play = 0

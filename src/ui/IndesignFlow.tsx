@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages } from './wizard.tsx'
 import { unzip } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
@@ -239,6 +239,15 @@ export function IndesignFlow() {
             The built-in check covers the common problems. For delivery, run EPUBCheck (file validity) and Ace by DAISY (accessibility) once more — the stores run the same
             validator — and look through the book in a reader such as Apple Books or Thorium.
           </Help>
+          {pdf && printPages ? (
+            <>
+              <h3>Compare with the print book</h3>
+              <p className="muted small">The printed page next to the same page of the e-book. Pages the check flagged come first.</p>
+              <ComparePrint files={result.files} pages={printPages} pdf={pdf.data} flagged={flaggedPages(report)} />
+            </>
+          ) : (
+            <p className="muted small">Add the print PDF in step 1 to compare every page with the print book.</p>
+          )}
           <h3>Preview</h3>
           <Outline sections={result.sections} files={result.files} />
         </section>

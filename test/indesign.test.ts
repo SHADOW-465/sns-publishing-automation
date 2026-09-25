@@ -53,6 +53,14 @@ test('InDesign export → house EPUB matches the hand-finished reference', { ski
   const notes = (f: Map<string, Uint8Array>) => [...f.values()].map(text).join('').match(/epub:type="footnote"/g)?.length
   assert.equal(notes(r.files), notes(ref), 'same number of footnotes')
 
+  // client feedback 25-9-26 (chapter 2), as in the hand-finished reference:
+  const ch2 = text(r.files.get('OEBPS/chapter02.xhtml')!)
+  assert.match(ch2, /<section[^>]*>\n<div xml:lang="es-ES">/, 'content wrapped in <div xml:lang>')
+  assert.match(ch2, /<h2 class="Antetitulo_SUPER" id="chap2" role="heading" aria-level="2">/, 'role="heading" (with aria-level, which EPUBCheck requires)')
+  assert.match(ch2, /<h3 class="Ladillo-2">H<span class="small-caps">ÁBITO<\/span> 5: B<span class="small-caps">USCAR SEGURIDAD<\/span><\/h3>/, 'numbered heading series keeps small caps')
+  assert.match(ch2, /<p class="extract1">«Mi poder y mi independencia se elevan,<\/p>\n<p class="extract2">Mi <span class="small-caps">YO SOY<\/span>/, 'verse set as extract1/extract2')
+  for (const [p, d] of r.files) if (/\.xhtml$/.test(p)) assert.equal((text(d).match(/<div xml:lang=/g) ?? []).length, 1, `${p} has one language wrapper`)
+
   const ec = epubcheck(r.epub)
   if (ec) assert.deepEqual(ec.errors, [], 'EPUBCheck reports no errors')
   else console.log('EPUBCheck not installed in tools/: skipped')

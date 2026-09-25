@@ -40,6 +40,8 @@ p.copy_t { font-size: 90%; text-align: left; margin: 0 0 0 1em; text-indent: 0; 
 p.indent { text-align: justify; margin: 0; text-indent: 1.5em; font-family: serif; }
 p.noindent { text-align: justify; margin: 0; text-indent: 0; font-family: serif; }
 p.extract { text-align: left; margin: 0 0 0 1.5em; text-indent: 0; font-family: serif; }
+p.extract1 { text-align: left; margin: 0 0 0 1.5em; text-indent: 0; font-family: serif; }
+p.extract2 { text-align: left; margin: 0 0 1em 1.5em; text-indent: 0; font-family: serif; }
 p.hang { text-align: left; margin: 0 0 0.3em 1.5em; text-indent: -1.5em; font-family: serif; }
 p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
 p.img { text-align: center; margin: 1em auto; text-indent: 0; }
@@ -93,7 +95,7 @@ export function ruleFor(tag: string, cls: string, d: Decls, body: Decls): string
 }
 
 export function buildCss(used: Map<string, { tag: string; decls: Decls }>, body: Decls): string {
-  const fixed = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
+  const fixed = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.extract1', 'p.extract2', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
   const gen = [...used]
     .filter(([key]) => !fixed.has(key))
     .map(([key, u]) => ruleFor(u.tag, key.split('.').slice(1).join('.'), u.decls, body))
