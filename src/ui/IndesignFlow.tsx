@@ -118,7 +118,7 @@ export function IndesignFlow() {
           <div className="drops">
             <FileDrop label="InDesign EPUB export" hint="the .epub (or .zip) InDesign made" accept=".zip,.epub" value={exp} onPick={setExp} required />
             <FileDrop label="Cover image" hint="final front cover, JPG or PNG, 1600×2560 px ideal" accept="image/jpeg,image/png" value={cover} onPick={changed(setCover)} required />
-            <FileDrop label="Print PDF (recommended)" hint="the printed book: used to check every page number" accept="application/pdf" value={pdf} onPick={setPdf} />
+            <FileDrop label="Print PDF" hint="the printed book: used to check every page number" accept="application/pdf" value={pdf} onPick={setPdf} />
           </div>
           <Help title="Why these files?">
             <ul>

@@ -82,8 +82,8 @@ export function PdfUaFlow() {
         </p>
         <div className="drops">
           <FileDrop label="Print PDF" hint="the final PDF of the book" accept="application/pdf" value={pdf} onPick={setPdf} required />
-          <FileDrop label="Cover image" hint="optional — placed as page 1" accept="image/jpeg,image/png" value={cover} onPick={setCover} />
-          <FileDrop label="Alt text (Word)" hint="optional — picture descriptions" accept=".docx" value={altDocx} onPick={setAltDocx} />
+          <FileDrop label="Cover image" hint="placed as page 1" accept="image/jpeg,image/png" value={cover} onPick={setCover} />
+          <FileDrop label="Alt text (Word)" hint="descriptions of the pictures" accept=".docx" value={altDocx} onPick={setAltDocx} />
         </div>
         <label className="alt">
           <span>Extra PDFs appended at the end (plates, inserts) — optional</span>

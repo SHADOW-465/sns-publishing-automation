@@ -5,6 +5,7 @@ import type { ReviewItem, Section } from '../engine/epub/package.ts'
 import { text, type Files } from '../engine/zip.ts'
 import { Preview } from './Preview.tsx'
 import { download } from './shared.tsx'
+import { Icon, type IconName } from './icons.tsx'
 
 // Building blocks of the step-by-step screens: the step bar, inline help, the book outline and
 // the quality report. Plain words first; the technical term in brackets where it helps.
@@ -22,7 +23,7 @@ export function Steps({ steps, at, onGo }: { steps: Step[]; at: number; onGo: (i
       {steps.map((s, i) => (
         <li key={s.title} className={`${i === at ? 'on' : ''} ${s.done ? 'done' : ''}`}>
           <button disabled={!s.enabled} onClick={() => onGo(i)} aria-current={i === at ? 'step' : undefined}>
-            <span className="n" aria-hidden="true">{s.done && i !== at ? '✓' : i + 1}</span>
+            <span className="n" aria-hidden="true">{s.done && i !== at ? <Icon name="check" size={14} /> : i + 1}</span>
             <span>
               <strong>{s.title}</strong>
               <small>{s.hint}</small>
@@ -37,11 +38,17 @@ export function Steps({ steps, at, onGo }: { steps: Step[]; at: number; onGo: (i
 export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children }: { onBack?: () => void; onNext?: () => void; next?: string; nextDisabled?: boolean; children?: ReactNode }) {
   return (
     <div className="stepnav">
-      {onBack ? <button onClick={onBack}>← Back</button> : <span />}
+      {onBack ? (
+        <button className="ghost" onClick={onBack}>
+          <Icon name="left" size={16} /> Back
+        </button>
+      ) : (
+        <span />
+      )}
       <span className="muted small">{children}</span>
       {onNext && (
         <button className="primary" onClick={onNext} disabled={nextDisabled}>
-          {next} →
+          {next} <Icon name="right" size={16} />
         </button>
       )}
     </div>
@@ -181,7 +188,7 @@ export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files
   return (
     <div className="compare">
       <div className="row" style={{ marginTop: 0 }}>
-        <button onClick={() => at > 0 && setN(list[at - 1].n)} disabled={at <= 0}>← Previous page</button>
+        <button onClick={() => at > 0 && setN(list[at - 1].n)} disabled={at <= 0}><Icon name="left" size={16} /> Previous</button>
         <label className="small">
           Printed page{' '}
           <select value={n} onChange={(e) => setN(e.target.value)}>
@@ -192,7 +199,7 @@ export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files
             ))}
           </select>
         </label>
-        <button onClick={() => at < list.length - 1 && setN(list[at + 1].n)} disabled={at >= list.length - 1}>Next page →</button>
+        <button onClick={() => at < list.length - 1 && setN(list[at + 1].n)} disabled={at >= list.length - 1}>Next <Icon name="right" size={16} /></button>
         {flagged.length > 0 && (
           <span className="small">
             Pages to look at:{' '}
@@ -216,7 +223,7 @@ export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files
   )
 }
 
-const ICON: Record<Finding['level'], string> = { error: '✕', warn: '!', pass: '✓' }
+const ICON: Record<Finding['level'], IconName> = { error: 'x', warn: 'alert', pass: 'check' }
 const WORD: Record<Finding['level'], string> = { error: 'Must fix', warn: 'Check', pass: 'OK' }
 
 export function CheckReportView({ report, review = [] }: { report: CheckReport; review?: ReviewItem[] }) {
@@ -240,7 +247,7 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
           <ul className="findings">
             {[...buildErr, ...buildWarn].map((r, i) => (
               <li key={i} className={r.level === 'error' ? 'error' : 'warn'}>
-                <span className="ic" aria-hidden="true">{r.level === 'error' ? '✕' : '!'}</span>
+                <span className="ic"><Icon name={r.level === 'error' ? 'x' : 'alert'} size={15} /></span>
                 <span className="lvl">{r.level === 'error' ? 'Must fix' : 'Check'}</span> {r.msg} {r.where && <code>{r.where}</code>}
               </li>
             ))}
@@ -259,7 +266,7 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
             <ul className="findings">
               {[...g.findings].sort((a, b) => order(a) - order(b)).map((f, i) => (
                 <li key={i} className={f.level}>
-                  <span className="ic" aria-hidden="true">{ICON[f.level]}</span>
+                  <span className="ic"><Icon name={ICON[f.level]} size={15} /></span>
                   <span className="lvl">{WORD[f.level]}</span> {f.msg} {f.where && <code>{f.where}</code>}
                 </li>
               ))}
@@ -276,7 +283,7 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
           <ul className="findings">
             {done.map((r, i) => (
               <li key={i} className="pass">
-                <span className="ic" aria-hidden="true">✓</span> {r.msg} {r.where && <code>{r.where}</code>}
+                <span className="ic"><Icon name="check" size={15} /></span> {r.msg} {r.where && <code>{r.where}</code>}
               </li>
             ))}
           </ul>
@@ -293,13 +300,13 @@ export function DeliverButton({ data, name, type, errors, label }: { data: Uint8
   if (!errors || sure)
     return (
       <button className="primary big" onClick={() => download(data, name, type)}>
-        ⬇ {label}
+        <Icon name="download" size={17} /> {label}
       </button>
     )
   return (
     <span className="row" style={{ marginTop: 0 }}>
       <button className="primary big" disabled>
-        ⬇ {label}
+        <Icon name="download" size={17} /> {label}
       </button>
       <button className="link" onClick={() => setSure(true)}>
         Fix the problems first — or download anyway for testing

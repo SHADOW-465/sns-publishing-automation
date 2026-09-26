@@ -49,7 +49,7 @@ export function CheckFlow() {
         </p>
         <div className="drops">
           <FileDrop label="EPUB" hint="the e-book to check" accept=".epub" value={epub} onPick={(f) => (setEpub(f), setOut(undefined))} required />
-          <FileDrop label="Print PDF (optional)" hint="to check the page numbers" accept="application/pdf" value={pdf} onPick={setPdf} />
+          <FileDrop label="Print PDF" hint="to check the page numbers" accept="application/pdf" value={pdf} onPick={setPdf} />
         </div>
         <Help title="What is checked?">
           <ul>
