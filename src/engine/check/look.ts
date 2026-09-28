@@ -17,6 +17,16 @@ export interface LookFinding {
   ebook: Align
   print: Align
 }
+/** How a paragraph's lines start: first line and the lines after it, inside the margin or at it. */
+export type Indent = 'indent' | 'block' | 'hang' | 'flush' | 'in' // 'in': one line, starts inside
+export interface IndentFinding {
+  page: string
+  file: string
+  text: string
+  cls: string
+  ebook: Indent
+  print: Indent
+}
 
 const norm = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, '')
 
@@ -31,6 +41,53 @@ function alignRules(css: string): Map<string, { align: string; order: number }> 
     for (const sel of m[1].split(',').map((x) => x.trim())) if (/^[a-z0-9]*\.[\w-]+$/i.test(sel)) out.set(sel.toLowerCase(), { align, order })
   }
   return out
+}
+
+/** margin-left and text-indent (em) per "tag.class", shorthand margins read too, later rules winning. */
+function indentRules(css: string): Map<string, { ml?: number; ti?: number; order: number }> {
+  const out = new Map<string, { ml?: number; ti?: number; order: number }>()
+  let order = 0
+  const num = (v: string) => (/^0(\D|$)/.test(v) ? 0 : /em$/.test(v) ? parseFloat(v) : /px$/.test(v) ? parseFloat(v) / 12 : /%$/.test(v) ? parseFloat(v) / 5 : NaN)
+  for (const m of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    order++
+    const d = Object.fromEntries(m[2].split(';').map((x) => [x.slice(0, x.indexOf(':')).trim().toLowerCase(), x.slice(x.indexOf(':') + 1).trim()]).filter(([k]) => k))
+    let ml = d['margin-left'] !== undefined ? num(d['margin-left']) : undefined
+    if (d['margin'] !== undefined) {
+      const p = d['margin'].split(/\s+/)
+      ml = num(p[3] ?? p[1] ?? p[0])
+    }
+    const ti = d['text-indent'] !== undefined ? num(d['text-indent']) : undefined
+    if (ml === undefined && ti === undefined) continue
+    for (const sel of m[1].split(',').map((x) => x.trim().toLowerCase())) {
+      if (!/^[a-z0-9]*\.[\w-]+$/i.test(sel)) continue
+      const prev = out.get(sel)
+      out.set(sel, { ml: ml ?? prev?.ml, ti: ti ?? prev?.ti, order })
+    }
+  }
+  return out
+}
+
+function ebookIndent(el: Element, rules: ReturnType<typeof indentRules>, oneLine: boolean): Indent | undefined {
+  let ml = 0
+  let ti = 0
+  let found = false
+  const hits = (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean).flatMap((c) => [`${el.localName}.${c}`, `.${c}`].map((k) => rules.get(k.toLowerCase())).filter((x) => !!x)).sort((a, b) => a!.order - b!.order)
+  for (const h of hits) {
+    if (h!.ml !== undefined && !isNaN(h!.ml)) ((ml = h!.ml), (found = true))
+    if (h!.ti !== undefined && !isNaN(h!.ti)) ((ti = h!.ti), (found = true))
+  }
+  if (!found) return undefined
+  return indentOf(ml + ti > 0.2, ml > 0.2, oneLine)
+}
+
+const indentOf = (firstIn: boolean, restIn: boolean, oneLine: boolean): Indent =>
+  oneLine ? (firstIn ? 'in' : 'flush') : firstIn ? (restIn ? 'block' : 'indent') : restIn ? 'hang' : 'flush'
+
+/** How a paragraph's printed lines start, relative to its text column. */
+export function printIndent(lines: PrintLine[], { L }: Col): Indent {
+  const firstIn = lines[0].x0 > L + 3
+  if (lines.length < 2) return indentOf(firstIn, false, true)
+  return indentOf(firstIn, Math.min(...lines.slice(1).map((l) => l.x0)) > L + 3, false)
 }
 
 function ebookAlign(el: Element, rules: ReturnType<typeof alignRules>): Align {
@@ -106,18 +163,22 @@ export function printAlign(lines: PrintLine[], { L, R }: Col, page: PrintLine[] 
   return lines.length > 1 && lines.slice(0, -1).every(atRight) ? 'justify' : 'left'
 }
 
-/** Paragraphs whose alignment in the e-book differs from print (justified vs flush left is not a difference). */
-export function compareLook(files: Files, pages: PrintPage[]): { checked: number; findings: LookFinding[] } {
+/** Paragraphs whose alignment in the e-book differs from print (justified vs flush left is not a
+ *  difference), and paragraphs that start differently: flush where print indents the first line, a
+ *  hanging indent where print sets an indented block (client feedback V3: Pregunta/Respuesta). */
+export function compareLook(files: Files, pages: PrintPage[]): { checked: number; findings: LookFinding[]; indents: IndentFinding[] } {
   const byNo = new Map(pages.map((p, i) => [p.n, i]))
   const cols = textColumns(pages)
   const container = files.get('META-INF/container.xml')
   const opfPath = container ? text(container).match(/full-path="([^"]+)"/)?.[1] : undefined
-  if (!opfPath || !files.has(opfPath)) return { checked: 0, findings: [] }
+  if (!opfPath || !files.has(opfPath)) return { checked: 0, findings: [], indents: [] }
   const opf = parseXml(text(files.get(opfPath)!))
   const items = new Map(Array.from(opf.getElementsByTagName('item')).map((i) => [i.getAttribute('id'), resolvePath(opfPath, i.getAttribute('href') ?? '')]))
   const css = [...files].filter(([p]) => p.endsWith('.css')).map(([, d]) => text(d)).join('\n')
   const rules = alignRules(css)
+  const irules = indentRules(css)
   const findings: LookFinding[] = []
+  const indents: IndentFinding[] = []
   let checked = 0
   let page = ''
   for (const ref of Array.from(opf.getElementsByTagName('itemref'))) {
@@ -169,8 +230,15 @@ export function compareLook(files: Files, pages: PrintPage[]): { checked: number
               const ebook = ebookAlign(c, rules)
               checked++
               const odd = (a: Align) => a === 'center' || a === 'right'
+              const said = (c.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 70)
               if (odd(print) !== odd(ebook) || (odd(print) && print !== ebook))
-                findings.push({ page: pages[pi].n, file: path.split('/').pop()!, text: (c.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 70), ebook, print })
+                findings.push({ page: pages[pi].n, file: path.split('/').pop()!, text: said, ebook, print })
+              else if (!odd(print) && c.localName === 'p' && !c.querySelector('.dropcap, img') && !c.closest('li, td, th')) {
+                // a paragraph that runs on to the next page is compared on its lines on this page
+                const pi2 = printIndent(mine, col)
+                const ei = ebookIndent(c, irules, mine.length < 2)
+                if (ei && ei !== pi2) indents.push({ page: pages[pi].n, file: path.split('/').pop()!, text: said, cls: c.getAttribute('class') ?? '', ebook: ei, print: pi2 })
+              }
               break
             }
           }
@@ -182,5 +250,5 @@ export function compareLook(files: Files, pages: PrintPage[]): { checked: number
     }
     walk(doc.body ?? doc.documentElement)
   }
-  return { checked, findings }
+  return { checked, findings, indents }
 }

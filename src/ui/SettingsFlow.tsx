@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { DEFAULT_SETTINGS, setSettings, settings, type HouseSettings } from '../engine/settings.ts'
+import { DEFAULT_SETTINGS, setSettings, settings, type HouseSettings, VARIANT_GROUPS, type VariantGroup } from '../engine/settings.ts'
+import { HOUSE_CSS } from '../engine/epub/css.ts'
 import { LABEL_KEYS, builtInLabels } from '../engine/epub/locale.ts'
 import { PRINT_ONLY_EXAMPLES } from '../engine/epub/imprint.ts'
 import { download } from './shared.tsx'
@@ -25,6 +26,30 @@ const LABEL_HELP: Record<string, string> = {
   eisbn: 'E-book ISBN label on the copyright page', logoAlt: 'Description of the publisher logo', a11ySummary: 'Accessibility summary (store listing)',
   dedication: 'Dedication page name', epigraph: 'Epigraph page name', front: 'Other front pages',
 }
+const VARIANT_HELP: Record<VariantGroup, string> = {
+  align: 'Alignment (a right-aligned epigraph in a left-aligned style)',
+  indent: 'Indents (an indented or hanging paragraph)',
+  face: 'Italic or bold set on the whole paragraph',
+  size: 'Font size and family',
+  spacing: 'Space above and below',
+  colour: 'Text colour',
+}
+
+/** A labelled drop-down of fixed choices. */
+function Choice<T extends string>({ label, value, options, onChange, help }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void; help?: string }) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select value={value} onChange={(e) => onChange(e.target.value as T)}>
+        {options.map(([v, t]) => (
+          <option key={v} value={v}>{t}</option>
+        ))}
+      </select>
+      {help && <small className="muted">{help}</small>}
+    </label>
+  )
+}
+
 const LANGS: [string, string][] = [['es', 'Spanish'], ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ca', 'Catalan']]
 
 export function SettingsFlow() {
@@ -32,9 +57,9 @@ export function SettingsFlow() {
   const [lang, setLang] = useState('es')
   const [saved, setSaved] = useState('')
   const update = (patch: Partial<HouseSettings>) => {
-    const next = { ...s, ...patch }
+    setSettings({ ...s, ...patch })
+    const next = settings() // checked: values out of range or from an older file fall back to the default
     setS(next)
-    setSettings(next)
     try {
       localStorage.setItem(KEY, JSON.stringify(next))
       setSaved('Saved — applies to the next build.')
@@ -102,6 +127,71 @@ export function SettingsFlow() {
             <small>A quotation broken into short lines (a mantra, a poem) becomes <code>extract1</code> lines and a final <code>extract2</code> line.</small>
           </label>
         </div>
+        <div className="form" style={{ marginTop: 18 }}>
+          <Choice
+            label="Language on each page"
+            value={s.htmlLang}
+            onChange={(v) => update({ htmlLang: v })}
+            options={[['xml:lang', 'xml:lang only (as the reference)'], ['both', 'lang and xml:lang'], ['lang', 'lang only']]}
+            help='The attribute on <html>. The reference writes xml:lang="es-ES" once; both is allowed too.'
+          />
+          <Choice
+            label="Tables"
+            value={s.tableHeaders}
+            onChange={(v) => update({ tableHeaders: v })}
+            options={[['reference', 'As the reference: <td> cells with their cell style'], ['th', 'First row as table headers (<thead>, <th scope="col">)']]}
+            help="Header cells let screen readers announce the column names; the reference EPUB does not use them."
+          />
+          <Choice
+            label="Line above the footnotes"
+            value={s.footnoteRule}
+            onChange={(v) => update({ footnoteRule: v })}
+            options={[['short', 'Short line, as in print'], ['full', 'Full width'], ['none', 'No line']]}
+          />
+          {s.footnoteRule === 'short' && (
+            <label>
+              <span>Length of the short line (% of the text width)</span>
+              <input type="number" min={5} max={100} step={5} value={s.footnoteRuleWidth} onChange={(e) => update({ footnoteRuleWidth: Number(e.target.value) || DEFAULT_SETTINGS.footnoteRuleWidth })} />
+            </label>
+          )}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Paragraph classes</h2>
+        <p className="muted">
+          Each InDesign paragraph style becomes one CSS class. A class looks the way most of its paragraphs look in the book. When one paragraph was changed by hand in
+          InDesign, it can get a class of its own — always a single class (<code>Texto1</code>, never <code>Texto Texto1</code>).
+        </p>
+        <div className="form">
+          <Choice
+            label="Paragraphs changed by hand in InDesign"
+            value={s.styleVariants}
+            onChange={(v) => update({ styleVariants: v })}
+            options={[['own', 'Get a class of their own when the change matters'], ['ignore', 'Always keep the style’s class']]}
+          />
+        </div>
+        {s.styleVariants === 'own' && (
+          <div className="checks" style={{ marginTop: 14 }}>
+            {(Object.keys(VARIANT_GROUPS) as VariantGroup[]).map((g) => (
+              <label key={g}>
+                <input
+                  type="checkbox"
+                  checked={s.variantOn.includes(g)}
+                  onChange={(e) => update({ variantOn: e.target.checked ? [...s.variantOn, g] : s.variantOn.filter((x) => x !== g) })}
+                />
+                <span>{VARIANT_HELP[g]}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <Help>
+          <p>
+            Typesetters often change one paragraph by hand (a slightly bigger size, a font swapped) without meaning anything by it. Ticked kinds of change are kept
+            as a class of their own; unticked ones are ignored so the paragraph keeps its style’s class. Italic or bold on a whole paragraph should stay ticked, or
+            the paragraph loses it.
+          </p>
+        </Help>
       </section>
 
       <section className="card">
@@ -138,6 +228,42 @@ export function SettingsFlow() {
               <input value={s.labels[lang]?.[k] ?? ''} placeholder={built[k]} onChange={(e) => setLabel(k, e.target.value)} />
             </label>
           ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>Stylesheet</h2>
+        <div className="form">
+          <Choice
+            label="Layout"
+            value={s.cssFormat}
+            onChange={(v) => update({ cssFormat: v })}
+            options={[['vertical', 'One declaration per line (as the reference)'], ['compact', 'One rule per line']]}
+            help="Vertical writes the margins out: margin-top, margin-bottom, margin-right, margin-left."
+          />
+          <label>
+            <span>Largest space above or below a paragraph (em)</span>
+            <input type="number" min={0} max={10} step={0.5} value={s.maxSpaceEm} onChange={(e) => update({ maxSpaceEm: Number(e.target.value) })} />
+            <small className="muted">Print spacing is taken over up to this much, so gaps stay small on phone screens.</small>
+          </label>
+          <label>
+            <span>Space around indented blocks (em)</span>
+            <input type="number" min={0} max={5} step={0.5} value={s.blockSpaceEm} onChange={(e) => update({ blockSpaceEm: Number(e.target.value) })} />
+            <small className="muted">Around <code>&lt;div class="top"&gt;</code> (questions and answers, exercises). It overlaps the paragraphs’ own space instead of adding to it.</small>
+          </label>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>House stylesheet</h2>
+        <p className="muted">
+          The fixed classes every e-book uses (<code>indent</code>, <code>extract1</code>, <code>hang</code>, contents, copyright and title pages, footnotes, tables).
+          Leave empty to use the built-in one; the rules for the book’s own styles are always added after it.
+        </p>
+        <textarea className="big mono" rows={s.houseCss ? 14 : 3} value={s.houseCss} placeholder="Empty: the built-in house stylesheet is used." onChange={(e) => update({ houseCss: e.target.value })} />
+        <div className="row">
+          <button onClick={() => update({ houseCss: HOUSE_CSS })}>Start from the built-in stylesheet</button>
+          {s.houseCss && <button onClick={() => update({ houseCss: '' })}>Use the built-in stylesheet</button>}
         </div>
       </section>
 

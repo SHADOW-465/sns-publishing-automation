@@ -16,7 +16,7 @@ leave the machine: the same build works as a Vercel site now and as an offline d
 ```bash
 npm install
 npm run dev        # app on http://localhost:5173
-npm test           # regression test against the Automation/ samples (skipped if absent)
+npm test           # rules tests (always) + regression tests against the Automation/ samples (skipped if absent)
 npm run sample     # InDesign → EPUB on the Cambia tu mente sample, from the command line
 npm run sample:pdf # print PDF → EPUB on the Contemporary Ceramics sample (~3 min)
 node --import ./test/setup.ts test/run-ua-sample.ts simple out   # PDF/UA on a sample (medium|simple)
@@ -52,21 +52,59 @@ against the print PDF.
 
 ## Settings (`src/engine/settings.ts`, Settings tab)
 
-House rules a team adjusts without code, saved in the browser and exportable as a JSON file:
-- **House style options** (from client feedback on the Cambia reference, all on by default):
-  `role="heading"` + `aria-level` on each part's heading (the reference had `role="heading"` alone,
-  which EPUBCheck 5.4 rejects: 25 errors on the reference itself); `<div xml:lang>` inside every
-  section; numbered heading series ("Hábito 1…12") all in small caps when some are; a quotation
-  broken into short lines set as verse (`extract1` lines, `extract2` last line).
-- **Print-only phrases** added to the built-in list (removed from the copyright page).
-- **Reader-facing labels** per language ("Portada", "Créditos"…).
-- **Extra CSS** appended to every e-book.
-- **Quality check** thresholds (cover size, missing-words limit).
+House rules a team adjusts without code, saved in the browser and exportable as a JSON file (load it
+on another computer so the whole team works the same way). A file from an older version, or edited
+by hand, is checked on loading: unknown or out-of-range values fall back to the default.
+Defaults follow the client's corrections (V2 25-9-26, V3 28-9-26).
+
+| Setting | Default | What it does |
+|---|---|---|
+| `roleHeading` | on | `role="heading"` + `aria-level` on each part's heading (the reference had `role="heading"` alone, which EPUBCheck 5.4 rejects) |
+| `langWrapper` | on | `<div xml:lang>` inside every section |
+| `seriesSmallCaps` | on | numbered heading series ("Hábito 1…12") all in small caps when some are |
+| `verseLines` | on | a quotation broken into short lines is verse: `extract1` lines, `extract2` last line |
+| `htmlLang` | `xml:lang` | language attribute(s) on `<html>`: `xml:lang` only (as the reference), `both`, or `lang` |
+| `styleVariants` / `variantOn` | `own` / align, indent, face | a paragraph changed by hand in InDesign gets **one** class of its own (`Texto1`, never `Texto Texto1`) only when the change is of a ticked kind; size, font and spacing changes are typesetting noise by default |
+| `tableHeaders` | `reference` | tables as the hand-finished EPUB (`<td>` with the InDesign cell style, header row with its own class) or `th` (`<thead>`, `<th scope="col">`) |
+| `footnoteRule` / `footnoteRuleWidth` | `short` / 30 % | line above the footnotes: short as in print, full width, or none |
+| `cssFormat` | `vertical` | stylesheet one declaration per line with margins written out (as the reference), or `compact` |
+| `maxSpaceEm` | 2 | largest space above/below a paragraph taken over from print |
+| `blockSpaceEm` | 1 | space around indented blocks (`div.top`); a margin, so it overlaps the paragraphs' own space |
+| `houseCss` | empty | replaces the built-in house stylesheet (fixed classes `indent`, `extract1`, `toc_1`…) |
+| `extraCss` | empty | appended to every e-book's stylesheet |
+| `printOnly` | — | phrases of print-only lines removed from the copyright page |
+| `labels` | — | reader-facing labels per language ("Portada", "Créditos"…) |
+| `minCoverPx`, `lostWordsErrorPct` | 1400, 1 % | quality check thresholds |
+
+Per-publisher choices (the role and CSS class of each InDesign style) are made in the Structure step
+under *Advanced* and saved per publisher.
+
+## Client feedback V3 (28-9-26, *Cambia tu mente*)
+
+Each point is a rule now, covered by `test/house-style.test.ts` on a hand-written InDesign export
+(`test/fixtures/indesign-export.ts`) that reproduces it, so it runs without the sample books:
+
+| # | Comment | Rule |
+|---|---|---|
+| 5 | Duplicated language | `<html xml:lang="es-ES">` only (`htmlLang`) |
+| 6 | "First style is dummy" (`Ladillo-2 Ladillo-2_1`) | one class per element; a class looks like most of its paragraphs; hand overrides of size, font or spacing no longer make a variant (`styleVariants`, `variantOn`) |
+| 7 | CSS order vertical | vertical layout, margins written out in the reference order (`cssFormat`) |
+| 9–10 | Page number placement (contents, list of exercises) | each marker stays where its printed page starts, between the entries — no longer piled up above the heading. The check reports markers with no text between them when the printed page has text |
+| 11 | Table structure, extra tags | as the reference: cells with their cell style (`No-Table-Style`, header row `No-Table-Style1`), one element per line, column widths from InDesign adding up to 100 % (they could add up to 108 %) (`tableHeaders`) |
+| 12 | Style missing (Pregunta/Respuesta) | an indented block whose first line is still inset is `extract1`, not a hanging indent (`hang` only when the first line starts at the margin). The check reports classes with no rule in the stylesheet |
+| 13–14 | Spacing and alignment | `div.top` spacing is a margin that overlaps the paragraphs' own (it was padding, which added up); print spacing is measured against the body size and capped (`maxSpaceEm`, `blockSpaceEm`). With the print PDF, the check compares each paragraph's indent with print (first-line indent, indented block, hanging indent) |
+| 15 | Foot-line | a short line above the footnotes, as in print (`footnoteRule`) |
+
+Also: a word split between faces over several spans no longer comes out as
+`Ca<span class="small-caps">PÍTULO</span>`; the words of table cells count separately in the
+completeness check; font sizes are measured against the body text style and rounded to 5 %
+(`h3.Ladillo-2` comes out at 110 %, as in the reference); `tableHeaders` is only declared in the accessibility metadata when tables have
+header cells.
 
 ## Looks like the print book (`src/engine/check/look.ts`)
 
-With the print PDF, each paragraph's alignment in the e-book (from the stylesheet the reader applies)
-is compared with how its lines sit in the printed text column (single or two-column pages, left and
+With the print PDF, each paragraph's alignment and indent in the e-book (from the stylesheet the reader
+applies) is compared with how its lines sit in the printed text column (single or two-column pages, left and
 right pages measured separately). Body text set right-aligned or centred where print is justified —
 the fault in the first *La cara* delivery (45 paragraphs flagged) — is reported with page numbers;
 cover, title, copyright and contents pages follow the house layout and are skipped. The Check step
@@ -83,6 +121,8 @@ Runs in the browser after every build, on the finished zip:
   empty, or a file name), empty or skipped headings, empty links, table headers, navigation menu
   (entries with only a number, sections missing), page list and landmarks, page markers (named,
   unique, in order), schema.org accessibility metadata and conformance.
+- **House style**: classes used in the text that the stylesheet does not define, table column widths
+  that do not add up to 100 %, page markers bunched together although the printed page has text.
 - **Content complete**: every word of the source (InDesign export or print PDF) is in the e-book,
   apart from the lines deliberately removed; a page marker for every printed page with content;
   no empty chapters, empty paragraphs, contents entries without titles, or text repeated back to back.
@@ -176,7 +216,7 @@ Deduced by diffing `Indesin-to-EPUB-Automation/Input` against `Output` paragraph
 These follow accessibility checkers where the reference did not:
 - No empty `<h1>`/`<h2>` on the cover or copyright page.
 - `epub:type="contributors"` (the reference misspelled it).
-- Table header rows use `<th scope="col">`.
+- Table header rows can use `<th scope="col">` (Settings → Tables); the default follows the reference.
 - The accessibility metadata no longer claims `index`/`ttsMarkup`, which the book doesn't have.
 
 ## Word / print PDF → EPUB

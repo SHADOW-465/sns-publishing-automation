@@ -275,8 +275,11 @@ function outClassFor(ex: Export, k: string, role: Role, d: Decls): string {
   if (!isOverride(k.split(' ')[0]) && k !== '(no style)' && k !== 'li') return cssClassName(k)
   if (role === 'h3' || role === 'h4' || role === 'h5') return 'sec1'
   const indent = px(d['text-indent'])
-  if (indent < 0) return 'hang'
-  if (px(d['margin-left']) > 0) return 'extract'
+  const left = px(d['margin-left'])
+  // a hanging indent starts its first line at the margin (bibliographies); an indented block whose
+  // first line still sits inside the margin reads as an extract (Pregunta/Respuesta, client feedback V3)
+  if (indent < 0 && left + indent <= 2) return 'hang'
+  if (left > 0) return 'extract1'
   if (d['text-align'] === 'center') return 'center'
   return indent > 0 ? 'indent' : 'noindent'
 }

@@ -1,4 +1,5 @@
 import { px, em, type Decls } from '../indesign/css.ts'
+import { settings } from '../settings.ts'
 
 // House stylesheet. The fixed part mirrors the classes the production team uses in every
 // reference EPUB; rules for the book's own paragraph styles are generated from InDesign's CSS
@@ -46,7 +47,6 @@ p.hang { text-align: left; margin: 0 0 0.3em 1.5em; text-indent: -1.5em; font-fa
 p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
 p.img { text-align: center; margin: 1em auto; text-indent: 0; }
 h3.sec1, h4.sec1, h5.sec1 { font-size: 100%; text-align: left; margin: 1em 0; font-family: serif; }
-div.top { padding-top: 1em; padding-bottom: 1em; }
 ul.bull { text-align: justify; margin: 1em 0; font-family: serif; }
 
 /* table of contents pages */
@@ -59,8 +59,8 @@ p.toc_3 { margin: 1em 0 0 0; }
 span.toc_2a { display: block; font-size: 110%; }
 p.toc_1 a, p.toc_1a a, p.toc_2 a, p.toc_3 a { text-decoration: none; }
 
-/* footnotes */
-div.footnotes { border-top: 1px solid; margin-top: 2em; padding-top: 0.5em; }
+/* footnotes: the separator line is hr.footline (see footnoteRule in Settings) */
+div.footnotes { margin-top: 2em; }
 p.Nota-al-pie { font-size: 85%; text-align: justify; margin: 0.2em 0 0 0; text-indent: 0; font-family: serif; }
 
 /* tables */
@@ -70,34 +70,151 @@ th { background-color: #e2e3e4; font-weight: bold; }
 `
 
 const r = (n: number) => Math.round(n * 2) / 2 // to the nearest 0.5em
+const emStr = (n: number) => `${n}em`
+
+/** The book's body size in px, the unit print spacing is measured in (InDesign writes 1em = 12px). */
+const bodyPx = (body: Decls) => em(body['font-size'] || '1em') * 12 || 12
+
+/** House declarations for a book-specific class, derived from InDesign's: fonts reduced to serif /
+ *  sans-serif, lengths converted to em of the body text, first-line indents normalised to the house
+ *  1.5em, print spacing capped for small screens. Margins are written out (margin-top, -bottom,
+ *  -right, -left) in the order the reference stylesheet uses. */
+export function houseDecls(tag: string, d: Decls, body: Decls): Decls {
+  const out: Decls = {}
+  const base = bodyPx(body)
+  const size = em(d['font-size']) / em(body['font-size'] || '1em')
+  if (Math.abs(size - 1) > 0.05) out['font-size'] = `${Math.round(size * 20) * 5}%` // in steps of 5%, as the reference (110%, 150%)
+  if (d['text-align']) out['text-align'] = d['text-align']
+  const v = (x: string | undefined) => Math.min(settings().maxSpaceEm, r(px(x) / base))
+  const indent = px(d['text-indent'])
+  const left = r(px(d['margin-left']) / base)
+  // a hanging indent keeps its geometry: the first line starts where it starts in print
+  const ti = indent > 0 ? 1.5 : indent < 0 ? -Math.max(0.5, r(-indent / base)) : 0
+  out['margin-top'] = emStr(v(d['margin-top']))
+  out['margin-bottom'] = emStr(v(d['margin-bottom']))
+  out['margin-right'] = emStr(r(px(d['margin-right']) / base))
+  out['margin-left'] = emStr(ti < 0 ? Math.max(-ti, left) : left)
+  out['text-indent'] = ti ? emStr(ti) : '0'
+  const w = d['font-weight'] === 'bold' ? 700 : parseInt(d['font-weight'] ?? '400')
+  if (w >= 600 || (/^h\d$/.test(tag) && w >= 500)) out['font-weight'] = 'bold'
+  else if (/^h\d$/.test(tag)) out['font-weight'] = 'normal'
+  if (d['font-style'] === 'italic' || d['font-style'] === 'oblique') out['font-style'] = 'italic'
+  out['font-family'] = /sans|avenir|helvetica|arial|futura|gill|myriad|frutiger|univers|verdana/i.test(d['font-family'] ?? '') ? 'sans-serif' : 'serif'
+  if (d['color'] && !/^#0{3}(0{3})?$|^black$/i.test(d['color'])) out['color'] = d['color']
+  if (d['page-break-after'] === 'avoid' || /^h\d$/.test(tag)) out['page-break-after'] = 'avoid'
+  if (tag === 'span') out['display'] = 'block'
+  return out
+}
+
+/** House declarations for a table cell class: InDesign's cell fill and vertical alignment, plus the
+ *  alignment and face of the paragraphs inside (a bold header row is bold through its cell class). */
+export function cellDecls(cell: Decls, para: Decls): Decls {
+  const out: Decls = {}
+  if (para['text-align'] && para['text-align'] !== 'justify') out['text-align'] = para['text-align']
+  if (cell['vertical-align']) out['vertical-align'] = cell['vertical-align']
+  const bg = cell['background-color']
+  if (bg && !/^(transparent|#fff(fff)?|white)$/i.test(bg)) out['background-color'] = bg
+  const w = para['font-weight'] === 'bold' ? 700 : parseInt(para['font-weight'] ?? '400')
+  if (w >= 600) out['font-weight'] = 'bold'
+  if (para['font-style'] === 'italic') out['font-style'] = 'italic'
+  return out
+}
+
+/** One compact rule, e.g. `p.Texto { text-align: justify; … }` (formatCss lays it out). */
+export const ruleOf = (selector: string, d: Decls): string =>
+  Object.keys(d).length ? `${selector} { ${Object.entries(d).map(([k, v]) => `${k}: ${v}`).join('; ')}; }` : `${selector} {}`
 
 /** One rule for a book-specific class, derived from InDesign's declarations. */
 export function ruleFor(tag: string, cls: string, d: Decls, body: Decls): string {
-  const out: string[] = []
-  const size = em(d['font-size']) / em(body['font-size'] || '1em')
-  if (Math.abs(size - 1) > 0.1) out.push(`font-size: ${Math.round(size * 100)}%`)
-  if (d['text-align']) out.push(`text-align: ${d['text-align']}`)
-  const indent = px(d['text-indent'])
-  const left = px(d['margin-left'])
-  out.push(`text-indent: ${indent > 0 ? '1.5em' : indent < 0 ? '-1.5em' : '0'}`)
-  const ml = indent < 0 ? Math.max(1.5, r(left / 12)) : r(left / 12)
-  const v = (x: string | undefined) => Math.min(3, r(px(x) / 12)) // print spacing, capped for small screens
-  out.push(`margin: ${v(d['margin-top'])}em ${r(px(d['margin-right']) / 12)}em ${v(d['margin-bottom'])}em ${ml}em`)
-  const w = d['font-weight'] === 'bold' ? 700 : parseInt(d['font-weight'] ?? '400')
-  if (w >= 600 || (/^h\d$/.test(tag) && w >= 500)) out.push('font-weight: bold')
-  else if (/^h\d$/.test(tag)) out.push('font-weight: normal')
-  if (d['font-style'] === 'italic' || d['font-style'] === 'oblique') out.push('font-style: italic')
-  out.push(`font-family: ${/sans|avenir|helvetica|arial|futura|gill|myriad|frutiger|univers|verdana/i.test(d['font-family'] ?? '') ? 'sans-serif' : 'serif'}`)
-  if (d['color'] && !/^#0{3}(0{3})?$|^black$/i.test(d['color'])) out.push(`color: ${d['color']}`)
-  if (d['page-break-after'] === 'avoid' || /^h\d$/.test(tag)) out.push('page-break-after: avoid')
-  if (tag === 'span') out.push('display: block')
-  return `${tag}.${cls} { ${out.join('; ')}; }`
+  return ruleOf(`${tag}.${cls}`, houseDecls(tag, d, body))
+}
+
+/** CSS for the house options: footnote separator line and the space around indented blocks. */
+function optionCss(): string {
+  const s = settings()
+  const width = s.footnoteRule === 'full' ? 100 : s.footnoteRuleWidth
+  return [
+    `hr.footline { width: ${width}%; margin: 0 auto 0.5em 0; border: 0; border-top: 1px solid; height: 0; }`,
+    `div.top { margin: ${s.blockSpaceEm}em 0; }`,
+  ].join('\n')
 }
 
 export function buildCss(used: Map<string, { tag: string; decls: Decls }>, body: Decls): string {
   const fixed = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.extract1', 'p.extract2', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
   const gen = [...used]
     .filter(([key]) => !fixed.has(key))
-    .map(([key, u]) => ruleFor(u.tag, key.split('.').slice(1).join('.'), u.decls, body))
-  return HOUSE_CSS + '\n/* book styles (generated from the InDesign paragraph styles) */\n' + gen.join('\n') + '\n'
+    .map(([key, u]) =>
+      // table cell classes are shared by <td> and <th> (header row, Settings → tableHeaders)
+      u.tag === 'td' ? ruleOf(`${key}, th.${key.slice(3)}`, { ...u.decls }) : ruleOf(key, houseDecls(u.tag, u.decls, body)))
+  const house = settings().houseCss.trim() || HOUSE_CSS
+  return house + '\n/* house options (Settings) */\n' + optionCss() + '\n\n/* book styles (generated from the InDesign paragraph styles) */\n' + gen.join('\n') + '\n'
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layout of the stylesheet: "vertical" as in the reference EPUB (selector, brace, one declaration
+// per line, margins written out), or "compact" (one rule per line, margins as one shorthand).
+// ---------------------------------------------------------------------------------------------
+
+const SIDES = ['top', 'bottom', 'right', 'left'] as const
+/** "1em 0" → top 1em, bottom 1em, right 0, left 0 (CSS shorthand rules) */
+function sides(v: string): Record<(typeof SIDES)[number], string> | undefined {
+  const p = v.trim().split(/\s+/)
+  if (p.length < 1 || p.length > 4 || /!important|\(/.test(v)) return undefined
+  const [t, rr = t, b = t, l = rr] = p
+  return { top: t, bottom: b, right: rr, left: l }
+}
+
+function layoutDecls(decls: [string, string][], vertical: boolean): [string, string][] {
+  const out: [string, string][] = []
+  for (const [k, v] of decls) {
+    const s = (k === 'margin' || k === 'padding') && vertical ? sides(v) : undefined
+    if (s) for (const side of SIDES) out.push([`${k}-${side}`, s[side]])
+    else out.push([k, v])
+  }
+  if (vertical) return out
+  // compact: four written-out sides become one shorthand, in place of the first
+  for (const k of ['margin', 'padding']) {
+    const got = SIDES.map((side) => out.find(([n]) => n === `${k}-${side}`))
+    if (got.some((x) => !x)) continue
+    const [t, b, rr, l] = got.map((x) => x![1])
+    const at = out.indexOf(got[0]!)
+    const short = rr === l ? (t === b ? (t === rr ? t : `${t} ${rr}`) : `${t} ${rr} ${b}`) : `${t} ${rr} ${b} ${l}`
+    const rest = out.filter((x) => !got.includes(x))
+    rest.splice(Math.min(at, rest.length), 0, [k, short])
+    out.splice(0, out.length, ...rest)
+  }
+  return out
+}
+
+/** Lays out a flat stylesheet (comments, rules, @page). Nested blocks (@media) are left untouched. */
+export function formatCss(css: string, mode: 'vertical' | 'compact' = settings().cssFormat): string {
+  const out: string[] = []
+  let i = 0
+  const vertical = mode === 'vertical'
+  while (i < css.length) {
+    const ws = css.slice(i).match(/^\s+/)
+    if (ws) {
+      i += ws[0].length
+      continue
+    }
+    if (css.startsWith('/*', i)) {
+      const end = css.indexOf('*/', i + 2)
+      if (end < 0) return css
+      out.push(css.slice(i, end + 2))
+      i = end + 2
+      continue
+    }
+    const open = css.indexOf('{', i)
+    const close = css.indexOf('}', open)
+    if (open < 0 || close < 0) return css
+    const body = css.slice(open + 1, close)
+    if (body.includes('{')) return css // nested block: not a flat stylesheet
+    const selector = css.slice(i, open).trim().replace(/\s+/g, ' ')
+    const decls = body.split(';').map((d) => [d.slice(0, d.indexOf(':')).trim(), d.slice(d.indexOf(':') + 1).trim()] as [string, string]).filter(([k, v]) => k && v)
+    const laid = layoutDecls(decls, vertical)
+    const lines = laid.map(([k, v]) => (vertical ? `${k}:${v};` : `${k}: ${v};`))
+    out.push(vertical ? `${selector}\n{\n${lines.map((l) => l + '\n').join('')}}` : `${selector} {${lines.length ? ` ${lines.join(' ')} ` : ''}}`)
+    i = close + 1
+  }
+  return out.join(vertical ? '\n\n' : '\n') + '\n'
 }

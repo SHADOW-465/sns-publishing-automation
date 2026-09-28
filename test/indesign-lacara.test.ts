@@ -56,12 +56,13 @@ test('La cara oculta de Sheinbaum: front matter, metadata, contents, notes, page
   assert.match(ch1, /<a epub:type="noteref" href="#chap1-n1" id="chap1-r1" role="doc-noteref">1<\/a>/)
   assert.match(ch1, /id="chap1-n1"><a epub:type="backlink" href="#chap1-r1"/)
 
-  // body styles keep the alignment of their own definition; the epigraph's local "align right"
-  // stays on the epigraph (it once leaked onto every paragraph of the style)
+  // body styles keep the alignment most of their paragraphs have; the epigraph's local "align right"
+  // stays on the epigraph (it once leaked onto every paragraph of the style), as a single class of
+  // its own (client feedback V3: never "TXT-SIN-SANGRIA TXT-SIN-SANGRIA_1")
   const css = file('css/style.css')
-  assert.match(css, /p\.TXT-SIN-SANGRIA \{ text-align: justify;/)
-  assert.match(file('epig.xhtml'), /class="TXT-SIN-SANGRIA TXT-SIN-SANGRIA_\d"/)
-  assert.match(css, /p\.TXT-SIN-SANGRIA_\d \{ text-align: right;/)
+  assert.match(css, /p\.TXT-SIN-SANGRIA\n\{\n(font-size:\d+%;\n)?text-align:justify;/)
+  assert.match(file('epig.xhtml'), /class="TXT-SIN-SANGRIA(_v)?\d"/)
+  assert.match(css, /p\.TXT-SIN-SANGRIA(_v)?\d\n\{\n(font-size:\d+%;\n)?text-align:right;/)
   assert.deepEqual(r.review.filter((x) => /alignment/.test(x.msg)), [])
 
   const report = checkEpubBytes(r.epub, r.source)

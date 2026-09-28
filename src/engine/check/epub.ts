@@ -178,6 +178,12 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   }
   const navPath = navItems[0]?.href
   const pageNums: string[] = []
+  // page markers with no text between them: [page, next page, file]
+  const bunched: [string, string, string][] = []
+  // classes used in the text, and the classes the stylesheets define
+  const classUse = new Map<string, { n: number; file: string }>()
+  const cssText = [...files].filter(([p]) => p.endsWith('.css')).map(([, d]) => text(d)).join('\n').replace(/\/\*[\s\S]*?\*\//g, '')
+  const styled = new Set([...cssText.matchAll(/([^{}]+)\{/g)].flatMap((m) => [...m[1].matchAll(/\.([\w-]+)/g)].map((x) => x[1])))
   const sourceWords: string[] = []
   const paraCount = new Map<string, number>()
   let headingDocs = 0
@@ -239,7 +245,39 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       return /^[\divxlc]+\.?$/i.test(t) && line.replace(/\s+/g, ' ').trim() === t && !/noteref|backlink/.test(epubType(a) + (a.getAttribute('role') ?? ''))
     })
     if (bareLinks.length >= 3) content.push({ level: 'error', msg: `${bareLinks.length} contents entries show only a number (${bareLinks.slice(0, 4).map((a) => (a.textContent ?? '').trim()).join(', ')}…): the chapter titles are missing.`, where: it.href })
-    for (const t of Array.from(d.querySelectorAll('table'))) if (!t.querySelector('th')) a11y.push({ level: 'warn', msg: 'A table has no header cells (th).', where: it.href })
+    for (const t of Array.from(d.querySelectorAll('table'))) {
+      if (!t.querySelector('th')) a11y.push({ level: 'warn', msg: 'A table has no header cells (th): screen readers cannot announce the column names. To mark the first row as headers, choose “First row as table headers” in Settings.', where: it.href })
+      const ws = Array.from(t.querySelectorAll('col')).map((c) => (c.getAttribute('style') ?? '').match(/width:\s*([\d.]+)%/)?.[1]).filter((w) => w !== undefined).map(Number)
+      const sum = ws.reduce((a, b) => a + b, 0)
+      if (ws.length && Math.abs(sum - 100) > 1) valid.push({ level: 'warn', msg: `Table column widths add up to ${sum}%, not 100%: the table is wider or narrower than the page.`, where: it.href })
+    }
+    for (const el of Array.from(d.body?.querySelectorAll('[class]') ?? [])) {
+      for (const c of (el.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)) {
+        const u = classUse.get(c) ?? { n: 0, file: it.href }
+        u.n++
+        classUse.set(c, u)
+      }
+    }
+    {
+      // two page markers with nothing between them: fine for blank printed pages, a misplaced marker otherwise
+      let last = ''
+      let words = 0
+      const walk = (n: Node) => {
+        for (const c of Array.from(n.childNodes)) {
+          if (c.nodeType === 3) words += wordsOf(c.textContent ?? '').length
+          else if (c.nodeType === 1) {
+            const e = c as Element
+            if (/\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak') {
+              const n2 = e.id.replace(/^page-?/, '') || (e.getAttribute('aria-label') ?? '').replace(/^\D+\s/, '')
+              if (last && !words) bunched.push([last, n2, it.href])
+              last = n2
+              words = 0
+            } else walk(e)
+          }
+        }
+      }
+      walk(d.body ?? d.documentElement)
+    }
     for (const pb of Array.from(d.querySelectorAll('*')).filter((e) => /\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak')) {
       const n = pb.getAttribute('aria-label') ?? pb.getAttribute('title') ?? ''
       if (!n) a11y.push({ level: 'error', msg: 'A page marker has no page number (aria-label / title).', where: it.href })
@@ -303,6 +341,19 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     }
   }
 
+  // a marker that sits right after the previous page's marker, although that printed page has text,
+  // is misplaced (client feedback V3: all markers of the contents pages piled up above the heading)
+  if (src.printPages?.length) {
+    const printed = new Set(src.printPages)
+    const wrong = bunched.filter(([a]) => printed.has(a))
+    if (wrong.length)
+      content.push({ level: 'error', msg: `Page marker${wrong.length > 1 ? 's' : ''} ${wrong.map(([a, b]) => `${b} (right after ${a})`).slice(0, 6).join(', ')}${wrong.length > 6 ? '…' : ''} sit${wrong.length > 1 ? '' : 's'} next to the previous page's marker with no text between, although the printed page has text: the marker must go where its page starts.`, where: [...new Set(wrong.map((w) => w[2]))].slice(0, 3).join(', ') })
+  }
+  // classes the stylesheet does not define show as plain text ("style missing")
+  const unstyled = [...classUse].filter(([c]) => !styled.has(c))
+  if (unstyled.length)
+    valid.push({ level: 'warn', msg: `Class${unstyled.length > 1 ? 'es' : ''} used in the text but not defined in the stylesheet (the text shows unstyled): ${unstyled.slice(0, 8).map(([c, u]) => `${c} (${u.n}×, e.g. ${u.file.split('/').pop()})`).join(', ')}${unstyled.length > 8 ? '…' : ''}.` })
+
   // ---- accessibility metadata ----
   const missingMeta = A11Y_META.filter((p) => !prop(p).some(Boolean))
   if (missingMeta.length) a11y.push({ level: 'error', msg: `Accessibility metadata missing: ${missingMeta.join(', ')} (required by EPUB Accessibility 1.1).`, where: opfPath })
@@ -364,11 +415,19 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   if (src.printLayout?.length) {
     const look: Finding[] = []
     const name: Record<string, string> = { left: 'flush left', justify: 'justified', center: 'centred', right: 'right-aligned' }
-    const { checked, findings } = compareLook(files, src.printLayout)
+    const { checked, findings, indents } = compareLook(files, src.printLayout)
     // a real fault repeats (a whole style set wrong); a lone difference may be a quirk of the print layout
     const level = findings.length >= 3 ? 'error' : 'warn'
     for (const f of findings) look.push({ level, msg: `Page ${f.page}: “${f.text}” is ${name[f.ebook]} in the e-book but ${name[f.print]} in print.`, where: f.file })
     if (!findings.length) look.push({ level: 'pass', msg: `${checked.toLocaleString()} paragraphs are aligned as in the print book.` })
+    const how: Record<string, string> = {
+      indent: 'has a first-line indent', block: 'is indented as a block', hang: 'has a hanging indent', flush: 'starts at the margin', in: 'starts indented',
+    }
+    const perClass = new Map<string, number>()
+    for (const f of indents) perClass.set(f.cls, (perClass.get(f.cls) ?? 0) + 1)
+    for (const f of indents)
+      look.push({ level: (perClass.get(f.cls) ?? 0) >= 3 ? 'error' : 'warn', msg: `Page ${f.page}: “${f.text}” ${how[f.ebook]} in the e-book (class ${f.cls || 'none'}) but ${how[f.print]} in print.`, where: f.file })
+    if (!indents.length) look.push({ level: 'pass', msg: 'Paragraph indents match the print book.' })
     groups.push(group('look', look))
   }
   groups.push(group('details', details))
@@ -405,7 +464,7 @@ const GROUPS: Record<CheckGroup['id'], [string, string]> = {
   valid: ['Valid EPUB file', 'What EPUBCheck, the validator every store runs, looks at: the file structure, package, links and pictures.'],
   a11y: ['Accessibility', 'What Ace by DAISY looks at: people using screen readers need language, headings, picture descriptions, navigation and page numbers.'],
   content: ['Content complete', 'Nothing lost or duplicated compared with the source, every printed page has a marker, no empty chapters.'],
-  look: ['Looks like the print book', 'Each paragraph compared with the print PDF: text centred, right-aligned or justified where print has it so.'],
+  look: ['Looks like the print book', 'Each paragraph compared with the print PDF: text centred, right-aligned or justified where print has it so, and indented where print indents it.'],
   details: ['Book details', 'Title, author, publisher, ISBN and cover as the stores will show them.'],
 }
 const group = (id: CheckGroup['id'], findings: Finding[]): CheckGroup => ({ id, title: GROUPS[id][0], explain: GROUPS[id][1], findings: dedupe(findings) })

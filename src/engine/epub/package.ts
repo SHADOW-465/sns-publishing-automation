@@ -2,10 +2,10 @@ import { type Files, bytes, zipEpub } from '../zip.ts'
 import { esc, xhtmlDoc } from '../xml.ts'
 import { type Decls } from '../indesign/css.ts'
 import { labelsFor, type SectionType } from './locale.ts'
-import { buildCss } from './css.ts'
+import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
-import { settings } from '../settings.ts'
+import { settings, htmlLangAttrs } from '../settings.ts'
 
 export interface BookMeta {
   title: string
@@ -85,11 +85,11 @@ export function packageEpub(p: {
     /^<section[^>]*>/.test(body) && body.trimEnd().endsWith('</section>')
       ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
       : `<div xml:lang="${lang}">\n${body}\n</div>`
-  put('OEBPS/cover.xhtml', xhtmlDoc(lang, L.cover, 'css/style.css',
+  put('OEBPS/cover.xhtml', xhtmlDoc(htmlLangAttrs(lang), L.cover, 'css/style.css',
     `<section epub:type="cover">\n${langDiv(`<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg" role="doc-cover" src="${p.cover.path}"/></p>`)}\n</section>`))
-  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(lang, s.title, 'css/style.css', langDiv(s.body)))
+  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(htmlLangAttrs(lang), s.title, 'css/style.css', langDiv(s.body)))
   const extra = settings().extraCss.trim()
-  put('OEBPS/css/style.css', (p.css ?? buildCss(p.usedClasses, p.bodyDecls)) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
+  put('OEBPS/css/style.css', formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls)) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
   files.set(`OEBPS/${p.cover.path}`, p.cover.data)
   for (const im of p.images) files.set(`OEBPS/${im.path}`, im.data)
 
@@ -108,7 +108,7 @@ export function packageEpub(p: {
   const tocSec = sections.find((s) => s.type === 'toc')
   const titleSec = sections.find((s) => s.type === 'title')
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
-  put('OEBPS/nav.xhtml', xhtmlDoc(lang, L.navTitle, 'css/style.css', [
+  put('OEBPS/nav.xhtml', xhtmlDoc(htmlLangAttrs(lang), L.navTitle, 'css/style.css', [
     // EPUBCheck's navigation schema rejects aria-label(ledby) on <nav>: the headings name them
     `<section epub:type="frontmatter">`,
     settings().langWrapper ? `<div xml:lang="${lang}">` : '',
@@ -166,7 +166,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   if (pageList.length) features.push('pageNavigation')
   if (/<img alt="[^"]+"/.test(html) || coverAlt) features.push('alternativeText')
   if (/doc-noteref/.test(html)) features.push('annotations')
-  if (/<table/.test(html)) features.push('tableHeaders')
+  if (/<th[\s>]/.test(html)) features.push('tableHeaders') // only when tables really have header cells
   if (sections.some((s) => s.type === 'index')) features.push('index')
   const unique = new Map<string, ImageOut>()
   for (const im of allImgs) unique.set(im.path, im)

@@ -56,10 +56,11 @@ export function resolvePath(base: string, href: string): string {
   return parts.join('/')
 }
 
-export const xhtmlDoc = (lang: string, title: string, css: string, body: string) =>
+/** `langAttrs`: the language attribute(s) of <html>, e.g. `xml:lang="es-ES"` (see htmlLangAttrs in settings). */
+export const xhtmlDoc = (langAttrs: string, title: string, css: string, body: string) =>
   `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${lang}" xml:lang="${lang}">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" ${langAttrs}>
 <head>
 <title>${esc(title)}</title>
 <link href="${css}" rel="stylesheet" type="text/css"/>

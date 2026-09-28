@@ -1,7 +1,7 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
 import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
 import { px, isOverride, type Decls } from './css.ts'
-import { ruleFor } from '../epub/css.ts'
+import { houseDecls, cellDecls, ruleOf } from '../epub/css.ts'
 import { type Files } from '../zip.ts'
 import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type Labels, type SectionType } from '../epub/locale.ts'
@@ -9,7 +9,7 @@ import { packageEpub, type BookMeta, type Section, type ReviewItem, type ImageOu
 import { imageSize, withRealExt } from '../epub/image.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
-import { settings, isHousePrintOnly } from '../settings.ts'
+import { settings, isHousePrintOnly, variantProps } from '../settings.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
@@ -150,6 +150,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const named = b.classes.filter((c) => !isOverride(c))
     return named.length ? ex.css.decls('p', named) : declsOf(b)
   }
+  // the body text style (the most used paragraph style): sizes and lengths are measured against it
+  const bodyKey = [...input.styles].filter((x) => x.role === 'p').sort((x, y) => y.count - x.count)[0]?.key
+  const bodyDecls = ex.css.decls('p', ex.blocks.find((b): b is PBlock => b.t === 'p' && b.key === bodyKey)?.classes ?? [])
 
   // ---- 2a. split the block stream into sections --------------------------------------------
   const opening: Block[] = []
@@ -313,7 +316,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
 
   // ---- 2d. link table-of-contents style sections -------------------------------------------
   const headingIds = new Map<PBlock, string>()
-  const tocHtml = new Map<Sec, string[]>()
+  // rebuilt entries, each with the paragraph it came from (page markers stay between the entries)
+  const tocHtml = new Map<Sec, { html: string; src: PBlock }[]>()
   let secNo = 0
   const repaired: string[] = []
   const headings = all.flatMap((s) =>
@@ -323,7 +327,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const entries = s.items.filter((b): b is PBlock => b.t === 'p')
     const tocLike = s.type === 'toc' || s.type === 'list' || (entries.length > 2 && entries.filter((b) => roleOf(b) === 'toc').length / entries.length >= 0.5)
     if (!tocLike) continue
-    const out: string[] = []
+    const out: { html: string; src: PBlock }[] = []
     let lastTarget: Sec | undefined
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
@@ -338,7 +342,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         // "Primera parte" + next entry "Identifica tu…" → one linked entry
         const next = entries[i + 1]
         if (next && norm(next.text) === norm(labelOnly.titleText)) i++
-        out.push(`<p class="toc_2"><a href="${labelOnly.stem}.xhtml">${headingInner(labelOnly, 'toc_2a')}</a></p>`)
+        out.push({ html: `<p class="toc_2"><a href="${labelOnly.stem}.xhtml">${headingInner(labelOnly, 'toc_2a')}</a></p>`, src: e })
         continue
       }
       // a line that only continues the previous entry's title ("…débil / de Sheinbaum 175") is not an entry
@@ -349,38 +353,38 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       if (target) {
         lastTarget = target
         const cls = target.type === 'part' ? 'toc_2' : target.label.length || target.type === 'chapter' ? 'toc_1a' : 'toc_1'
-        out.push(`<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`)
+        out.push({ html: `<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`, src: e })
         continue
       }
       if (labelOnly) {
         lastTarget = labelOnly
         // the export lost the chapter title ("2." only): rebuild the entry from the chapter heading
         if (s.type === 'toc' && labelOnly.titleText && !n.replace(norm(labelOnly.labelText), '')) {
-          out.push(`<p class="toc_1a"><a href="${labelOnly.stem}.xhtml">${esc(labelOnly.nav)}</a></p>`)
+          out.push({ html: `<p class="toc_1a"><a href="${labelOnly.stem}.xhtml">${esc(labelOnly.nav)}</a></p>`, src: e })
           repaired.push(labelOnly.nav)
-        } else out.push(`<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`)
+        } else out.push({ html: `<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`, src: e })
         continue
       }
       const h = headings.find((x) => norm(x.b.text) === n) ?? headings.find((x) => page && x.b.page === page && (norm(x.b.text).includes(n) || n.includes(norm(x.b.text))))
       if (h) {
         if (!headingIds.has(h.b)) headingIds.set(h.b, `sec${++secNo}`)
-        out.push(`<p class="toc_1a"><a href="${h.s.stem}.xhtml#${headingIds.get(h.b)}">${html}</a></p>`)
+        out.push({ html: `<p class="toc_1a"><a href="${h.s.stem}.xhtml#${headingIds.get(h.b)}">${html}</a></p>`, src: e })
         continue
       }
       const byPage = page && all.find((x) => x.firstPage === page)
       if (byPage && byPage === lastTarget) continue
       if (byPage) {
-        out.push(`<p class="toc_1"><a href="${byPage.stem}.xhtml">${html}</a></p>`)
+        out.push({ html: `<p class="toc_1"><a href="${byPage.stem}.xhtml">${html}</a></p>`, src: e })
         review.push({ level: 'warn', msg: `TOC entry "${e.text}" linked by page number only (text did not match a heading).`, where: s.stem })
         continue
       }
-      out.push(`<p class="toc_1">${html}</p>`)
+      out.push({ html: `<p class="toc_1">${html}</p>`, src: e })
       review.push({ level: 'error', msg: `TOC entry "${e.text}" could not be linked to any section.`, where: s.stem })
     }
     tocHtml.set(s, out)
     if (repaired.length) review.push({ level: 'info', msg: `Contents: ${repaired.length} entr${repaired.length === 1 ? 'y' : 'ies'} had lost their chapter title in the InDesign export and were rebuilt from the chapter headings (${repaired.slice(0, 3).join('; ')}${repaired.length > 3 ? '…' : ''}).`, where: s.stem })
     // every chapter and part should be reachable from the printed contents
-    const linked = new Set([...out.join('\n').matchAll(/href="([^"#]+)\.xhtml/g)].map((m) => m[1]))
+    const linked = new Set([...out.map((x) => x.html).join('\n').matchAll(/href="([^"#]+)\.xhtml/g)].map((m) => m[1]))
     const missing = all.filter((x) => (x.type === 'chapter' || x.type === 'part') && !linked.has(x.stem))
     if (s.type === 'toc' && missing.length) review.push({ level: 'warn', msg: `Contents page does not list: ${missing.map((x) => x.nav).slice(0, 5).join('; ')}${missing.length > 5 ? '…' : ''}. They are still in the navigation menu.`, where: s.stem })
   }
@@ -416,6 +420,47 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     if (seriesCaps.size) review.push({ level: 'info', msg: `${seriesCaps.size} heading(s) of a numbered series set in small caps like the rest of their series (e.g. “${[...seriesCaps][0].text}”).` })
   }
 
+  // ---- how each class looks: what most of its paragraphs look like in the source -------------
+  // A style's CSS is the look most of its paragraphs share (InDesign styles are often overridden
+  // everywhere); a paragraph that differs in a way that matters (Settings → variantOn) gets a class
+  // of its own — one class per element ("Texto_1", never "Texto Texto_1": client feedback V3).
+  const lookTally = new Map<string, Map<string, { d: Decls; n: number }>>()
+  const tallyLook = (key: string, d: Decls, look: string) => {
+    const t = lookTally.get(key) ?? new Map<string, { d: Decls; n: number }>()
+    const e = t.get(look) ?? { d, n: 0 }
+    e.n++
+    t.set(look, e)
+    lookTally.set(key, t)
+  }
+  const majority = (key: string): Decls | undefined => [...(lookTally.get(key)?.values() ?? [])].sort((x, y) => y.n - x.n)[0]?.d
+  const paraLook = (tg: string, d: Decls) => ruleOf('x', houseDecls(tg, d, bodyDecls))
+  const tagOf = (r: Role) => (r === 'h3' || r === 'h4' || r === 'h5' ? r : 'p')
+  const cellsOfTable = (t: Element) => Array.from(t.querySelectorAll('tr')).flatMap((tr) => Array.from(tr.children).filter((c) => /^t[dh]$/.test(tag(c))))
+  const cellInfo = (c: Element) => {
+    const named = classesOf(c).filter((x) => !isOverride(x))
+    const p = c.querySelector('p')
+    return { cls: cssClassName(named[0] ?? 'cell'), d: cellDecls(ex.css.decls('td', classesOf(c)), p ? ex.css.decls('p', classesOf(p)) : {}) }
+  }
+  for (const s of all) {
+    if (s.type === 'halftitle' || s.type === 'title' || s.type === 'copyright' || tocHtml.has(s)) continue
+    for (const b of s.items) {
+      if (b.t === 'table') for (const c of cellsOfTable(b.el)) {
+        const { cls, d } = cellInfo(c)
+        tallyLook(`td.${cls}`, d, ruleOf('x', d))
+      }
+      if (b.t !== 'p' || !b.text) continue
+      const r = roleOf(b)
+      if (r !== 'p' && r !== 'h3' && r !== 'h4' && r !== 'h5') continue
+      tallyLook(`${tagOf(r)}.${classOf(b)}`, declsOf(b), paraLook(tagOf(r), declsOf(b)))
+    }
+  }
+  const allClasses = new Set(input.styles.map((x) => x.outClass))
+  /** "Texto" → "Texto1", "Ladillo-2" → "Ladillo-2_1" (as the reference: "No-Table-Style1") */
+  const variantName = (cls: string, n: number) => {
+    const name = /\d$/.test(cls) ? `${cls}_${n}` : `${cls}${n}`
+    return allClasses.has(name) ? `${cls}_v${n}` : name
+  }
+
   const sections: Section[] = []
   for (const s of all) {
     const file = `${s.stem}.xhtml`
@@ -443,23 +488,33 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const use = (tg: string, cls: string, d: Decls) => {
       if (!usedClasses.has(`${tg}.${cls}`)) usedClasses.set(`${tg}.${cls}`, { tag: tg, decls: d })
     }
-    /** class attribute for a paragraph: its style, plus a variant class when its own overrides change the look */
-    const classAttr = (tg: string, b: PBlock, cls: string): string => {
-      const base = styleDeclsOf(b)
+    /** class of an element: its style, or a class of its own when its overrides change the look in a way that matters */
+    const classFor = (tg: string, cls: string, base: Decls, full: Decls, props: Set<string> | 'all', declsFor: (d: Decls) => Decls): string => {
       use(tg, cls, base)
+      if (settings().styleVariants === 'ignore') return cls
+      const hb = declsFor(base)
+      const hf = declsFor(full)
+      const keys = props === 'all' ? [...new Set([...Object.keys(hb), ...Object.keys(hf)])] : [...props]
+      if (keys.every((k) => hb[k] === hf[k])) return cls
+      const vkey = `${tg}.${cls}|${keys.map((k) => `${k}:${hf[k] ?? ''}`).join(';')}`
+      let name = variants.get(vkey)
+      if (!name) {
+        name = variantName(cls, [...variants.keys()].filter((k) => k.startsWith(`${tg}.${cls}|`)).length + 1)
+        variants.set(vkey, name)
+      }
+      use(tg, name, full)
+      return name
+    }
+    const classAttr = (tg: string, b: PBlock, cls: string): string => {
       const full = declsOf(b)
       const t = alignTally.get(`${tg}.${cls}`) ?? new Map<string, number>()
       t.set(full['text-align'] ?? '', (t.get(full['text-align'] ?? '') ?? 0) + 1)
       alignTally.set(`${tg}.${cls}`, t)
-      const look = ruleFor(tg, 'x', full, {})
-      if (look === ruleFor(tg, 'x', base, {})) return cls
-      let name = variants.get(`${tg}.${cls}|${look}`)
-      if (!name) {
-        name = `${cls}_${[...variants.keys()].filter((k) => k.startsWith(`${tg}.${cls}|`)).length + 1}`
-        variants.set(`${tg}.${cls}|${look}`, name)
-      }
-      use(tg, name, full)
-      return `${cls} ${name}`
+      return classFor(tg, cls, majority(`${tg}.${cls}`) ?? styleDeclsOf(b), full, variantProps(), (d) => houseDecls(tg, d, bodyDecls))
+    }
+    const cellClass = (c: Element): string => {
+      const { cls, d } = cellInfo(c)
+      return classFor('td', cls, majority(`td.${cls}`) ?? d, d, 'all', (x) => x)
     }
     let body = ''
     const meta0 = SECTION_META[s.type]
@@ -469,7 +524,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
     let inNotes = false
     const verse = settings().verseLines ? verseLines(s.items) : new Map<PBlock, string>()
-    for (const b of isFront ? [] : s.items) {
+    for (const b of isFront || tocHtml.has(s) ? [] : s.items) {
       if (b.t === 'pb') {
         items.push({ kind: 'other', html: ctx.pageMarker(b.n) })
         continue
@@ -484,14 +539,13 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         continue
       }
       if (b.t === 'table') {
-        items.push({ kind: 'other', html: renderTable(b.el, ctx, ex) })
+        items.push({ kind: 'other', html: renderTable(b.el, ctx, ex, cellClass) })
         continue
       }
       for (const el of Array.from(b.el.querySelectorAll('[id]'))) idFile.set(el.id, file)
       if (b.el.id) idFile.set(b.el.id, file)
       const r = roleOf(b)
       const cls = classOf(b)
-      if (tocHtml.has(s)) continue
       if (r === 'bullet') {
         use('li', 'bull', {})
         items.push({ kind: 'li', html: inlineHtml(b.el, ctx, { stripBullet: true }) })
@@ -514,9 +568,30 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     }
     linkedNotes += linkNotes(items, s.headId || s.stem)
     if (tocHtml.has(s)) {
-      // keep page markers of the printed TOC pages, then the rebuilt linked entries
-      body += items.filter((x) => x.html.startsWith('<span')).map((x) => x.html).join('\n') + '\n'
-      body += heading + '\n' + tocHtml.get(s)!.join('\n')
+      // the rebuilt linked entries in source order, each page marker where its printed page starts
+      // (client feedback V3: markers of the contents pages were all piled up above the heading)
+      const entries = tocHtml.get(s)!
+      const parts: string[] = []
+      let headed = !heading
+      const mark = (n: string) => {
+        const m = ctx.pageMarker(n)
+        if (m) parts.push(m)
+      }
+      for (const b of s.items) {
+        if (b.t === 'pb') {
+          mark(b.n)
+          continue
+        }
+        if (b.t !== 'p') continue
+        if (!headed) (parts.push(heading), (headed = true))
+        for (const el of Array.from(b.el.querySelectorAll('[id]'))) idFile.set(el.id, file)
+        const inner = innerMarkers(b.el)
+        inner.before.forEach(mark)
+        parts.push(...entries.filter((x) => x.src === b).map((x) => x.html))
+        inner.after.forEach(mark)
+      }
+      if (!headed) parts.push(heading)
+      body += parts.join('\n')
     } else if (isFront) {
       body += renderFront(s, ctx, meta, logos, imgName, imgOut, ex, L, review, declsOf, dropped)
     } else {
@@ -525,7 +600,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       while (k < items.length && items[k].html.startsWith('<span') && items[k].kind === 'other') body += items[k++].html + '\n'
       body += heading + '\n' + groupItems(items.slice(k))
     }
-    if (notes.length) body += `\n<div class="footnotes">\n${notes.join('\n')}\n</div>`
+    if (notes.length) body += `\n<div class="footnotes">\n${settings().footnoteRule === 'none' ? '' : '<hr class="footline"/>\n'}${notes.join('\n')}\n</div>`
     const name = s.nav || (s.type === 'dedication' ? L.dedication : s.type === 'epigraph' ? L.epigraph : L.front)
     const lbl = s.headId && heading ? ` aria-labelledby="${s.headId}"` : ` aria-label="${esc(name)}"`
     const etype = s.type === 'other' && s.stem.startsWith('fm') ? 'frontmatter' : meta0.epubType
@@ -568,7 +643,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
 
   const { epub, files } = packageEpub({
     meta, sections, cover, images: imgOut, usedClasses,
-    bodyDecls: ex.css.decls('p', a.ex.blocks.find((b): b is PBlock => b.t === 'p' && prof.get(b.key)?.outClass === 'indent')?.classes ?? []),
+    bodyDecls,
     review,
   })
   // pages that held only the imprint moved to the copyright page: they keep no marker of their own
@@ -577,7 +652,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const movedPages = new Set((input.printPages ?? []).filter((p) => firstLine && sq(p.text).includes(firstLine)).map((p) => p.n))
   // the source text the e-book must contain: every paragraph, table cell and footnote of the export
   const srcText = [
-    ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? textOf(b.el) : '')),
+    ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? Array.from(b.el.querySelectorAll('td, th')).map(textOf).join(' ') : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
   const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
@@ -624,6 +699,24 @@ function renderHeading(
   const c = classOf(only[0])
   use(h, c, declsOf(only[0]))
   return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
+}
+
+/** Page markers inside a paragraph: before any of its text (the page starts with it) or after. */
+function innerMarkers(el: Element): { before: string[]; after: string[] } {
+  const out = { before: [] as string[], after: [] as string[] }
+  let seen = false
+  const walk = (n: Node) => {
+    for (const c of Array.from(n.childNodes)) {
+      if (c.nodeType === 3) seen ||= !!(c.textContent ?? '').trim()
+      else if (c.nodeType === 1) {
+        const pb = pageBreakOf(c as Element)
+        if (pb !== null) (seen ? out.after : out.before).push(pb)
+        else walk(c)
+      }
+    }
+  }
+  walk(el)
+  return out
 }
 
 type Item = { kind: 'li' | 'inset' | 'note' | 'other'; html: string; note?: string }
@@ -721,32 +814,69 @@ function renderFootnote(li: Element, num: string, marker: string, ex: Export, la
   return `<div epub:type="footnote" id="fn-${num}" role="doc-footnote">\n${paras.join('\n')}\n</div>`
 }
 
-function renderTable(el: Element, ctx: InlineCtx, ex: Export): string {
+/** Column widths in %, summing to exactly 100: from the widths InDesign exported for the columns,
+ *  or estimated from the text in them. Narrow columns ("Sí", "No") get at least 10%. */
+export function columnWidths(raw: number[]): number[] {
+  const n = raw.length
+  if (!n) return []
+  const total = raw.reduce((a, b) => a + b, 0) || n
+  const pct = raw.map((x) => ((total === n && !raw.some(Boolean) ? 1 : x) / total) * 100)
+  const min = Math.min(10, 100 / n)
+  let debt = 0
+  for (let i = 0; i < n; i++) if (pct[i] < min) (debt += min - pct[i], (pct[i] = min))
+  while (debt > 1e-9) {
+    const wide = pct.map((w, i) => [w, i]).filter(([w]) => w > min).sort((x, y) => y[0] - x[0])
+    if (!wide.length) break
+    const take = Math.min(debt, wide[0][0] - min)
+    pct[wide[0][1]] -= take
+    debt -= take
+  }
+  // round to whole percents, handing the remainder to the largest fractions
+  const floor = pct.map(Math.floor)
+  let rest = 100 - floor.reduce((a, b) => a + b, 0)
+  for (const i of pct.map((w, i) => [w - Math.floor(w), i]).sort((x, y) => y[0] - x[0]).map(([, i]) => i)) {
+    if (rest <= 0) break
+    floor[i]++
+    rest--
+  }
+  return floor
+}
+
+function renderTable(el: Element, ctx: InlineCtx, ex: Export, cellClass: (c: Element) => string): string {
   const rows = Array.from(el.querySelectorAll('tr'))
   const cellsOf = (tr: Element) => Array.from(tr.children).filter((c) => /^t[dh]$/.test(tag(c)))
-  const ncol = Math.max(...rows.map((r) => cellsOf(r).reduce((n, c) => n + Number(c.getAttribute('colspan') ?? 1), 0)))
-  const len = new Array(ncol).fill(4)
-  rows.forEach((r) => cellsOf(r).forEach((c, i) => (len[i] = Math.max(len[i] ?? 4, Math.min(60, textOf(c).length)))))
-  const total = len.reduce((a, b) => a + b, 0)
-  const widths = len.map((l) => Math.max(10, Math.round((l / total) * 100)))
+  const ncol = Math.max(0, ...rows.map((r) => cellsOf(r).reduce((n, c) => n + Number(c.getAttribute('colspan') ?? 1), 0)))
+  // widths InDesign exported for the columns (<col class="_idGenTableRowColumn-N"> + CSS width)
+  const cols = Array.from(el.querySelectorAll('col'))
+  const given = cols.map((c) => px(ex.css.decls('col', classesOf(c))['width'] ?? c.getAttribute('width') ?? ''))
+  let raw: number[]
+  if (cols.length === ncol && given.every((w) => w > 0)) raw = given
+  else {
+    raw = new Array(ncol).fill(4)
+    rows.forEach((r) => cellsOf(r).forEach((c, i) => (raw[i] = Math.max(raw[i] ?? 4, Math.min(60, textOf(c).length)))))
+  }
+  const widths = columnWidths(raw)
   const isHead = (tr: Element) =>
     cellsOf(tr).every((c) => {
       const d = ex.css.decls('td', classesOf(c))
       const p = c.querySelector('p')
       return !!d['background-color'] || tag(c) === 'th' || (p ? /cabecer|head|titul/i.test(p.getAttribute('class') ?? '') || ex.css.paragraphFace(classesOf(p)).bold : false)
     })
-  const headRows = rows.length > 1 && isHead(rows[0]) ? 1 : 0
+  // Settings → tableHeaders: 'th' marks the header row for screen readers; 'reference' writes every
+  // cell as <td> with its cell style, as the hand-finished EPUB does (client feedback V3)
+  const headRows = settings().tableHeaders === 'th' && rows.length > 1 && isHead(rows[0]) ? 1 : 0
   const cell = (c: Element, th: boolean) => {
     const span = ['colspan', 'rowspan'].map((a) => (c.getAttribute(a) ? ` ${a}="${c.getAttribute(a)}"` : '')).join('')
     const ps = Array.from(c.querySelectorAll('p'))
     const inner = ps.length ? ps.map((p) => inlineHtml(p, ctx)).join('<br/>') : inlineHtml(c, ctx)
-    return th ? `<th scope="col"${span}>${inner}</th>` : `<td${span}>${inner}</td>`
+    const cls = ` class="${cellClass(c)}"`
+    return th ? `<th${cls} scope="col"${span}>${inner}</th>` : `<td${cls}${span}>${inner}</td>`
   }
-  const tr = (r: Element, th: boolean) => `<tr>${cellsOf(r).map((c) => cell(c, th)).join('')}</tr>`
-  const cls = cssClassName(classesOf(el)[0] ?? 'table')
+  const tr = (r: Element, th: boolean) => `<tr>\n${cellsOf(r).map((c) => cell(c, th)).join('\n')}\n</tr>`
+  const cls = cssClassName(classesOf(el).find((c) => !isOverride(c)) ?? classesOf(el)[0] ?? 'table')
   return [
     `<table class="${cls}"${el.id ? ` id="${el.id}"` : ''}>`,
-    `<colgroup>${widths.map((w) => `<col style="width:${w}%;"/>`).join('')}</colgroup>`,
+    `<colgroup>\n${widths.map((w) => `<col style="width:${w}%;"/>`).join('\n')}\n</colgroup>`,
     headRows ? `<thead>\n${tr(rows[0], true)}\n</thead>` : '',
     `<tbody>\n${rows.slice(headRows).map((r) => tr(r, false)).join('\n')}\n</tbody>`,
     `</table>`,
