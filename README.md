@@ -16,7 +16,7 @@ leave the machine: the same build works as a Vercel site now and as an offline d
 ```bash
 npm install
 npm run dev        # app on http://localhost:5173
-npm test           # rules tests (always) + regression tests against the Automation/ samples (skipped if absent)
+npm test           # rules and spec tests (always) + regression tests against the Automation/ samples (skipped if absent)
 npm run sample     # InDesign → EPUB on the Cambia tu mente sample, from the command line
 npm run sample:pdf # print PDF → EPUB on the Contemporary Ceramics sample (~3 min)
 node --import ./test/setup.ts test/run-ua-sample.ts simple out   # PDF/UA on a sample (medium|simple)
@@ -33,29 +33,81 @@ pdf.js worker locally, so it can be wrapped as-is in Tauri or Electron and runs 
 
 ## The screens
 
-A **Start** page explains the purpose and lets the operator pick by what they have. Each EPUB
-workflow is five steps, in plain words with a “What is this?” help under each:
+A **Start** page explains the purpose and lets the operator pick by what they have. *InDesign to EPUB* has
+six steps, in plain words with a “What is this?” help under each:
 
-1. **Files** — what to add and why.
-2. **Book details** — title, subtitle, author, publisher, ISBNs. Each field says where it was found
+1. **Files**: what to add and why.
+2. **Book details**: title, subtitle, author, publisher, ISBNs. Each field says where it was found
    (“from the copyright line”); doubtful values are shown in red.
-3. **Structure** — the book as a reader gets it: every part in order, labelled (half title, title
+3. **House style**: the client's spec (see *Client spec* below). Every rule, set for all the client's
+   books or for this book only, then accepted (or not), with the decision recorded.
+4. **Structure**: the book as a reader gets it: every part in order, labelled (half title, title
    page, copyright, dedication, contents, chapter…), with its printed pages, word count, pictures
    and notes, and a preview. The InDesign style table sits under *Advanced*; choices are saved per
    publisher.
-4. **Pictures** — thumbnails with description fields and a “decorative” tick-box.
-5. **Check & download** — the built-in quality report and the automatic changes. The download
-   button is held back while anything must be fixed (a second click downloads anyway, for testing).
+5. **Pictures**: thumbnails with description fields and a “decorative” tick-box.
+6. **Check & download**: which spec the book was built with and whether it was accepted, the built-in
+   quality report and the automatic changes. The download button is held back while anything must be
+   fixed (a second click downloads anyway, for testing).
 
+*PDF or Word to EPUB* has five steps (no House style step yet; it builds with the house settings).
 **Check an EPUB** runs the same report on any EPUB (a supplier's, an older one), optionally
 against the print PDF.
 
+## Client spec: the client sets the rules (`src/engine/spec/`)
+
+Corrections used to arrive one at a time as screenshots, and each became a code change. Now every
+rule is data the client sets himself, and his choices are kept as proof.
+
+- **Rule registry** (`rules.ts`): each house rule has
+  - an ID used in every conversation (`TBL-01`, `NOTE-03`);
+  - a plain description and an example of the markup it produces;
+  - the setting it controls, and the words people use for it in requirement documents;
+  - a kind: *fixed* (needed for a valid EPUB; shown, never changed), *accessibility* (changes only
+    with a waiver) or *your choice*.
+
+  The Settings screen, the House style step and the Excel spec workbook are generated from this list.
+  A new kind of client request becomes a new rule here (ID, setting, keywords, example, test), never a one-off fix.
+- **Layers** (`layers.ts`): house defaults → client style (all books of that publisher) → series →
+  this book. A later layer wins. Each value in effect shows who set it, and the file and row when it
+  came from a client document.
+- **Accessibility waivers**: an accessibility rule (TBL-01 table header cells, A11Y-01 picture
+  descriptions) changes only after the client ticks *“Yes, I know this reduces accessibility, do it anyway.”*
+  Until then the accessible value is used. The tick is recorded with his name and the time.
+- **Acceptance**: the House style step ends with *Accept this spec and continue* or *Continue without
+  accepting*. Both are recorded with:
+  - his name and the time;
+  - the spec fingerprint;
+  - the full settings in effect;
+  - any waivers.
+
+  The Check step shows it next to the download.
+- **Decision record** (`store.ts`): append-only (never edited or deleted). Today it is kept in the browser
+  (`BrowserStore`) and can be backed up from Settings. For the desktop app, implement the `SpecStore`
+  interface over SQLite with `docs/spec-schema.sql`; its triggers keep the decision table append-only.
+- **Client requirement files** (`requirements.ts`, `office.ts`): in the House style step, load a Word,
+  Excel, CSV or text file.
+  - Each paragraph or row is matched to a rule by its words, and the value by the words for each choice.
+  - The person confirms each suggestion, then applies it to the client style or to this book.
+  - Unmatched requirements are *open questions*, downloadable as Excel to send back.
+  - The spec workbook (downloaded from the step, one row per rule with drop-downs) imports back exactly.
+- **AI matching** (`ai.ts`, optional): for free-form documents keywords miss, *Match with AI* sends the
+  requirement text (never the book) to Groq's free API.
+  - Model: `openai/gpt-oss-120b` or `gpt-oss-20b`, strict JSON-schema output.
+  - Requirements go in batches of 20, which fits the free tier (about 30 requests and 8,000 tokens a minute).
+  - Enter the key in Settings → AI; it stays in the browser and is never exported.
+  - Suggestions are confirmed row by row like the keyword ones.
+
 ## Settings (`src/engine/settings.ts`, Settings tab)
 
-House rules a team adjusts without code, saved in the browser and exportable as a JSON file (load it
-on another computer so the whole team works the same way). A file from an older version, or edited
-by hand, is checked on loading: unknown or out-of-range values fall back to the default.
-Defaults follow the client's corrections (V2 25-9-26, V3 28-9-26).
+The house defaults under every client's spec, one control per rule of the registry (with its ID),
+saved in the browser and exportable as a JSON file. A file from an older version, or edited by hand,
+is checked on loading: unknown or out-of-range values fall back to the default.
+Also on this screen:
+- the reader-facing words;
+- the Groq AI key;
+- every client style (Excel export each);
+- the decision record, and a backup of all specs and records.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -65,11 +117,17 @@ Defaults follow the client's corrections (V2 25-9-26, V3 28-9-26).
 | `verseLines` | on | a quotation broken into short lines is verse: `extract1` lines, `extract2` last line |
 | `htmlLang` | `xml:lang` | language attribute(s) on `<html>`: `xml:lang` only (as the reference), `both`, or `lang` |
 | `styleVariants` / `variantOn` | `own` / align, indent, face | a paragraph changed by hand in InDesign gets **one** class of its own (`Texto1`, never `Texto Texto1`) only when the change is of a ticked kind; size, font and spacing changes are typesetting noise by default |
-| `tableHeaders` | `reference` | tables as the hand-finished EPUB (`<td>` with the InDesign cell style, header row with its own class) or `th` (`<thead>`, `<th scope="col">`) |
+| `tableHeaders` (TBL-01) | `th` | header cells for screen readers (`<thead>`, `<th scope="col">`), or `reference`: as the hand-finished EPUB (`<td>` with the InDesign cell style). `reference` needs the accessibility waiver in the client's spec |
 | `footnoteRule` / `footnoteRuleWidth` | `short` / 30 % | line above the footnotes: short as in print, full width, or none |
 | `cssFormat` | `vertical` | stylesheet one declaration per line with margins written out (as the reference), or `compact` |
 | `maxSpaceEm` | 2 | largest space above/below a paragraph taken over from print |
 | `blockSpaceEm` | 1 | space around indented blocks (`div.top`); a margin, so it overlaps the paragraphs' own space |
+| `headingSpaceAboveEm` / `headingSpaceBelowEm` (HD-04/05) | 3 / 2 | least space above and below part, chapter and section titles |
+| `headingScalePct` (HD-06) | 100 | scales every heading size taken from InDesign |
+| `footnoteIndentEm` (NOTE-03) | 1.5 | first-line indent of footnotes |
+| `tocEntryIndentEm` (NAV-01) | 0 | indent of chapter entries on the printed contents and list pages |
+| `blockClass` (TXT-04) | `extract1` | class of indented blocks without an InDesign style |
+| `altRequired` (A11Y-01) | `error` | a picture with no description stops delivery; `warn` needs the waiver |
 | `houseCss` | empty | replaces the built-in house stylesheet (fixed classes `indent`, `extract1`, `toc_1`…) |
 | `extraCss` | empty | appended to every e-book's stylesheet |
 | `printOnly` | — | phrases of print-only lines removed from the copyright page |
@@ -81,7 +139,7 @@ under *Advanced* and saved per publisher.
 
 ## Client feedback V3 (28-9-26, *Cambia tu mente*)
 
-Each point is a rule now, covered by `test/house-style.test.ts` on a hand-written InDesign export
+Each point is a rule now, covered by `test/house-style.test.ts` and `test/spec.test.ts` on a hand-written InDesign export
 (`test/fixtures/indesign-export.ts`) that reproduces it, so it runs without the sample books:
 
 | # | Comment | Rule |
@@ -90,10 +148,15 @@ Each point is a rule now, covered by `test/house-style.test.ts` on a hand-writte
 | 6 | "First style is dummy" (`Ladillo-2 Ladillo-2_1`) | one class per element; a class looks like most of its paragraphs; hand overrides of size, font or spacing no longer make a variant (`styleVariants`, `variantOn`) |
 | 7 | CSS order vertical | vertical layout, margins written out in the reference order (`cssFormat`) |
 | 9–10 | Page number placement (contents, list of exercises) | each marker stays where its printed page starts, between the entries — no longer piled up above the heading. The check reports markers with no text between them when the printed page has text |
-| 11 | Table structure, extra tags | as the reference: cells with their cell style (`No-Table-Style`, header row `No-Table-Style1`), one element per line, column widths from InDesign adding up to 100 % (they could add up to 108 %) (`tableHeaders`) |
+| 11 | Table structure, extra tags | as the reference: cells with their cell style (`No-Table-Style`, header row `No-Table-Style1`), one element per line, column widths from InDesign adding up to 100 % (they could add up to 108 %) (TBL-01: the client chooses this in his spec with the accessibility waiver; header cells are the house default) |
 | 12 | Style missing (Pregunta/Respuesta) | an indented block whose first line is still inset is `extract1`, not a hanging indent (`hang` only when the first line starts at the margin). The check reports classes with no rule in the stylesheet |
 | 13–14 | Spacing and alignment | `div.top` spacing is a margin that overlaps the paragraphs' own (it was padding, which added up); print spacing is measured against the body size and capped (`maxSpaceEm`, `blockSpaceEm`). With the print PDF, the check compares each paragraph's indent with print (first-line indent, indented block, hanging indent) |
 | 15 | Foot-line | a short line above the footnotes, as in print (`footnoteRule`) |
+| 15 (again) | Foot-line should be reduced | short line, 30 % (NOTE-01, NOTE-02) |
+| 16 | Top space missing (Conclusión) | at least 3em above and 2em below part, chapter and section titles (HD-04, HD-05) |
+| 17 | Font size not as in the PDF (part page) | headings always state their size; before, a heading as large as the text had none and readers used their own 2em `h1`. The title is sized relative to its label (HD-06 scales all) |
+| 18–19 | Contents alignment not as in the PDF | chapter entries flush left as in print (NAV-01); Conclusión, Glosario and Apéndice are `toc_1`, not indented chapter entries |
+| 20 | Footnote indent missing | 1.5em first-line indent (NOTE-03) |
 
 Also: a word split between faces over several spans no longer comes out as
 `Ca<span class="small-caps">PÍTULO</span>`; the words of table cells count separately in the
@@ -321,6 +384,11 @@ npm run epubcheck -- "path/to/book.epub"
 ```
 
 ## Next
+
+- **Spec, phase 2:** a check that the finished EPUB follows the accepted spec, rule by rule, and a
+  delivery report (spec version, waivers, EPUBCheck, Ace). Then learn a draft spec from a client's
+  hand-made reference EPUB, and add the House style step to *PDF or Word to EPUB*.
+- **Desktop app:** a `SpecStore` over SQLite (`docs/spec-schema.sql`).
 
 - **PDF/UA tables:** tables (the Simple sample's chronology) are still tagged as paragraphs, not `Table/TR/TD`.
 - **PDF/UA automated validation:** PAC is manual (Windows GUI). veraPDF could run the same checks in the tests.

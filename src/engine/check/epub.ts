@@ -223,7 +223,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       const alt = img.getAttribute('alt')
       const decorative = img.getAttribute('role') === 'presentation' || img.getAttribute('aria-hidden') === 'true'
       if (alt === null) a11y.push({ level: 'error', msg: `Picture ${img.getAttribute('src')} has no alt attribute.`, where: it.href })
-      else if (!alt.trim() && !decorative) a11y.push({ level: 'error', msg: `Picture ${img.getAttribute('src')} has no description. Describe it, or mark it as decorative.`, where: it.href })
+      else if (!alt.trim() && !decorative) a11y.push({ level: settings().altRequired, msg: `Picture ${img.getAttribute('src')} has no description. Describe it, or mark it as decorative.`, where: it.href })
       else if (/\.(jpe?g|png|gif|svg)$|^(image|imagen|picture|foto|photo|img)\s*\d*$/i.test(alt.trim())) a11y.push({ level: 'warn', msg: `Picture description "${alt}" is not a real description.`, where: it.href })
     }
     const hs = Array.from(d.querySelectorAll('h1,h2,h3,h4,h5,h6'))

@@ -1,6 +1,6 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
 import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
-import { px, isOverride, type Decls } from './css.ts'
+import { px, em, isOverride, type Decls } from './css.ts'
 import { houseDecls, cellDecls, ruleOf } from '../epub/css.ts'
 import { type Files } from '../zip.ts'
 import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
@@ -352,7 +352,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       }
       if (target) {
         lastTarget = target
-        const cls = target.type === 'part' ? 'toc_2' : target.label.length || target.type === 'chapter' ? 'toc_1a' : 'toc_1'
+        // chapter entries are toc_1a; front and back matter (Conclusión, Apéndice, Glosario) toc_1, as in print (V3 row 18)
+        const cls = target.type === 'part' ? 'toc_2' : target.type === 'chapter' ? 'toc_1a' : 'toc_1'
         out.push({ html: `<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`, src: e })
         continue
       }
@@ -518,7 +519,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     }
     let body = ''
     const meta0 = SECTION_META[s.type]
-    const heading = renderHeading(s, ctx, classOf, styleDeclsOf, use)
+    const heading = renderHeading(s, ctx, classOf, styleDeclsOf, use, bodyDecls)
     const items: Item[] = []
     const isFront = s.type === 'halftitle' || s.type === 'title' || s.type === 'copyright'
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
@@ -534,7 +535,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         if (!c || c.placement !== 'inline') continue
         const name = imgName(b.src)
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
-        if (!c.alt && !c.decorative) review.push({ level: 'error', msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
+        if (!c.alt && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
         items.push({ kind: 'other', html: `<p class="img"><img alt="${c.decorative ? '' : esc(c.alt)}"${c.decorative ? ' role="presentation"' : ''} src="${name}"/></p>` })
         continue
       }
@@ -683,7 +684,7 @@ function headingInner(s: Sec, titleClass: string): string {
 
 function renderHeading(
   s: Sec, ctx: InlineCtx, classOf: (b: PBlock) => string, declsOf: (b: PBlock) => Decls,
-  use: (tg: string, cls: string, d: Decls) => void,
+  use: (tg: string, cls: string, d: Decls) => void, bodyDecls: Decls,
 ): string {
   if (!s.label.length && !s.title.length) return ''
   const h = s.type === 'part' ? 'h1' : 'h2'
@@ -691,8 +692,11 @@ function renderHeading(
   if (s.label.length && s.title.length) {
     const lc = classOf(s.label[0])
     const tc = classOf(s.title[0])
-    use(h, lc, declsOf(s.label[0]))
-    use('span', tc, declsOf(s.title[0]))
+    const ld = declsOf(s.label[0])
+    const td = declsOf(s.title[0])
+    use(h, lc, ld)
+    // the title span sits inside the heading: its size is relative to the label's, not to the body text
+    use('span', tc, { ...td, 'font-size': `${(em(td['font-size']) / em(ld['font-size'])) * em(bodyDecls['font-size'] || '1em')}em` })
     return `<${h} class="${lc}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
   }
   const only = s.label.length ? s.label : s.title

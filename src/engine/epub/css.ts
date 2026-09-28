@@ -82,26 +82,31 @@ const bodyPx = (body: Decls) => em(body['font-size'] || '1em') * 12 || 12
 export function houseDecls(tag: string, d: Decls, body: Decls): Decls {
   const out: Decls = {}
   const base = bodyPx(body)
-  const size = em(d['font-size']) / em(body['font-size'] || '1em')
-  if (Math.abs(size - 1) > 0.05) out['font-size'] = `${Math.round(size * 20) * 5}%` // in steps of 5%, as the reference (110%, 150%)
+  const heading = /^h\d$/.test(tag)
+  const size = (em(d['font-size']) / em(body['font-size'] || '1em')) * (heading ? settings().headingScalePct / 100 : 1) // a title span is sized relative to its heading, already scaled
+  // a heading always states its size: left out, readers fall back to their own h1 = 2em, h2 = 1.5em
+  // (client feedback V3 row 17: part titles far larger than in print)
+  if (heading || Math.abs(size - 1) > 0.05) out['font-size'] = `${Math.round(size * 20) * 5}%` // in steps of 5%, as the reference (110%, 150%)
   if (d['text-align']) out['text-align'] = d['text-align']
   const v = (x: string | undefined) => Math.min(settings().maxSpaceEm, r(px(x) / base))
   const indent = px(d['text-indent'])
   const left = r(px(d['margin-left']) / base)
   // a hanging indent keeps its geometry: the first line starts where it starts in print
   const ti = indent > 0 ? 1.5 : indent < 0 ? -Math.max(0.5, r(-indent / base)) : 0
-  out['margin-top'] = emStr(v(d['margin-top']))
-  out['margin-bottom'] = emStr(v(d['margin-bottom']))
+  // part, chapter and section titles open low on the printed page (V3 row 16: "top space missing")
+  const opener = tag === 'h1' || tag === 'h2'
+  out['margin-top'] = emStr(Math.max(v(d['margin-top']), opener ? settings().headingSpaceAboveEm : 0))
+  out['margin-bottom'] = emStr(Math.max(v(d['margin-bottom']), opener ? settings().headingSpaceBelowEm : 0))
   out['margin-right'] = emStr(r(px(d['margin-right']) / base))
   out['margin-left'] = emStr(ti < 0 ? Math.max(-ti, left) : left)
   out['text-indent'] = ti ? emStr(ti) : '0'
   const w = d['font-weight'] === 'bold' ? 700 : parseInt(d['font-weight'] ?? '400')
-  if (w >= 600 || (/^h\d$/.test(tag) && w >= 500)) out['font-weight'] = 'bold'
-  else if (/^h\d$/.test(tag)) out['font-weight'] = 'normal'
+  if (w >= 600 || (heading && w >= 500)) out['font-weight'] = 'bold'
+  else if (heading) out['font-weight'] = 'normal'
   if (d['font-style'] === 'italic' || d['font-style'] === 'oblique') out['font-style'] = 'italic'
   out['font-family'] = /sans|avenir|helvetica|arial|futura|gill|myriad|frutiger|univers|verdana/i.test(d['font-family'] ?? '') ? 'sans-serif' : 'serif'
   if (d['color'] && !/^#0{3}(0{3})?$|^black$/i.test(d['color'])) out['color'] = d['color']
-  if (d['page-break-after'] === 'avoid' || /^h\d$/.test(tag)) out['page-break-after'] = 'avoid'
+  if (d['page-break-after'] === 'avoid' || heading) out['page-break-after'] = 'avoid'
   if (tag === 'span') out['display'] = 'block'
   return out
 }
@@ -136,6 +141,9 @@ function optionCss(): string {
   return [
     `hr.footline { width: ${width}%; margin: 0 auto 0.5em 0; border: 0; border-top: 1px solid; height: 0; }`,
     `div.top { margin: ${s.blockSpaceEm}em 0; }`,
+    // footnotes indented as in print (V3 row 20); contents entries flush as in print (V3 rows 18–19)
+    `p.Nota-al-pie { text-indent: ${s.footnoteIndentEm}em; }`,
+    `p.toc_1a { margin-left: ${s.tocEntryIndentEm}em; }`,
   ].join('\n')
 }
 

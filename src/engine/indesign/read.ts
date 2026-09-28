@@ -2,6 +2,7 @@ import { StyleSheet, isOverride, px, em, type Decls } from './css.ts'
 import { type Files, text } from '../zip.ts'
 import { parseXml, resolvePath, tag, classesOf, textOf, pageBreakOf, epubType } from '../xml.ts'
 import { pickLanguage } from '../lang.ts'
+import { settings } from '../settings.ts'
 
 // ---------------------------------------------------------------------------------------------
 // Reading an InDesign "Export > EPUB (reflowable)" package and flattening it to a block stream.
@@ -279,7 +280,7 @@ function outClassFor(ex: Export, k: string, role: Role, d: Decls): string {
   // a hanging indent starts its first line at the margin (bibliographies); an indented block whose
   // first line still sits inside the margin reads as an extract (Pregunta/Respuesta, client feedback V3)
   if (indent < 0 && left + indent <= 2) return 'hang'
-  if (left > 0) return 'extract1'
+  if (left > 0) return settings().blockClass
   if (d['text-align'] === 'center') return 'center'
   return indent > 0 ? 'indent' : 'noindent'
 }

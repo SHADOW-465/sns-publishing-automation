@@ -50,6 +50,13 @@ export interface HouseSettings {
   cssFormat: 'vertical' | 'compact'
   maxSpaceEm: number // largest space above/below a paragraph taken over from print (em)
   blockSpaceEm: number // space around indented blocks (<div class="top">); collapses with the paragraphs' own
+  headingSpaceAboveEm: number // least space above a part/chapter/section title (h1/h2) — print opens them low on the page
+  headingSpaceBelowEm: number // least space between that title and the text
+  headingScalePct: number // scales every heading size taken from InDesign (100 = as in print)
+  footnoteIndentEm: number // first-line indent of footnotes
+  tocEntryIndentEm: number // left indent of chapter entries on the printed contents and list pages (0 = flush, as print)
+  blockClass: 'extract1' | 'extract' // class of indented blocks without an InDesign style of their own
+  altRequired: 'error' | 'warn' // a picture with no description stops delivery (accessible) or only warns
 
   /** quality check */
   minCoverPx: number // shortest acceptable long side of the cover
@@ -68,28 +75,44 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   htmlLang: 'xml:lang',
   styleVariants: 'own',
   variantOn: ['align', 'indent', 'face'],
-  tableHeaders: 'reference',
+  tableHeaders: 'th', // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
   footnoteRule: 'short',
   footnoteRuleWidth: 30,
   cssFormat: 'vertical',
   maxSpaceEm: 2,
   blockSpaceEm: 1,
+  headingSpaceAboveEm: 3,
+  headingSpaceBelowEm: 2,
+  headingScalePct: 100,
+  footnoteIndentEm: 1.5,
+  tocEntryIndentEm: 0,
+  blockClass: 'extract1',
+  altRequired: 'error',
   minCoverPx: 1400,
   lostWordsErrorPct: 1,
 }
 
 let current: HouseSettings = DEFAULT_SETTINGS
+let house: HouseSettings = DEFAULT_SETTINGS
 
+/** the settings the engine builds with right now (house settings + the client's spec for this book) */
 export const settings = () => current
 export function setSettings(s: Partial<HouseSettings>) {
   current = sanitize({ ...DEFAULT_SETTINGS, ...s })
+}
+/** the house settings of the Settings screen, before any client or book layer */
+export const houseSettings = () => house
+export function setHouseSettings(s: Partial<HouseSettings>) {
+  house = sanitize({ ...DEFAULT_SETTINGS, ...s })
+  current = house
 }
 
 /** A settings file from an older version or edited by hand: unknown values fall back to the default. */
 function sanitize(s: HouseSettings): HouseSettings {
   const d = DEFAULT_SETTINGS
   const oneOf = <K extends keyof HouseSettings>(k: K, ok: readonly unknown[]) => (ok.includes(s[k]) ? s[k] : d[k])
-  const num = (k: 'footnoteRuleWidth' | 'maxSpaceEm' | 'blockSpaceEm' | 'minCoverPx' | 'lostWordsErrorPct', lo: number, hi: number) =>
+  type NumKey = { [K in keyof HouseSettings]: HouseSettings[K] extends number ? K : never }[keyof HouseSettings]
+  const num = (k: NumKey, lo: number, hi: number) =>
     typeof s[k] === 'number' && isFinite(s[k]) ? Math.min(hi, Math.max(lo, s[k])) : d[k]
   return {
     ...s,
@@ -106,6 +129,13 @@ function sanitize(s: HouseSettings): HouseSettings {
     footnoteRuleWidth: num('footnoteRuleWidth', 5, 100),
     maxSpaceEm: num('maxSpaceEm', 0, 10),
     blockSpaceEm: num('blockSpaceEm', 0, 5),
+    headingSpaceAboveEm: num('headingSpaceAboveEm', 0, 10),
+    headingSpaceBelowEm: num('headingSpaceBelowEm', 0, 10),
+    headingScalePct: num('headingScalePct', 50, 200),
+    footnoteIndentEm: num('footnoteIndentEm', 0, 5),
+    tocEntryIndentEm: num('tocEntryIndentEm', 0, 5),
+    blockClass: oneOf('blockClass', ['extract1', 'extract']) as HouseSettings['blockClass'],
+    altRequired: oneOf('altRequired', ['error', 'warn']) as HouseSettings['altRequired'],
     minCoverPx: num('minCoverPx', 0, 10000),
     lostWordsErrorPct: num('lostWordsErrorPct', 0, 100),
   }

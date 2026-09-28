@@ -9,10 +9,15 @@ import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
+import { SpecStep } from './SpecStep.tsx'
+import { openSpec, applySpec, type Spec } from '../engine/spec/session.ts'
+import { setSettings, houseSettings } from '../engine/settings.ts'
+import { specHash } from '../engine/spec/layers.ts'
+import type { Decision } from '../engine/spec/store.ts'
 
 const toProfile = (styles: StyleInfo[]): Profile => Object.fromEntries(styles.map((s) => [s.key, { role: s.role, outClass: s.outClass }]))
 
-// InDesign EPUB export → finished, accessible EPUB 3, in five steps.
+// InDesign EPUB export → finished, accessible EPUB 3, in six steps (the third is the client's spec).
 
 export function IndesignFlow() {
   const [step, setStep] = useState(0)
@@ -31,6 +36,8 @@ export function IndesignFlow() {
   const [report, setReport] = useState<CheckReport>()
   const [stale, setStale] = useState(true)
   const [types, setTypes] = useState<Record<number, SectionType>>({})
+  const [spec, setSpec] = useState<Spec>()
+  const [decision, setDecision] = useState<Decision>()
 
   const thumbs = useObjectUrls(useMemo(() => [...(analysis?.ex.images ?? [])], [analysis]))
 
@@ -62,6 +69,8 @@ export function IndesignFlow() {
       setImages(a.images)
       setResult(undefined)
       setTypes({})
+      setSpec(undefined) // a new book: its spec is opened (and decided) again
+      setDecision(undefined)
       setStale(true)
       if (pdf) {
         setBusy('Reading the print PDF (page numbers)…')
@@ -73,15 +82,23 @@ export function IndesignFlow() {
 
   /** builds the EPUB (fast) and runs the quality check on it */
   const rebuild = (then?: number) =>
-    run('Building the e-book and checking it…', () => {
-      const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types })
-      setResult(r)
-      setReport(checkEpub(r.files, r.source))
+    run('Building the e-book and checking it…', async () => {
+      // the rules the client set (or accepted) in the Spec step are the rules the build follows
+      const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+      if (!spec) setSpec(sp)
+      applySpec(sp)
+      try {
+        const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types })
+        setResult(r)
+        setReport(checkEpub(r.files, r.source))
+      } finally {
+        setSettings(houseSettings()) // other workflows keep building with the house settings
+      }
       setStale(false)
       remember('profile', meta!.publisher, toProfile(styles))
       if (then !== undefined) setStep(then)
     })
-  const go = (i: number) => (i >= 2 && (stale || !result) ? rebuild(i) : setStep(i))
+  const go = (i: number) => (i >= 3 && (stale || !result) ? rebuild(i) : setStep(i))
   const changed = <T,>(set: (v: T) => void) => (v: T) => (set(v), setStale(true))
 
   const setStyle = (key: string, patch: Partial<StyleInfo>) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, ...patch, unsure: false } : x))), setStale(true))
@@ -98,9 +115,10 @@ export function IndesignFlow() {
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
     { title: 'Book details', hint: 'title, author, ISBN', enabled: !!analysis, done: !!meta && isbn13Valid(meta.eisbn) },
-    { title: 'Structure', hint: 'chapters and pages', enabled: !!analysis, done: !!result && step > 2 },
-    { title: 'Pictures', hint: 'descriptions', enabled: !!analysis, done: !!analysis && needAlt.length === 0 },
-    { title: 'Check & download', hint: 'quality report', enabled: !!analysis, done: !!report && !stale && errors === 0 },
+    { title: 'House style', hint: 'your rules, accepted', enabled: !!analysis, done: !!decision },
+    { title: 'Structure', hint: 'chapters and pages', enabled: !!decision, done: !!result && step > 3 },
+    { title: 'Pictures', hint: 'descriptions', enabled: !!decision, done: !!analysis && needAlt.length === 0 },
+    { title: 'Check & download', hint: 'quality report', enabled: !!decision, done: !!report && !stale && errors === 0 },
   ]
 
   return (
@@ -141,15 +159,25 @@ export function IndesignFlow() {
             Stores (Apple Books, Amazon, Google Play), library systems and reading apps show these details, and screen readers announce the title and language.
             The language decides the voice a screen reader uses. The print ISBN names the paper edition the page numbers come from.
           </Help>
-          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} nextDisabled={!!busy}>
+          <StepNav onBack={() => setStep(0)} onNext={() => setStep(2)} nextDisabled={!!busy}>
             {!isbn13Valid(meta.eisbn) ? 'The e-book ISBN is still missing — you can add it later.' : ''}
           </StepNav>
         </>
       )}
 
-      {step === 2 && analysis && result && (
+      {step === 2 && analysis && meta && (
+        <SpecStep
+          ctx={{ client: meta.publisher, series: spec?.ctx.series ?? '', book: meta.eisbn || meta.title }}
+          spec={spec}
+          onSpec={(s) => (setSpec(s), setStale(true))}
+          onDecided={(d) => (setDecision(d), rebuild(3))}
+          onBack={() => setStep(1)}
+        />
+      )}
+
+      {step === 3 && analysis && result && (
         <section className="card">
-          <h2>3. Check the structure</h2>
+          <h2>4. Check the structure</h2>
           <p className="muted">
             This is the book as a reader will get it: each line is one part of the e-book, in reading order, with its printed pages. Click a line to see it. If a
             part has the wrong label (a dedication marked as a chapter), change it in its drop-down and update the preview. Also look for missing titles or chapters
@@ -177,13 +205,13 @@ export function IndesignFlow() {
               <button onClick={() => rebuild()} disabled={!!busy}>Update the preview</button>
             </div>
           </details>
-          <StepNav onBack={() => setStep(1)} onNext={() => go(3)} nextDisabled={!!busy} />
+          <StepNav onBack={() => setStep(2)} onNext={() => go(4)} nextDisabled={!!busy} />
         </section>
       )}
 
-      {step === 3 && analysis && (
+      {step === 4 && analysis && (
         <section className="card">
-          <h2>4. Describe the pictures</h2>
+          <h2>5. Describe the pictures</h2>
           <p className="muted">
             People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows and why it matters, in a sentence or two. Tick
             “decorative” only for ornaments that carry no information.
@@ -215,15 +243,22 @@ export function IndesignFlow() {
               </div>
             ))}
           </div>
-          <StepNav onBack={() => setStep(2)} onNext={() => rebuild(4)} next="Build and check" nextDisabled={!!busy}>
+          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy}>
             {needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
           </StepNav>
         </section>
       )}
 
-      {step === 4 && analysis && result && report && meta && (
+      {step === 5 && analysis && result && report && meta && (
         <section className="card">
-          <h2>5. Check and download</h2>
+          <h2>6. Check and download</h2>
+          {decision && spec && (
+            <p className={decision.action === 'accepted' && decision.specHash === specHash(spec.resolved.settings) ? 'note small' : 'note warnbox'}>
+              Built with spec {specHash(spec.resolved.settings)}:{' '}
+              {decision.action === 'accepted' ? `accepted by ${decision.actor} on ${new Date(decision.at).toLocaleString()}` : `not accepted (${decision.actor} continued without accepting)`}
+              {decision.specHash !== specHash(spec.resolved.settings) ? ' — the rules changed after that decision; go back to House style to accept them.' : '.'}
+            </p>
+          )}
           {!cover && <p className="err box">No cover uploaded: the placeholder from InDesign was used. Add the real cover in step 1.</p>}
           {stale && (
             <p className="note warnbox">

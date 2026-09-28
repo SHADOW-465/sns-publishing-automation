@@ -22,8 +22,11 @@ function book(s: Partial<HouseSettings> = {}) {
   return { r, f, css: f('css/style.css') }
 }
 
-test('V3 defaults: every correction of the client, as in the hand-finished EPUB', () => {
-  const { r, f, css } = book()
+// the Cambia client's spec: tables as his manual EPUB (TBL-01, which he waives in the Spec step)
+const CAMBIA = { tableHeaders: 'reference' } as const
+
+test('V3 corrections: the Cambia spec gives the hand-finished EPUB', () => {
+  const { r, f, css } = book(CAMBIA)
   const ch1 = f('chapter01.xhtml')
   const ch2 = f('chapter02.xhtml')
 
@@ -111,7 +114,7 @@ test('V3 settings: each house option switches its rule', () => {
 
   b = book({ houseCss: 'p.indent { text-indent: 2em; }' })
   assert.match(b.css, /^p\.indent\n\{\ntext-indent:2em;\n\}/)
-  assert.doesNotMatch(b.css, /toc_1a/)
+  assert.doesNotMatch(b.css, /p\.toc_1, p\.toc_1a/, 'built-in house rules replaced')
 })
 
 test('settings from an older or hand-edited file fall back to the defaults', () => {

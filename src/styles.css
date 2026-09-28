@@ -300,3 +300,33 @@ table.styles select { max-width: 290px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---- spec: rules, waivers, decision record ---- */
+.rules { display: grid; gap: 18px; margin-top: 14px; }
+.rule-group { border: 1px solid var(--rule); border-radius: 10px; padding: 6px 16px 10px; display: grid; gap: 0; margin: 0; }
+.rule-group legend { font-weight: 600; padding: 0 6px; color: var(--ink-2); }
+.rule { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--rule); }
+.rule-group .rule:first-of-type { border-top: 0; }
+.rule.own { box-shadow: inset 3px 0 0 var(--accent); padding-left: 10px; }
+.rule.needs { box-shadow: inset 3px 0 0 var(--warn); padding-left: 10px; }
+.rule-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.rule-id { font-size: 12px; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 4px; }
+.rule .muted.small { margin: 0; }
+.kind { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--rule-2); color: var(--ink-3); }
+.kind.locked { color: var(--err); border-color: var(--err-soft); background: var(--err-soft); }
+.kind.advisory { color: var(--warn); border-color: var(--warn-soft); background: var(--warn-soft); }
+.kind.free { color: var(--ok); border-color: var(--ok-soft); background: var(--ok-soft); }
+.rule-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.rule-ctl textarea { flex: 1 1 100%; }
+.rule-ctl .src { font-size: 12.5px; color: var(--ink-3); }
+.num-in { display: inline-flex; align-items: center; gap: 6px; }
+.num-in input { width: 7em; border: 1px solid var(--rule-2); border-radius: 8px; padding: 6px 8px; background: var(--sheet); }
+.multi { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.waiver { display: grid; grid-template-columns: 24px 1fr; gap: 2px 6px; padding: 10px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.waiver small { grid-column: 2; font-weight: 400; color: var(--ink-2); }
+.warn-text { color: var(--warn); margin: 0; }
+pre.example { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--sunk); font: 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+button.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+ul.log { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; font-size: 13.5px; }
+table.req td { vertical-align: top; }
+table.req select { max-width: 240px; }
