@@ -48,16 +48,21 @@ p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
 p.img { text-align: center; margin: 1em auto; text-indent: 0; }
 h3.sec1, h4.sec1, h5.sec1 { font-size: 100%; text-align: left; margin: 1em 0; font-family: serif; }
 ul.bull { text-align: justify; margin: 1em 0; font-family: serif; }
+ol.num { text-align: justify; margin: 1em 0; font-family: serif; }
+li ul, li ol { margin-top: 0; margin-bottom: 0; }
+span.list { float: left; margin-left: -1.5em; }
+span.space1 { margin-right: 0.4em; }
 
 /* table of contents pages */
 .nav { margin: 0; list-style-type: none; }
-p.toc_1, p.toc_1a, p.toc_2, p.toc_3 { text-align: left; text-indent: 0; font-family: serif; }
+p.toc_1, p.toc_1t, p.toc_1a, p.toc_2, p.toc_3 { text-align: left; text-indent: 0; font-family: serif; }
 p.toc_1 { margin: 0.8em 0 0 0; }
-p.toc_1a { margin: 0.4em 0 0 1.5em; }
+p.toc_1t { margin: 1.5em 0 0 0; }
+p.toc_1a { margin: 0.4em 0 0 1.5em; text-indent: -1.5em; }
 p.toc_2 { margin: 1.5em 0 0 0; text-align: center; }
 p.toc_3 { margin: 1em 0 0 0; }
 span.toc_2a { display: block; font-size: 110%; }
-p.toc_1 a, p.toc_1a a, p.toc_2 a, p.toc_3 a { text-decoration: none; }
+p.toc_1 a, p.toc_1t a, p.toc_1a a, p.toc_2 a, p.toc_3 a { text-decoration: none; }
 
 /* footnotes: the separator line is hr.footline (see footnoteRule in Settings) */
 div.footnotes { margin-top: 2em; }
@@ -143,14 +148,17 @@ function optionCss(): string {
     `div.top { margin: ${s.blockSpaceEm}em 0; }`,
     // footnotes indented as in print (V3 row 20); contents entries flush as in print (V3 rows 18–19)
     `p.Nota-al-pie { text-indent: ${s.footnoteIndentEm}em; }`,
-    `p.toc_1a { margin-left: ${s.tocEntryIndentEm}em; }`,
+    // a chapter entry starts flush and its wrapped lines hang in by this much, as the printed contents page
+    `p.toc_1a { margin-left: ${s.tocEntryIndentEm}em; text-indent: ${s.tocEntryIndentEm ? -s.tocEntryIndentEm : 0}em; }`,
   ].join('\n')
 }
 
+/** classes whose look the house stylesheet fixes (whatever the source says) */
+export const FIXED_CLASSES = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.extract1', 'p.extract2', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
+
 export function buildCss(used: Map<string, { tag: string; decls: Decls }>, body: Decls): string {
-  const fixed = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.extract1', 'p.extract2', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
   const gen = [...used]
-    .filter(([key]) => !fixed.has(key))
+    .filter(([key]) => !FIXED_CLASSES.has(key))
     .map(([key, u]) =>
       // table cell classes are shared by <td> and <th> (header row, Settings → tableHeaders)
       u.tag === 'td' ? ruleOf(`${key}, th.${key.slice(3)}`, { ...u.decls }) : ruleOf(key, houseDecls(u.tag, u.decls, body)))

@@ -330,3 +330,12 @@ button.chip.on { background: var(--accent); color: var(--accent-ink); border-col
 ul.log { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 6px; font-size: 13.5px; }
 table.req td { vertical-align: top; }
 table.req select { max-width: 240px; }
+
+/* kind of e-book */
+.profiles { border: 0; margin: 18px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.profiles legend { font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 0 6px; }
+.profile { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--rule-2); border-radius: 10px; padding: 12px 14px; background: var(--sheet); cursor: pointer; transition: border-color 160ms var(--ease), background 160ms var(--ease); }
+.profile.on { border-color: var(--accent); background: var(--accent-soft); }
+.profile input { margin-top: 3px; }
+.profile span { display: grid; gap: 3px; font-size: 13px; }
+.profile small { color: var(--ink-3); font-size: 12px; line-height: 1.45; }

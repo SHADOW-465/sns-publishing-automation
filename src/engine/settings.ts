@@ -30,6 +30,8 @@ export interface HouseSettings {
   langWrapper: boolean // <div xml:lang="…"> around the content of every page
   seriesSmallCaps: boolean // numbered heading series ("Hábito 1…12") all in small caps when some are
   verseLines: boolean // a quotation broken into short lines is set as verse (extract1/extract2)
+  /** the kind of e-book offered first for a new book (changeable per book in Book details) */
+  defaultProfile: 'accessible' | 'standard'
   /** language attributes on <html>: the reference writes xml:lang only ("duplicated language should be removed") */
   htmlLang: 'xml:lang' | 'both' | 'lang'
   /** a paragraph whose own InDesign overrides change its look: 'own' = one class of its own
@@ -72,20 +74,21 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   langWrapper: true,
   seriesSmallCaps: true,
   verseLines: true,
+  defaultProfile: 'accessible',
   htmlLang: 'xml:lang',
   styleVariants: 'own',
   variantOn: ['align', 'indent', 'face'],
   tableHeaders: 'th', // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
   footnoteRule: 'short',
-  footnoteRuleWidth: 30,
+  footnoteRuleWidth: 25,
   cssFormat: 'vertical',
   maxSpaceEm: 2,
   blockSpaceEm: 1,
-  headingSpaceAboveEm: 3,
-  headingSpaceBelowEm: 2,
+  headingSpaceAboveEm: 2,
+  headingSpaceBelowEm: 3,
   headingScalePct: 100,
-  footnoteIndentEm: 1.5,
-  tocEntryIndentEm: 0,
+  footnoteIndentEm: 2,
+  tocEntryIndentEm: 1.5,
   blockClass: 'extract1',
   altRequired: 'error',
   minCoverPx: 1400,
@@ -120,6 +123,7 @@ function sanitize(s: HouseSettings): HouseSettings {
     labels: s.labels && typeof s.labels === 'object' ? s.labels : d.labels,
     extraCss: typeof s.extraCss === 'string' ? s.extraCss : d.extraCss,
     houseCss: typeof s.houseCss === 'string' ? s.houseCss : d.houseCss,
+    defaultProfile: oneOf('defaultProfile', ['accessible', 'standard']) as HouseSettings['defaultProfile'],
     htmlLang: oneOf('htmlLang', ['xml:lang', 'both', 'lang']) as HouseSettings['htmlLang'],
     styleVariants: oneOf('styleVariants', ['own', 'ignore']) as HouseSettings['styleVariants'],
     variantOn: Array.isArray(s.variantOn) ? s.variantOn.filter((g) => g in VARIANT_GROUPS) : d.variantOn,

@@ -1,7 +1,7 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
 import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
 import { px, em, isOverride, type Decls } from './css.ts'
-import { houseDecls, cellDecls, ruleOf } from '../epub/css.ts'
+import { houseDecls, cellDecls, ruleOf, FIXED_CLASSES } from '../epub/css.ts'
 import { type Files } from '../zip.ts'
 import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type Labels, type SectionType } from '../epub/locale.ts'
@@ -353,7 +353,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       if (target) {
         lastTarget = target
         // chapter entries are toc_1a; front and back matter (Conclusión, Apéndice, Glosario) toc_1, as in print (V3 row 18)
-        const cls = target.type === 'part' ? 'toc_2' : target.type === 'chapter' ? 'toc_1a' : 'toc_1'
+        // the first plain entry after a run of chapters has space above it (toc_1t)
+        const cls = target.type === 'part' ? 'toc_2' : target.type === 'chapter' ? 'toc_1a' : /class="toc_1a"/.test(out[out.length - 1]?.html ?? '') ? 'toc_1t' : 'toc_1'
         out.push({ html: `<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`, src: e })
         continue
       }
@@ -513,6 +514,17 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       alignTally.set(`${tg}.${cls}`, t)
       return classFor(tg, cls, majority(`${tg}.${cls}`) ?? styleDeclsOf(b), full, variantProps(), (d) => houseDecls(tg, d, bodyDecls))
     }
+    /** a numbered subhead ("1: Deseas…") whose number hangs in the margin (span.list): a class of its own with a 1.5em left margin */
+    const hangClass = (tg: string, b: PBlock, cls: string): string => {
+      const key = `${tg}.${cls}|hang`
+      let name = variants.get(key)
+      if (!name) {
+        name = variantName(cls, [...variants.keys()].filter((k) => k.startsWith(`${tg}.${cls}|`)).length + 1)
+        variants.set(key, name)
+      }
+      use(tg, name, { ...styleDeclsOf(b), 'margin-left': '17px', 'text-indent': '0' })
+      return name
+    }
     const cellClass = (c: Element): string => {
       const { cls, d } = cellInfo(c)
       return classFor('td', cls, majority(`td.${cls}`) ?? d, d, 'all', (x) => x)
@@ -547,15 +559,17 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       if (b.el.id) idFile.set(b.el.id, file)
       const r = roleOf(b)
       const cls = classOf(b)
-      if (r === 'bullet') {
+      if (r === 'bullet' || b.list) {
         use('li', 'bull', {})
-        items.push({ kind: 'li', html: inlineHtml(b.el, ctx, { stripBullet: true }) })
+        items.push({ kind: 'li', list: b.list ?? { ordered: false, depth: 0 }, html: inlineHtml(b.el, ctx, { stripBullet: !b.list }) })
       } else if (r === 'h3' || r === 'h4' || r === 'h5') {
-        const ca = classAttr(r, b, cls)
+        const hang = /^\d{1,3}\s*[:.)]\s/.test(b.text) && !px(declsOf(b)['margin-left']) // "1: Deseas tener tiempo…": the number hangs in the margin
+        const ca = hang ? hangClass(r, b, cls) : classAttr(r, b, cls)
         const id = headingIds.get(b)
         inNotes = sectionTypeOf(b.text) === 'notes'
         const sc = seriesCaps.has(b) ? { base: { ...ex.css.paragraphFace(b.classes), smallCaps: true } } : {}
-        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${inlineHtml(b.el, ctx, { heading: true, ...sc })}</${r}>` })
+        const inner = inlineHtml(b.el, ctx, { heading: true, ...sc })
+        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${hang ? inner.replace(/^(\d{1,3}\s*[:.)])\s*/, '<span class="list">$1</span> ') : inner}</${r}>` })
       } else {
         const d = declsOf(b)
         const vc = verse.get(b)
@@ -624,6 +638,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
   // self-check: a style must look the way most of its paragraphs look in the source
   for (const [key, t] of alignTally) {
+    if (FIXED_CLASSES.has(key)) continue // the house stylesheet fixes these looks
     const total = [...t.values()].reduce((a, b) => a + b, 0)
     const [maj, n] = [...t].sort((a, b) => b[1] - a[1])[0]
     const set = usedClasses.get(key)?.decls['text-align'] ?? ''
@@ -656,7 +671,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? Array.from(b.el.querySelectorAll('td, th')).map(textOf).join(' ') : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
-  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
   return { epub, files, sections, review, source }
 }
 
@@ -723,7 +738,7 @@ function innerMarkers(el: Element): { before: string[]; after: string[] } {
   return out
 }
 
-type Item = { kind: 'li' | 'inset' | 'note' | 'other'; html: string; note?: string }
+type Item = { kind: 'li' | 'inset' | 'note' | 'other'; html: string; note?: string; list?: { ordered: boolean; depth: number; start?: number } }
 
 /** A quotation broken into short lines (a mantra, a poem: "«Mi poder… se elevan," / "…disfraces!»."):
  *  set as verse — extract1 per line, extract2 on the last line (space after the block). */
@@ -777,19 +792,20 @@ function groupItems(items: Item[]): string {
       continue
     }
     const run: string[] = []
+    const rows: Item[] = []
     while (i < items.length) {
       const it = items[i]
       const isMarker = it.kind === 'other' && it.html.startsWith('<span') && items[i + 1]?.kind === k
       if (it.kind !== k && !isMarker) break
       if (k === 'li') {
-        if (isMarker) run[run.length - 1] = run[run.length - 1] + it.html // page marker inside a list: keep in the item before it
-        else run.push(`<li>${it.html}</li>`)
+        if (isMarker) rows[rows.length - 1] = { ...rows[rows.length - 1], html: rows[rows.length - 1].html + it.html } // page marker inside a list: keep in the item before it
+        else rows.push(it)
       } else run.push(it.html)
       i++
     }
     out.push(
       k === 'li'
-        ? `<ul class="bull">\n${run.map((r) => (r.endsWith('</li>') ? r : r.replace(/<\/li>(.*)$/, '$1</li>'))).join('\n')}\n</ul>`
+        ? renderList(rows)
         : k === 'note'
           ? `<section epub:type="endnotes" role="doc-endnotes">\n${run.join('\n')}\n</section>`
           : `<div class="top">\n${run.join('\n')}\n</div>`,
@@ -966,4 +982,27 @@ function renderFront(
   }
   if (s.type === 'halftitle' && !out.some((h) => h.startsWith('<h1'))) out.push(`<h1 class="title">${esc(meta.title)}</h1>`)
   return out.join('\n')
+}
+
+/** List items (with their depth and kind) → <ul class="bull"> / <ol class="num">, nested where the source nests. */
+function renderList(rows: Item[]): string {
+  const tagOf = (o: boolean) => (o ? 'ol' : 'ul')
+  const open = (o: boolean, start?: number) => `<${tagOf(o)} class="${o ? 'num' : 'bull'}"${o && start ? ` start="${start}"` : ''}>\n`
+  const levels: boolean[] = [] // kind of each open list, outermost first
+  let html = ''
+  for (const it of rows) {
+    const d = Math.min(it.list?.depth ?? 0, levels.length)
+    const o = it.list?.ordered ?? false
+    if (!levels.length) (html += open(o, it.list?.start)), levels.push(o)
+    else if (d > levels.length - 1) (html += '\n' + open(o, it.list?.start)), levels.push(o) // nested inside the item still open
+    else {
+      html += '</li>\n'
+      while (levels.length - 1 > d) html += `</${tagOf(levels.pop()!)}>\n</li>\n`
+      if (levels[d] !== o) (html += `</${tagOf(levels[d])}>\n${open(o, it.list?.start)}`), (levels[d] = o)
+    }
+    html += `<li>${it.html}`
+  }
+  html += '</li>\n'
+  while (levels.length) html += `</${tagOf(levels.pop()!)}>` + (levels.length ? '\n</li>\n' : '')
+  return html
 }

@@ -18,6 +18,19 @@ export interface BookMeta {
   rights: string
   certifiedBy: string
   conformsTo: string
+  /** accessible = full EPUB accessibility (roles, page list, metadata); standard = clean EPUB 3 for the stores */
+  profile?: 'accessible' | 'standard'
+}
+
+/** Right-to-left scripts: the book reads from the right. */
+export const isRtl = (lang: string) => /^(ar|he|iw|fa|ur|yi|ps|sd|ug|dv)(-|_|$)/i.test(lang)
+
+/** Standard EPUB: the accessibility layer comes off (ARIA roles and labels, printed-page markers); the structure stays. */
+export function toStandard(body: string): string {
+  const attr = /(<[a-z][^<>]*?)\s(?:role|aria-[a-z]+)="[^"]*"/g
+  let out = body.replace(/<span\b[^>]*epub:type="pagebreak"[^>]*\/>\n?/g, '').replace(/<div\b[^>]*epub:type="pagebreak"[^>]*(?:\/>|>\s*<\/div>)\n?/g, '')
+  for (let prev = ''; prev !== out; ) (prev = out), (out = out.replace(attr, '$1')) // one attribute per pass and tag
+  return out
 }
 
 export interface Section {
@@ -62,7 +75,10 @@ export function packageEpub(p: {
   /** ready-made stylesheet (PDF pipeline); otherwise generated from InDesign styles */
   css?: string
 }): { epub: Uint8Array; files: Files } {
-  const { meta, sections, review } = p
+  const { meta, review } = p
+  const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
+  const rtl = isRtl(meta.language)
+  const sections = standard ? p.sections.map((x) => ({ ...x, body: toStandard(x.body) })) : p.sections
   const pageList = sections.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
   const L = labelsFor(meta.language)
   const lang = meta.language
@@ -77,17 +93,18 @@ export function packageEpub(p: {
   if (!isbn13Valid(meta.eisbn)) review.push({ level: 'error', msg: `E-book ISBN "${meta.eisbn}" is missing or not a valid ISBN-13.` })
   if (meta.printIsbn && !isbn13Valid(meta.printIsbn)) review.push({ level: 'warn', msg: `Print ISBN "${meta.printIsbn}" is not a valid ISBN-13.` })
 
+  const langAttrs = htmlLangAttrs(lang) + (rtl ? ' dir="rtl"' : '')
   // ---- content documents ----
   const coverAlt = L.coverAlt({ title, authors: authors.join(', '), publisher: meta.publisher })
   // house style: the content of every page sits in <div xml:lang="…"> inside its section
   const langDiv = (body: string) =>
-    !settings().langWrapper ? body :
+    !settings().langWrapper || standard ? body :
     /^<section[^>]*>/.test(body) && body.trimEnd().endsWith('</section>')
       ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
       : `<div xml:lang="${lang}">\n${body}\n</div>`
-  put('OEBPS/cover.xhtml', xhtmlDoc(htmlLangAttrs(lang), L.cover, 'css/style.css',
-    `<section epub:type="cover">\n${langDiv(`<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg" role="doc-cover" src="${p.cover.path}"/></p>`)}\n</section>`))
-  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(htmlLangAttrs(lang), s.title, 'css/style.css', langDiv(s.body)))
+  put('OEBPS/cover.xhtml', xhtmlDoc(langAttrs, L.cover, 'css/style.css',
+    `<section epub:type="cover">\n${langDiv(`<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg"${standard ? '' : ' role="doc-cover"'} src="${p.cover.path}"/></p>`)}\n</section>`))
+  for (const s of sections) put(`OEBPS/${s.file}`, xhtmlDoc(langAttrs, s.title, 'css/style.css', langDiv(s.body)))
   const extra = settings().extraCss.trim()
   put('OEBPS/css/style.css', formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls)) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
   files.set(`OEBPS/${p.cover.path}`, p.cover.data)
@@ -108,15 +125,15 @@ export function packageEpub(p: {
   const tocSec = sections.find((s) => s.type === 'toc')
   const titleSec = sections.find((s) => s.type === 'title')
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
-  put('OEBPS/nav.xhtml', xhtmlDoc(htmlLangAttrs(lang), L.navTitle, 'css/style.css', [
+  put('OEBPS/nav.xhtml', xhtmlDoc(langAttrs, L.navTitle, 'css/style.css', [
     // EPUBCheck's navigation schema rejects aria-label(ledby) on <nav>: the headings name them
     `<section epub:type="frontmatter">`,
     settings().langWrapper ? `<div xml:lang="${lang}">` : '',
-    `<nav epub:type="toc" id="toc" role="doc-toc">`,
+    `<nav epub:type="toc" id="toc"${standard ? '' : ' role="doc-toc"'}>`,
     `<h1 id="toc01">${esc(L.navTitle)}</h1>`,
     ol(tree),
     `</nav>`,
-    pageList.length
+    pageList.length && !standard
       ? `<nav epub:type="page-list" hidden="" role="doc-pagelist">\n<h2>${esc(L.pageList)}</h2>\n<ol class="nav">\n${pageList.map((pg) => `<li><a href="${pg.file}#page-${esc(pg.n)}">${esc(pg.n)}</a></li>`).join('\n')}\n</ol>\n</nav>`
       : '',
     `<nav epub:type="landmarks" hidden="">`,
@@ -167,7 +184,21 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   if (/<img alt="[^"]+"/.test(html) || coverAlt) features.push('alternativeText')
   if (/doc-noteref/.test(html)) features.push('annotations')
   if (/<th[\s>]/.test(html)) features.push('tableHeaders') // only when tables really have header cells
+  if (/<math[\s>]/.test(html)) features.push('MathML')
   if (sections.some((s) => s.type === 'index')) features.push('index')
+  const a11yMeta = [
+    ...features.map((f) => `<meta property="schema:accessibilityFeature">${f}</meta>`),
+    '<meta property="schema:accessibilityHazard">noFlashingHazard</meta>',
+    '<meta property="schema:accessibilityHazard">noMotionSimulationHazard</meta>',
+    '<meta property="schema:accessibilityHazard">noSoundHazard</meta>',
+    `<meta property="schema:accessibilitySummary">${esc(L.a11ySummary)}</meta>`,
+    '<meta property="schema:accessMode">textual</meta>',
+    '<meta property="schema:accessMode">visual</meta>',
+    '<meta property="schema:accessModeSufficient">textual</meta>',
+    '<meta property="schema:accessModeSufficient">textual,visual</meta>',
+    `<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>`,
+    meta.certifiedBy ? `<meta property="a11y:certifiedBy">${esc(meta.certifiedBy)}</meta>` : '',
+  ].filter(Boolean).join('\n')
   const unique = new Map<string, ImageOut>()
   for (const im of allImgs) unique.set(im.path, im)
   const manifest = [
@@ -175,7 +206,11 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
     `<item id="style" href="css/style.css" media-type="text/css"/>`,
     `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`,
     `<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`,
-    ...sections.map((s) => `<item id="${s.id}" href="${s.file}" media-type="application/xhtml+xml"/>`),
+    ...sections.map((s) => {
+      // content that needs a declaration in the package (EPUBCheck OPF-014)
+      const props = [/<math[\s>]/.test(s.body) && 'mathml', /<svg[\s>]/.test(s.body) && 'svg', /<script[\s>]/.test(s.body) && 'scripted', /(src|href)="https?:\/\/[^"]*\.(jpe?g|png|gif|mp3|mp4|css)"/.test(s.body) && 'remote-resources'].filter(Boolean).join(' ')
+      return `<item id="${s.id}" href="${s.file}" media-type="application/xhtml+xml"${props ? ` properties="${props}"` : ''}/>`
+    }),
     ...[...unique.values()].map((im, i) =>
       im === p.cover
         ? `<item id="cover-image" href="${im.path}" media-type="${mediaType(im.path)}" properties="cover-image"/>`
@@ -192,25 +227,15 @@ ${meta.publisher.trim() ? `<dc:publisher>${esc(meta.publisher.trim())}</dc:publi
 ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
 <dc:description>${esc(title)}${authors.length ? ` — ${esc(authors.join(', '))}` : ''}</dc:description>
 <dc:date>${modified.slice(0, 10)}</dc:date>
-${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}
+${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
 <meta property="dcterms:modified">${modified}</meta>
-${features.map((f) => `<meta property="schema:accessibilityFeature">${f}</meta>`).join('\n')}
-<meta property="schema:accessibilityHazard">noFlashingHazard</meta>
-<meta property="schema:accessibilityHazard">noMotionSimulationHazard</meta>
-<meta property="schema:accessibilityHazard">noSoundHazard</meta>
-<meta property="schema:accessibilitySummary">${esc(L.a11ySummary)}</meta>
-<meta property="schema:accessMode">textual</meta>
-<meta property="schema:accessMode">visual</meta>
-<meta property="schema:accessModeSufficient">textual</meta>
-<meta property="schema:accessModeSufficient">textual,visual</meta>
-<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>
-${meta.certifiedBy ? `<meta property="a11y:certifiedBy">${esc(meta.certifiedBy)}</meta>` : ''}
+${standard ? '' : a11yMeta}
 <meta name="cover" content="cover-image"/>
 </metadata>
 <manifest>
 ${manifest.join('\n')}
 </manifest>
-<spine toc="ncx">
+<spine toc="ncx"${rtl ? ' page-progression-direction="rtl"' : ''}>
 <itemref idref="cover"/>
 ${sections.map((s) => `<itemref idref="${s.id}"/>`).join('\n')}
 </spine>

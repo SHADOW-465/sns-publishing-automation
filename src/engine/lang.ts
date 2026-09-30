@@ -9,9 +9,26 @@ const STOP: Record<string, string[]> = {
   it: ['il', 'che', 'di', 'la', 'e', 'per', 'una', 'sono', 'della', 'del', 'con', 'non'],
   pt: ['que', 'não', 'uma', 'os', 'as', 'do', 'da', 'em', 'para', 'com', 'se', 'por'],
   ca: ['el', 'la', 'que', 'els', 'les', 'i', 'amb', 'del', 'per', 'una', 'és', 'als'],
+  nl: ['de', 'het', 'een', 'en', 'van', 'dat', 'niet', 'met', 'zijn', 'voor', 'ook', 'maar'],
+  sv: ['och', 'att', 'det', 'som', 'en', 'på', 'är', 'inte', 'med', 'för', 'av', 'den'],
+  da: ['og', 'at', 'det', 'som', 'en', 'på', 'er', 'ikke', 'med', 'for', 'af', 'den'],
+  pl: ['nie', 'się', 'na', 'że', 'to', 'jest', 'w', 'z', 'do', 'jak', 'ale', 'po'],
+  tr: ['bir', 've', 'bu', 'için', 'ile', 'de', 'da', 'çok', 'daha', 'ne', 'gibi', 'ama'],
+  ro: ['și', 'de', 'în', 'la', 'nu', 'cu', 'este', 'un', 'o', 'pe', 'că', 'care'],
+  cs: ['a', 'je', 'se', 'na', 'to', 'že', 'v', 's', 'do', 'jako', 'ale', 'pro'],
 }
 
+/** Scripts that name their language on their own (share of all letters). */
+const SCRIPTS: [string, RegExp][] = [
+  ['ar', /\p{Script=Arabic}/gu], ['he', /\p{Script=Hebrew}/gu], ['ru', /\p{Script=Cyrillic}/gu], ['el', /\p{Script=Greek}/gu],
+  ['ja', /[\p{Script=Hiragana}\p{Script=Katakana}]/gu], ['ko', /\p{Script=Hangul}/gu], ['zh', /\p{Script=Han}/gu],
+  ['hi', /\p{Script=Devanagari}/gu], ['th', /\p{Script=Thai}/gu],
+]
+
 export function detectLanguage(text: string): string {
+  const sample = text.slice(0, 40000)
+  const letters = (sample.match(/\p{L}/gu) ?? []).length
+  if (letters) for (const [code, re] of SCRIPTS) if ((sample.match(re) ?? []).length / letters > 0.3) return code
   const words = text.toLowerCase().match(/\p{L}+/gu) ?? []
   const count = new Map<string, number>()
   for (const w of words.slice(0, 20000)) count.set(w, (count.get(w) ?? 0) + 1)

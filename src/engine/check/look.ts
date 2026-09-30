@@ -237,7 +237,9 @@ export function compareLook(files: Files, pages: PrintPage[]): { checked: number
                 // a paragraph that runs on to the next page is compared on its lines on this page
                 const pi2 = printIndent(mine, col)
                 const ei = ebookIndent(c, irules, mine.length < 2)
-                if (ei && ei !== pi2) indents.push({ page: pages[pi].n, file: path.split('/').pop()!, text: said, cls: c.getAttribute('class') ?? '', ebook: ei, print: pi2 })
+                // a number or bullet hanging in the margin is its own printed segment: the text after it looks indented
+                const labelled = /^(\d{1,3}[.:)]?|[•·▪●–—-])\s/.test(said) && (ei === 'hang' || ei === 'flush')
+                if (ei && ei !== pi2 && !labelled) indents.push({ page: pages[pi].n, file: path.split('/').pop()!, text: said, cls: c.getAttribute('class') ?? '', ebook: ei, print: pi2 })
               }
               break
             }

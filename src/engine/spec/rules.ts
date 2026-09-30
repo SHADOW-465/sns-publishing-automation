@@ -52,6 +52,15 @@ const onOff: [string, string][] = [['true', 'Yes'], ['false', 'No']]
 export const RULES: Rule[] = [
   // ---- pages and language ----
   {
+    id: 'DOC-00', group: 'Pages and language', title: 'Kind of e-book', kind: 'free', type: 'choice', key: 'defaultProfile',
+    help: 'Accessible EPUB: reading roles, printed page numbers with a page list, and accessibility details in the package (libraries, schools, the European Accessibility Act). Standard EPUB: the same text, styles, contents and notes as a clean EPUB 3 for the stores, without that layer. Each book can still choose in Book details.',
+    choices: [['accessible', 'Accessible EPUB'], ['standard', 'Standard EPUB']],
+    example: (v) => (v === 'standard' ? '<h2 class="…" id="chap2">   (no role, aria-* or page markers)' : '<h2 class="…" id="chap2" role="heading" aria-level="2">'),
+    keywords: ['standard epub', 'accessible epub', 'epub estándar', 'epub accesible', 'kind of epub', 'tipo de epub', 'epub type'],
+    choiceWords: { standard: ['standard', 'estándar', 'estandar', 'plain epub', 'trade epub'], accessible: ['accessible', 'accesible'] },
+    origin: 'Client scope (InDesign to accessible / standard EPUB)',
+  },
+  {
     id: 'DOC-01', group: 'Pages and language', title: 'Language attribute on each page', kind: 'free', type: 'choice', key: 'htmlLang',
     help: 'Which attribute names the book language on every page. Both work in every reader.',
     choices: [['xml:lang', 'xml:lang only'], ['both', 'lang and xml:lang'], ['lang', 'lang only']],
@@ -208,9 +217,9 @@ export const RULES: Rule[] = [
 
   // ---- contents pages ----
   {
-    id: 'NAV-01', group: 'Contents pages', title: 'Indent of chapter entries', kind: 'free', type: 'number', key: 'tocEntryIndentEm', unit: 'em', min: 0, max: 5,
-    help: 'Left indent of chapter entries on the printed contents and exercise-list pages. 0 is flush left, as in print.',
-    example: (v) => `p.toc_1a { margin-left: ${v}em; }`,
+    id: 'NAV-01', group: 'Contents pages', title: 'Hanging indent of chapter entries', kind: 'free', type: 'number', key: 'tocEntryIndentEm', unit: 'em', min: 0, max: 5,
+    help: 'A chapter entry on the contents and exercise-list pages starts flush left and its wrapped lines hang in by this much, as in print. 0 sets every line flush.',
+    example: (v) => `p.toc_1a { margin-left: ${v}em; text-indent: -${v}em; }`,
     keywords: ['toc alignment', 'toc', 'índice', 'alineación del índice', 'contents', 'lista de ejercicios'],
     origin: 'V3 rows 18–19',
   },

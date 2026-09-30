@@ -34,7 +34,7 @@ const LABEL_HELP: Record<string, string> = {
   eisbn: 'E-book ISBN label on the copyright page', logoAlt: 'Description of the publisher logo', a11ySummary: 'Accessibility summary (store listing)',
   dedication: 'Dedication page name', epigraph: 'Epigraph page name', front: 'Other front pages',
 }
-const LANGS: [string, string][] = [['es', 'Spanish'], ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ca', 'Catalan']]
+const LANGS: [string, string][] = [['es', 'Spanish'], ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['it', 'Italian'], ['pt', 'Portuguese'], ['ca', 'Catalan'], ['nl', 'Dutch'], ['pl', 'Polish'], ['sv', 'Swedish'], ['da', 'Danish'], ['tr', 'Turkish'], ['ru', 'Russian'], ['el', 'Greek'], ['ar', 'Arabic'], ['he', 'Hebrew']]
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 export function SettingsFlow() {

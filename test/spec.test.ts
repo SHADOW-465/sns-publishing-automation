@@ -161,15 +161,15 @@ test('V3 rows 16–20: heading space and size, contents indent, footnote indent 
   assert.match(css, /h2\.Antetitulo_SUPER\n\{\nfont-size:110%;/)
   assert.match(css, /span\.Titulo_SUPER\n\{\nfont-size:165%;/)
   // row 16: space above and below part/chapter/section titles
-  assert.match(css, /h2\.Antetitulo_SUPER\n\{\nfont-size:110%;\ntext-align:center;\nmargin-top:3em;\nmargin-bottom:2em;/)
-  // rows 18–19: contents entries flush as in print; back matter entries are toc_1, not chapter entries
-  assert.match(css, /p\.toc_1a\n\{\nmargin-left:0em;\n\}/)
+  assert.match(css, /h2\.Antetitulo_SUPER\n\{\nfont-size:110%;\ntext-align:center;\nmargin-top:2em;\nmargin-bottom:3em;/)
+  // rows 18–19: contents entries flush with wrapped lines hanging in, as in print; back matter entries are toc_1, not chapter entries
+  assert.match(css, /p\.toc_1a\n\{\nmargin-left:1\.5em;\ntext-indent:-1\.5em;\n\}/)
   assert.match(f('toc.xhtml'), /<p class="toc_1"><a href="list.xhtml">/)
   // row 20: footnotes indented
-  assert.match(css, /p\.Nota-al-pie\n\{\ntext-indent:1\.5em;\n\}/)
-  ;({ css } = book({ headingSpaceAboveEm: 5, headingScalePct: 80, tocEntryIndentEm: 1.5, footnoteIndentEm: 0 }))
+  assert.match(css, /p\.Nota-al-pie\n\{\ntext-indent:2em;\n\}/)
+  ;({ css } = book({ headingSpaceAboveEm: 5, headingScalePct: 80, tocEntryIndentEm: 0, footnoteIndentEm: 0 }))
   assert.match(css, /h2\.Antetitulo_SUPER\n\{\nfont-size:85%;\ntext-align:center;\nmargin-top:5em;/)
-  assert.match(css, /p\.toc_1a\n\{\nmargin-left:1\.5em;/)
+  assert.match(css, /p\.toc_1a\n\{\nmargin-left:0em;\ntext-indent:0em;/)
   assert.match(css, /p\.Nota-al-pie\n\{\ntext-indent:0em;/)
 })
 

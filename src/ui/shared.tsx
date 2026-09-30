@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Preview } from './Preview.tsx'
 import { isbn13Valid, type BookMeta, type ReviewItem, type Section } from '../engine/epub/package.ts'
+import { settings } from '../engine/settings.ts'
 import type { Files } from '../engine/zip.ts'
 
 export function download(data: Uint8Array | string, name: string, type: string) {
@@ -57,6 +58,20 @@ export function BookDetails({ meta, onChange, note, sources = {} }: { meta: Book
         ))}
       </div>
       {!ok && <p className="err small">Enter a valid 13-digit e-book ISBN (it is never in the source files).</p>}
+      <fieldset className="profiles">
+        <legend>Kind of e-book</legend>
+        {(
+          [
+            ['accessible', 'Accessible EPUB', 'Full EPUB accessibility: reading roles, printed page numbers and page list, accessibility details in the package. For libraries, schools and the European Accessibility Act.'],
+            ['standard', 'Standard EPUB', 'A clean, valid EPUB 3 for the stores: same text, styles, contents and notes, without the accessibility extras (roles, page markers, accessibility details).'],
+          ] as const
+        ).map(([id, title, what]) => (
+          <label key={id} className={`profile ${(meta.profile ?? settings().defaultProfile) === id ? 'on' : ''}`}>
+            <input type="radio" name="profile" checked={(meta.profile ?? settings().defaultProfile) === id} onChange={() => onChange({ ...meta, profile: id })} />
+            <span><strong>{title}</strong><small>{what}</small></span>
+          </label>
+        ))}
+      </fieldset>
     </section>
   )
 }

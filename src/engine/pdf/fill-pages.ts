@@ -96,7 +96,10 @@ export function fillMissingPages(
         const ix = index(chunk)
         const hit = ix.text.indexOf(needle.slice(0, Math.min(needle.length, 30)))
         if (hit >= 0) {
-          const pos = from + ix.at[hit]
+          let pos = from + ix.at[hit]
+          // a page that starts with a paragraph: the marker goes before the paragraph, not inside it
+          const lead = docs[d].body.slice(0, pos).match(/<(?:p|h[1-6])\b[^>]*>(?:<[^>]+>)*$/)
+          if (lead && !/^<span[^>]*id="page-/.test(docs[d].body.slice(lead.index!, pos).replace(/^<[^>]+>/, ''))) pos = lead.index!
           docs[d].body = docs[d].body.slice(0, pos) + span(String(n)) + docs[d].body.slice(pos)
           done = true
         }

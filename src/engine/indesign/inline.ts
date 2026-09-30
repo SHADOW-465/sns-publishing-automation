@@ -50,7 +50,8 @@ export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): s
         continue
       }
       const tg = tag(c)
-      if (tg === 'br') segs.push({ k: 'br' })
+      if (tg === 'math') segs.push({ k: 'raw', html: new XMLSerializer().serializeToString(c).replace(/ xmlns:epub="[^"]*"/g, '') }) // MathML stays MathML
+      else if (tg === 'br') segs.push({ k: 'br' })
       else if (tg === 'a' && isNoteRef(c)) segs.push({ k: 'raw', html: ctx.noteRef((c.getAttribute('href') ?? '').split('#')[1] ?? '') })
       else if (tg === 'a') walk(c, face, normalizeHref(c.getAttribute('href') ?? '', c.textContent ?? ''))
       else if (tg === 'img') continue

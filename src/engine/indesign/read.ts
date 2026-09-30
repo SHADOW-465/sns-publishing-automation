@@ -10,7 +10,7 @@ import { settings } from '../settings.ts'
 
 export type Block =
   | { t: 'pb'; n: string }
-  | { t: 'p'; el: Element; key: string; classes: string[]; text: string; page: string }
+  | { t: 'p'; el: Element; key: string; classes: string[]; text: string; page: string; list?: { ordered: boolean; depth: number; start?: number } }
   | { t: 'table'; el: Element; page: string }
   | { t: 'img'; src: string; page: string; alt: string }
 
@@ -86,6 +86,21 @@ export function readExport(files: Files): Export {
           blocks.push({ t: 'p', el: c, key: styleKey(c), classes: classesOf(c), text: textOf(c), page })
           const inner = Array.from(c.querySelectorAll('*')).map(pageBreakOf).filter((x) => x !== null)
           if (inner.length) page = inner[inner.length - 1]!
+        } else if (tg === 'ul' || tg === 'ol') {
+          // a real list: every item keeps its place (and depth) in it
+          const list = (l: Element, depth: number) => {
+            let first = true
+            for (const li of Array.from(l.children)) {
+              if (tag(li) !== 'li') continue
+              const own = li.cloneNode(true) as Element
+              for (const n of Array.from(own.querySelectorAll('ul, ol'))) n.remove()
+              const start = first && tag(l) === 'ol' && l.getAttribute('start') ? Number(l.getAttribute('start')) : undefined
+              blocks.push({ t: 'p', el: own, key: styleKey(li) || styleKey(l) || 'li', classes: classesOf(li).length ? classesOf(li) : classesOf(l), text: textOf(own), page, list: { ordered: tag(l) === 'ol', depth, start } })
+              for (const n of Array.from(li.children).filter((x) => /^(ul|ol)$/.test(tag(x)))) list(n, depth + 1)
+              first = false
+            }
+          }
+          list(c, 0)
         } else if (tg === 'li') {
           blocks.push({ t: 'p', el: c, key: styleKey(c) || 'li', classes: classesOf(c), text: textOf(c), page })
         } else if (tg === 'table') {

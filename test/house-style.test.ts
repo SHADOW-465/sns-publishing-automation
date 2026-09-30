@@ -75,7 +75,7 @@ test('V3 corrections: the Cambia spec gives the hand-finished EPUB', () => {
 
   // row 15: a short line above the footnotes, as in print
   assert.match(ch1, /<div class="footnotes">\n<hr class="footline"\/>\n<div epub:type="footnote" id="fn-01"/)
-  assert.match(css, /hr\.footline\n\{\nwidth:30%;/)
+  assert.match(css, /hr\.footline\n\{\nwidth:25%;/)
   assert.doesNotMatch(css, /div\.footnotes[^}]*border-top/)
 
   // the built-in quality check agrees

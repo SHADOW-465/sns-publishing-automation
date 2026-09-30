@@ -14,6 +14,8 @@ export interface PrintPage {
   n: string // printed page number
   text: string // body text, de-hyphenated
   blank: boolean // nothing printed on the page (besides the slug)
+  /** only a folio and a running head: no text a reader needs a page marker for (the quality check skips it) */
+  bare?: boolean
   /** body lines with their horizontal position, top to bottom (for the visual comparison) */
   lines: PrintLine[]
   /** where it is in the PDF: 1-based page, and which half of a 2-up spread */
@@ -102,6 +104,7 @@ export async function readPrintPages(pdfjs: PdfJs, data: Uint8Array): Promise<Pr
   const folioOf = (t: string) => t.match(/^(\d{1,4})\b|\b(\d{1,4})$/)
 
   const nums: (number | undefined)[] = []
+  const near = new Set<number>() // pages that only look like they have text
   const texts: string[] = []
   const kept: PrintLine[][] = []
   for (const [pi, ls] of pages.entries()) {
@@ -117,6 +120,11 @@ export async function readPrintPages(pdfjs: PdfJs, data: Uint8Array): Promise<Pr
       }
       return true
     })
+    // a page with nothing but a running head that appears once (a blank verso before a part or chapter) is blank
+    if (ls.length <= 3 && (body.length === 0 || (body.length === 1 && body[0].length < 100 && ls.indexOf(body[0]) < 2 && !/[.!?]$/.test(body[0])))) {
+      near.add(pi)
+      body.length = 0
+    }
     const dropped = new Set(ls.filter((t, i) => edge(i) && !body.includes(t)))
     kept.push(raw[pi].segs.filter((s) => ![...dropped].some((d) => d.includes(s.text))))
     let text = ''
@@ -125,5 +133,5 @@ export async function readPrintPages(pdfjs: PdfJs, data: Uint8Array): Promise<Pr
     texts.push(text)
   }
   const numbers = fillNumbers(nums)
-  return texts.map((text, i) => ({ n: String(numbers[i]), text, blank: pages[i].length === 0, lines: kept[i], pdfPage: raw[i].pdfPage, half: raw[i].half }))
+  return texts.map((text, i) => ({ n: String(numbers[i]), text, blank: pages[i].length === 0, bare: near.has(i), lines: kept[i], pdfPage: raw[i].pdfPage, half: raw[i].half }))
 }

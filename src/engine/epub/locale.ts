@@ -100,7 +100,98 @@ const pt: Labels = {
   dedication: 'Dedicatória', epigraph: 'Epígrafe', front: 'Pré-textuais',
 }
 
-const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es }
+
+const nl: Labels = {
+  ...en,
+  cover: 'Omslag', halftitle: 'Voortitel', title: 'Titelpagina', copyright: 'Colofon',
+  navTitle: 'Inhoudsopgave', landmarks: 'Oriëntatiepunten', pageList: 'Paginalijst',
+  startReading: 'Begin met lezen', page: 'pagina', eisbn: 'E-book ISBN', logoAlt: 'Logo van de uitgever',
+  coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Auteur: ${authors}.` : '') + (publisher ? ` Logo van de uitgever: ${publisher}` : ''),
+  a11ySummary: 'Deze publicatie voldoet aan WCAG 2.0 niveau AA.',
+  dedication: 'Opdracht', epigraph: 'Motto', front: 'Voorwerk',
+}
+
+const pl: Labels = {
+  ...en,
+  cover: 'Okładka', halftitle: 'Strona przedtytułowa', title: 'Strona tytułowa', copyright: 'Strona redakcyjna',
+  navTitle: 'Spis treści', landmarks: 'Punkty orientacyjne', pageList: 'Lista stron',
+  startReading: 'Zacznij czytać', page: 'strona', eisbn: 'ISBN e-booka', logoAlt: 'Logo wydawcy',
+  coverAlt: ({ title, authors, publisher }) => `Tytuł: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logo wydawcy: ${publisher}` : ''),
+  a11ySummary: 'Ta publikacja jest zgodna z WCAG 2.0 na poziomie AA.',
+  dedication: 'Dedykacja', epigraph: 'Motto', front: 'Strony wstępne',
+}
+
+const sv: Labels = {
+  ...en,
+  cover: 'Omslag', halftitle: 'Smutstitel', title: 'Titelsida', copyright: 'Copyrightsida',
+  navTitle: 'Innehållsförteckning', landmarks: 'Landmärken', pageList: 'Sidlista',
+  startReading: 'Börja läsa', page: 'sida', eisbn: 'E-boks-ISBN', logoAlt: 'Förlagets logotyp',
+  coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Författare: ${authors}.` : '') + (publisher ? ` Förlagets logotyp: ${publisher}` : ''),
+  a11ySummary: 'Denna publikation uppfyller WCAG 2.0 nivå AA.',
+  dedication: 'Dedikation', epigraph: 'Motto', front: 'Inledande sidor',
+}
+
+const da: Labels = {
+  ...en,
+  cover: 'Omslag', halftitle: 'Smudstitel', title: 'Titelblad', copyright: 'Kolofon',
+  navTitle: 'Indholdsfortegnelse', landmarks: 'Pejlemærker', pageList: 'Sideliste',
+  startReading: 'Begynd at læse', page: 'side', eisbn: 'E-bogs-ISBN', logoAlt: 'Forlagets logo',
+  coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Forfatter: ${authors}.` : '') + (publisher ? ` Forlagets logo: ${publisher}` : ''),
+  a11ySummary: 'Denne publikation overholder WCAG 2.0 niveau AA.',
+  dedication: 'Dedikation', epigraph: 'Motto', front: 'Indledende sider',
+}
+
+const tr: Labels = {
+  ...en,
+  cover: 'Kapak', halftitle: 'İç kapak', title: 'Başlık sayfası', copyright: 'Telif sayfası',
+  navTitle: 'İçindekiler', landmarks: 'Yer işaretleri', pageList: 'Sayfa listesi',
+  startReading: 'Okumaya başla', page: 'sayfa', eisbn: 'E-kitap ISBN', logoAlt: 'Yayıncı logosu',
+  coverAlt: ({ title, authors, publisher }) => `Başlık: ${title}.` + (authors ? ` Yazar: ${authors}.` : '') + (publisher ? ` Yayıncı logosu: ${publisher}` : ''),
+  a11ySummary: 'Bu yayın WCAG 2.0 AA düzeyine uygundur.',
+  dedication: 'İthaf', epigraph: 'Epigraf', front: 'Ön sayfalar',
+}
+
+const ru: Labels = {
+  ...en,
+  cover: 'Обложка', halftitle: 'Авантитул', title: 'Титульный лист', copyright: 'Выходные данные',
+  navTitle: 'Оглавление', landmarks: 'Ориентиры', pageList: 'Список страниц',
+  startReading: 'Начать чтение', page: 'страница', eisbn: 'ISBN электронной книги', logoAlt: 'Логотип издательства',
+  coverAlt: ({ title, authors, publisher }) => `Название: ${title}.` + (authors ? ` Автор: ${authors}.` : '') + (publisher ? ` Логотип издательства: ${publisher}` : ''),
+  a11ySummary: 'Это издание соответствует WCAG 2.0 уровня AA.',
+  dedication: 'Посвящение', epigraph: 'Эпиграф', front: 'Предисловие',
+}
+
+const el: Labels = {
+  ...en,
+  cover: 'Εξώφυλλο', halftitle: 'Σελίδα προτίτλου', title: 'Σελίδα τίτλου', copyright: 'Πνευματικά δικαιώματα',
+  navTitle: 'Περιεχόμενα', landmarks: 'Σημεία αναφοράς', pageList: 'Λίστα σελίδων',
+  startReading: 'Έναρξη ανάγνωσης', page: 'σελίδα', eisbn: 'ISBN ηλεκτρονικού βιβλίου', logoAlt: 'Λογότυπο εκδότη',
+  coverAlt: ({ title, authors, publisher }) => `Τίτλος: ${title}.` + (authors ? ` Συγγραφέας: ${authors}.` : '') + (publisher ? ` Λογότυπο εκδότη: ${publisher}` : ''),
+  a11ySummary: 'Αυτή η έκδοση συμμορφώνεται με το WCAG 2.0 επίπεδο AA.',
+  dedication: 'Αφιέρωση', epigraph: 'Επίγραμμα', front: 'Εισαγωγικές σελίδες',
+}
+
+const ar: Labels = {
+  ...en,
+  cover: 'الغلاف', halftitle: 'صفحة العنوان المختصر', title: 'صفحة العنوان', copyright: 'حقوق النشر',
+  navTitle: 'فهرس المحتويات', landmarks: 'معالم', pageList: 'قائمة الصفحات',
+  startReading: 'ابدأ القراءة', page: 'صفحة', eisbn: 'الرقم الدولي للكتاب الإلكتروني', logoAlt: 'شعار الناشر',
+  coverAlt: ({ title, authors, publisher }) => `العنوان: ${title}.` + (authors ? ` المؤلف: ${authors}.` : '') + (publisher ? ` شعار الناشر: ${publisher}` : ''),
+  a11ySummary: 'يتوافق هذا المنشور مع WCAG 2.0 المستوى AA.',
+  dedication: 'إهداء', epigraph: 'تصدير', front: 'الصفحات الأولى',
+}
+
+const he: Labels = {
+  ...en,
+  cover: 'עטיפה', halftitle: 'שער חצי', title: 'עמוד שער', copyright: 'זכויות יוצרים',
+  navTitle: 'תוכן עניינים', landmarks: 'ציוני דרך', pageList: 'רשימת עמודים',
+  startReading: 'התחל לקרוא', page: 'עמוד', eisbn: 'ISBN של הספר האלקטרוני', logoAlt: 'לוגו ההוצאה',
+  coverAlt: ({ title, authors, publisher }) => `כותרת: ${title}.` + (authors ? ` מחבר: ${authors}.` : '') + (publisher ? ` לוגו ההוצאה: ${publisher}` : ''),
+  a11ySummary: 'פרסום זה עומד בתקן WCAG 2.0 ברמה AA.',
+  dedication: 'הקדשה', epigraph: 'מוטו', front: 'עמודי פתיחה',
+}
+
+const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es, nl, pl, sv, da, no: da, nb: da, tr, ru, el, ar, fa: ar, ur: ar, he }
 
 /** Built-in labels for the language, with the house's own wording from Settings on top. */
 export const labelsFor = (lang: string): Labels => {
@@ -137,7 +228,7 @@ const KEYWORDS: [SectionType, RegExp][] = [
   ['about', /^(acerca del? autor|sobre el autor|sobre la autora|acerca de la autora|about the authors?|[üu]ber (den|die) autor|[àa] propos de l.auteur|l.autore|sobre (o|a) autor)/i],
   ['contributors', /^(the )?contributors$|^(los |las )?colaboradores$|^(die )?mitwirkenden$|^(les )?contributeurs$/i],
   ['acknowledgments', /^(agradecimientos|acknowledge?ments|dank(sagung)?|remerciements|ringraziamenti|agradecimentos)\b/i],
-  ['chapter', /^(cap[íi]tulo|chapter|kapitel|chapitre|capitolo|cap[íi]tol)\b/i],
+  ['chapter', /^(cap[íi]tulo|chapter|kapitel|chapitre|capitolo|cap[íi]tol|hoofdstuk|rozdzia[łl]|kapittel|b[öo]l[üu]m|глава|κεφ[αά]λαιο|الفصل|פרק)(?![\p{L}])/iu],
 ]
 
 export const sectionTypeOf = (heading: string): SectionType | undefined =>

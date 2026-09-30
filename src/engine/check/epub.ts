@@ -356,8 +356,11 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
 
   // ---- accessibility metadata ----
   const missingMeta = A11Y_META.filter((p) => !prop(p).some(Boolean))
-  if (missingMeta.length) a11y.push({ level: 'error', msg: `Accessibility metadata missing: ${missingMeta.join(', ')} (required by EPUB Accessibility 1.1).`, where: opfPath })
-  if (!prop('dcterms:conformsTo').some(Boolean) && !Array.from(opf.getElementsByTagName('link')).some((l) => /conformsTo/.test(l.getAttribute('rel') ?? '')))
+  // no accessibility metadata at all: a standard EPUB, made that way on purpose (roles, page list and metadata left out)
+  const standard = missingMeta.length === A11Y_META.length && !prop('dcterms:conformsTo').some(Boolean)
+  if (standard) a11y.push({ level: 'pass', msg: 'Standard EPUB: accessibility metadata, ARIA roles and printed-page markers are left out on purpose. Pictures still need descriptions.', where: opfPath })
+  else if (missingMeta.length) a11y.push({ level: 'error', msg: `Accessibility metadata missing: ${missingMeta.join(', ')} (required by EPUB Accessibility 1.1).`, where: opfPath })
+  if (!standard && !prop('dcterms:conformsTo').some(Boolean) && !Array.from(opf.getElementsByTagName('link')).some((l) => /conformsTo/.test(l.getAttribute('rel') ?? '')))
     a11y.push({ level: 'warn', msg: 'No accessibility conformance statement (dcterms:conformsTo).', where: opfPath })
   if (stats.pages && !prop('pageBreakSource').some(Boolean) && !meta('dc:source').length) a11y.push({ level: 'warn', msg: 'Page markers are present but the print edition they come from is not named (dc:source / pageBreakSource).', where: opfPath })
 
