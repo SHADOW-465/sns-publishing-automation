@@ -1,7 +1,7 @@
 import { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFNumber, PDFHexString, PDFString, PDFStream, PDFRawStream, type PDFPage, type PDFObject } from 'pdf-lib'
 import { tokenize, paints, rewrite, stripMarked, type Op, type Paint, type Owner, type Box } from './content.ts'
 import { pageContent, pageResources, streamBytes, latin1, fromLatin1, trimOf } from './pages.ts'
-import type { SNode, Structure } from './structure.ts'
+import { imageList, type SNode, type Structure } from './structure.ts'
 import type { PdfBook, PLine } from '../pdfepub/analyze.ts'
 import type { ReviewItem } from '../epub/package.ts'
 
@@ -176,7 +176,7 @@ export function writeUa(
         d.set(PDFName.of('Contents'), PDFHexString.fromText(link.text || uri || 'Link'))
       }
       d.set(PDFName.of('StructParent'), PDFNumber.of(annotKey))
-      ;(host ?? st.root).kids.push(link)
+      ;(host ?? st.root).kids.push({ id: -1, tag: 'Reference', kids: [link], lines: [] }) // a link sits in a Reference, as Acrobat does it
       linkNodes.push({ node: link, annot: a, page: i, key: annotKey++ })
       annotKids.set(link, [{ ref: a, page: i }])
     }
@@ -190,7 +190,7 @@ export function writeUa(
     if (arr) arr.push(annot)
     else pages[page].node.set(PDFName.of('Annots'), ctx.obj([annot]))
     const link: SNode = { id: -1, tag: 'Link', kids: [], lines: [], text }
-    host.kids.push(link)
+    host.kids.push({ id: -1, tag: 'Reference', kids: [link], lines: [] })
     linkNodes.push({ node: link, annot, page, key: annotKey++ })
     annotKids.set(link, [{ ref: annot, page }])
   }
@@ -229,6 +229,36 @@ export function writeUa(
       urlLinks++
     }
   }
+  const MAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
+  for (const [l, host] of st.owner) {
+    for (const m of l.text.matchAll(MAIL_RE)) {
+      const w = l.x1 - l.x0
+      const a = l.x0 + (w * m.index!) / l.text.length
+      const b = l.x0 + (w * (m.index! + m[0].length)) / l.text.length
+      const H = book.pages[l.page].height
+      addLink(l.page, { x0: a, x1: b, y0: H - l.base - 3, y1: H - l.y + 1 }, host, { A: ctx.obj({ S: 'URI', URI: PDFString.of(`mailto:${m[0]}`) }) }, m[0])
+      urlLinks++
+    }
+  }
+  // the list of images: entry n links to the n-th picture of the plates (the pictures are listed in book order)
+  let imgLinks = 0
+  const il = imageList(st, book)
+  if (il && il.items.length) {
+    const max = Math.max(...il.items.map((x) => x.n))
+    const positional = il.figures.length >= max && il.figures.length <= max + 3
+    if (!positional && il.byN.size < il.items.length) review.push({ level: 'warn', msg: `The image list has ${max} numbered entries but ${il.figures.length} pictures follow it: entries were not linked to their pictures.` })
+    else
+      for (const { body, ls, n } of il.items) {
+        const f = il.byN.get(n) ?? il.figures.slice(il.figures.length - max)[n - 1]
+        if (!f) continue
+        const byPage = new Map<number, PLine[]>()
+        for (const l of ls) byPage.set(l.page, [...(byPage.get(l.page) ?? []), l])
+        for (const [pg, pls] of byPage)
+          addLink(pg, boxOf(pls), body, { Dest: ctx.obj([pageRefs[f.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(f.box.y1 + 4), ctx.obj(null)]) }, `Go to picture ${n}`)
+        imgLinks++
+      }
+  }
+  if (imgLinks) review.push({ level: 'info', msg: `Linked ${imgLinks} image-list entries to their pictures.` })
   if (tocLinks + urlLinks) review.push({ level: 'info', msg: `Added ${tocLinks} contents link(s) and ${urlLinks} web link(s).` })
 
   // ---- 4. structure tree ----
@@ -336,7 +366,8 @@ export function writeUa(
   doc.setLanguage(meta.lang)
   doc.setProducer('Publishing Automation — PDF/UA tagging')
   doc.setModificationDate(new Date())
-  const xmp = ctx.stream(xmpPacket(meta), { Type: 'Metadata', Subtype: 'XML' })
+  // the packet is UTF-8 (it holds a byte-order mark and dashes): a plain string would be cut to one byte per character
+  const xmp = ctx.stream(new TextEncoder().encode(xmpPacket(meta)), { Type: 'Metadata', Subtype: 'XML' })
   doc.catalog.set(PDFName.of('Metadata'), ctx.register(xmp))
 
   return {

@@ -181,26 +181,80 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (roleOf(l) !== 'Artifact') lines.push(l)
     }
 
-    // figures and their captions: the caption is the Caption-role text touching the figure
+    // figures and their captions: each caption block (Caption-role text, or a "Figure 3" label line) belongs to the nearest figure
+    // beside, above or below it; the pair is read figure first, then caption, pairs in page order (rows top to bottom, left to right)
+    const LABEL = /^(abb\.|abbildung|fig\.|figure|tab\.|tabelle|table|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i
+    // a page of pictures (plates) has no other text than captions, whatever their font
+    const pictured = figs.length > 1 && lines.length <= 30 && figs.every((f) => !f.vector) && figs.reduce((t, f) => t + (f.box.x1 - f.box.x0) * (f.box.y1 - f.box.y0), 0) > page.width * page.height * 0.25
+    const seeds = lines.filter((l) => roleOf(l) === 'Caption' || LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    type Blk = { lines: PLine[]; x0: number; x1: number; top: number; bottom: number }
+    const blocks: Blk[] = []
+    for (const l of seeds) {
+      const b = blocks.find((k) => l.x0 < k.x1 + 12 && l.x1 > k.x0 - 12 && l.y - k.bottom < l.size * 1.8 && l.y >= k.top - 2)
+      if (b) (b.lines.push(l), (b.x0 = Math.min(b.x0, l.x0)), (b.x1 = Math.max(b.x1, l.x1)), (b.bottom = Math.max(b.bottom, l.y + l.size)))
+      else blocks.push({ lines: [l], x0: l.x0, x1: l.x1, top: l.y, bottom: l.y + l.size })
+    }
+    const box = (f: Figure) => ({ x0: f.box.x0, x1: f.box.x1, top: page.height - f.box.y1, bottom: page.height - f.box.y0 })
+    const gapOf = (f: Figure, k: Blk) => {
+      const fb = box(f)
+      return Math.max(0, fb.x0 - k.x1, k.x0 - fb.x1) + Math.max(0, fb.top - k.bottom, k.top - fb.bottom)
+    }
+    const pairs = figs.flatMap((f) => blocks.map((k) => ({ f, k, d: gapOf(f, k) }))).filter((x) => x.d < 50).sort((a, b) => a.d - b.d)
+    const capOf = new Map<Figure, Blk>()
+    const usedBlk = new Set<Blk>()
+    for (const { f, k } of pairs) if (!capOf.has(f) && !usedBlk.has(k)) (capOf.set(f, k), usedBlk.add(k))
+    // a "Figure 3" label line may stand to the side of a chart: match it by height alone
+    for (const f of figs) {
+      if (capOf.has(f)) continue
+      const fb = box(f)
+      const k = blocks.filter((x) => !usedBlk.has(x) && LABEL.test(x.lines[0].text.trim()) && Math.max(0, fb.top - x.bottom, x.top - fb.bottom) < 40).sort((p, q) => gapOf(f, p) - gapOf(f, q))[0]
+      if (k) (capOf.set(f, k), usedBlk.add(k))
+    }
+    const figNodes: { f: Figure; nodes: SNode[] }[] = []
     for (const f of figs) {
       const n = mk('Figure')
       n.figure = f
       f.node = n
-      figures.push(f)
-      const capLines = lines.filter((l) => roleOf(l) === 'Caption' && Math.abs(page.height - l.y - f.box.y0) < 40 + l.size * 3 && l.x0 < f.box.x1 && l.x1 > f.box.x0)
-      const byLabel = lines.filter((l) => /^(abb\.|abbildung|fig\.|figure|tab\.|tabelle|table|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i.test(l.text.trim()) && Math.abs(page.height - l.y - l.size - f.box.y1) < 40)
-      const cap = [...new Set([...byLabel, ...capLines])]
-      f.caption = cap.map((l) => l.text.trim()).join(' ')
-      if (cap.length) {
-        const c = mk('Caption')
-        for (const l of cap) own(l, c)
+      const k = capOf.get(f)
+      f.caption = k ? k.lines.map((l) => l.text.trim()).join(' ') : ''
+      const nodes = [n]
+      if (k) {
+        const c = mk('P') // a plain paragraph right after its figure, as in the hand-tagged files
+        for (const l of k.lines) own(l, c)
         c.text = f.caption
-        // read the caption where it is printed: before the figure when it sits above it
-        const above = cap.every((l) => page.height - l.y > f.box.y1 - 4)
-        floats.push(...(above ? [c, n] : [n, c]))
-        lines.splice(0, lines.length, ...lines.filter((l) => !cap.includes(l)))
-      } else floats.push(n)
+        nodes.push(c)
+      }
+      figNodes.push({ f, nodes })
     }
+    // reading order of the pairs: XY-cut, columns before rows (a grid of plates is read down its left column first, as the production team does)
+    type Cell = { item: (typeof figNodes)[number]; x0: number; x1: number; top: number; bottom: number }
+    const cells: Cell[] = figNodes.map((item) => {
+      const fb = box(item.f)
+      const k = capOf.get(item.f)
+      return { item, x0: Math.min(fb.x0, k?.x0 ?? fb.x0), x1: Math.max(fb.x1, k?.x1 ?? fb.x1), top: Math.min(fb.top, k?.top ?? fb.top), bottom: Math.max(fb.bottom, k?.bottom ?? fb.bottom) }
+    })
+    const cut = (cs: Cell[], lo: 'x0' | 'top', hi: 'x1' | 'bottom'): Cell[][] | null => {
+      const sorted = [...cs].sort((a, b) => a[lo] - b[lo])
+      let reach = sorted[0][hi]
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i][lo] > reach + 2) return [sorted.slice(0, i), ...(cut(sorted.slice(i), lo, hi) ?? [sorted.slice(i)])]
+        reach = Math.max(reach, sorted[i][hi])
+      }
+      return null
+    }
+    const xy = (cs: Cell[]): Cell[] => {
+      if (cs.length < 2) return cs
+      const cols = cut(cs, 'x0', 'x1')
+      if (cols) return cols.flatMap(xy)
+      const rows = cut(cs, 'top', 'bottom')
+      if (rows) return rows.flatMap(xy)
+      return [...cs].sort((a, b) => a.top - b.top || a.x0 - b.x0)
+    }
+    figNodes.splice(0, figNodes.length, ...xy(cells).map((c) => c.item))
+    for (const { f } of figNodes) figures.push(f)
+    for (const { nodes } of figNodes) floats.push(...nodes)
+    const taken = new Set([...capOf.values()].flatMap((k) => k.lines))
+    if (taken.size) lines.splice(0, lines.length, ...lines.filter((l) => !taken.has(l)))
 
     // reading order: body columns left to right, full-width lines where they fall
     const body = lines.filter((l) => roleOf(l) === 'P')
@@ -376,4 +430,48 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     }
   // empty sections/containers are dropped by the writer
   return { root, owner, figures, headings, nodes, tocEntries }
+}
+
+export interface ListItem {
+  n: number
+  body: SNode
+  ls: PLine[]
+  text: string
+}
+
+/** The numbered list of pictures ("Images", "Illustrations") and the pictures that follow it, each matched to its entry by caption where it can. */
+export function imageList(st: Structure, book: PdfBook): { heading: SNode; items: ListItem[]; figures: Figure[]; byN: Map<number, Figure> } | undefined {
+  const cn = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, '').slice(0, 40)
+  for (const heading of st.headings) {
+    if (!/^(images|illustrations|plates|list of (images|illustrations|plates|figures))$/i.test((heading.text ?? '').trim()) || !heading.lines.length) continue
+    // read the entries off the pages: a line starting "12." begins one, the lines after it (up to the next entry) finish it
+    const first = heading.lines[0].page
+    const items: ListItem[] = []
+    let open: ListItem | undefined
+    scan: for (let pi = first; pi < Math.min(book.pages.length, first + 4); pi++) {
+      for (const l of [...book.pages[pi].lines].sort((a, b) => a.col - b.col || a.y - b.y)) {
+        const node = st.owner.get(l)
+        if (node && /^H\d$/.test(node.tag) && node !== heading) break scan
+        if (!node || node === heading) continue
+        const t = l.text.trim()
+        const n = Number(t.match(/^(\d{1,3})[.)](\s|$)/)?.[1])
+        if (n) {
+          open = { n, body: node.tag === 'LBody' || node.tag === 'P' ? node : node, ls: [l], text: t.replace(/^\d{1,3}[.)]\s*/, '') }
+          items.push(open)
+        } else if (open && open.ls.length < 6 && open.ls[open.ls.length - 1].page === l.page && Math.abs(l.x0 - open.ls[0].x0) < 40 && l.y - open.ls[open.ls.length - 1].y < l.size * 2.2 && !/^(front|back) cover/i.test(t)) {
+          open.ls.push(l)
+          open.text += ' ' + t
+        }
+      }
+    }
+    const figures = st.figures.filter((f) => f.page > first && f.node)
+    const byN = new Map<number, Figure>()
+    for (const it of items) {
+      const k = cn(it.text)
+      const f = k.length >= 15 ? figures.find((x) => (x.caption ? cn(x.caption).startsWith(k) || k.startsWith(cn(x.caption)) : false) && ![...byN.values()].includes(x)) : undefined
+      if (f) byN.set(it.n, f)
+    }
+    return { heading, items, figures, byN }
+  }
+  return undefined
 }

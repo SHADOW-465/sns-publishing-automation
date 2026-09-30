@@ -3,6 +3,27 @@
 Newest first. Each entry says what changed for the people using the tool, and which client
 feedback it answers. Keep this file up to date with every change.
 
+## 2026-10-01 — Feedback round 3: standard EPUB, Word/PDF → EPUB structure, PAC-clean accessible PDF
+
+**InDesign → EPUB** (client: "80% done, language, specification and complex EPUB testing pending")
+- **Kind of e-book**: *Accessible* (roles, `aria`, page list, accessibility metadata) or *Standard* (none of those). Default in Settings.
+- Real lists (`ul`/`ol`, nested), MathML, right-to-left books (`dir="rtl"`, spine direction), more languages.
+
+**Word / print PDF → EPUB** (client: chapter splitting, toc/ncx/nav level, run-on paragraphs, lists, tables)
+- The printed contents page now drives the structure: parts, chapters, appendices, and two-level contents (second level = subheads). The file list, `toc.xhtml`, `nav.xhtml` and `toc.ncx` agree.
+- Spread PDFs (two printed pages side by side) are split into single pages.
+- A paragraph that runs across a page break is one paragraph (the page marker sits inside it).
+- Bullet lists become `ul.bull`; ruled grids become real `<table>` (header row as `th` unless Settings says otherwise).
+- "List of exercises/figures" pages name subheads inside the chapters.
+
+**Accessible PDF** (client: PAC shows errors; alt text missing; reading order; figure/caption order; notes and image links)
+- PAC "PDF Syntax" failures: tag markers no longer start or end inside a drawn path, and operators written without a space (`lS`, `ref`) are separated.
+- PAC "Metadata" failures: the XMP packet is written as real UTF-8.
+- Captions are paired with the nearest picture (beside, above or below); each picture is followed by its caption; pictures are read in column order like the hand-tagged file.
+- Alt texts from the Word file follow the order of the book's image list, matched by caption.
+- Links sit in `Reference > Link` (as in the hand-tagged file); e-mail addresses become `mailto:` links; each image-list entry links to its picture.
+- New fast test `test/pdfua-content.test.ts`.
+
 ## 2026-09-28 — Client spec, rule layers and waivers (Phase 1); feedback V3 rows 15–20
 
 The client no longer sends corrections one by one for a developer to code: he sets every rule

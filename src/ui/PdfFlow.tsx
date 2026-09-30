@@ -48,7 +48,7 @@ export function PdfFlow() {
     run('Loading the PDF reader…', async () => {
       const { pdfjs } = await import('./pdf.ts')
       const { analyzePdf } = await import('../engine/pdfepub/analyze.ts')
-      const b = await analyzePdf(pdfjs, pdf!.data, browserRaster, {}, (done, total) => setBusy(`Reading page ${done} of ${total} (text, fonts and pictures)…`))
+      const b = await analyzePdf(pdfjs, pdf!.data, browserRaster, {}, (done, total) => setBusy(`Reading page ${done} of ${total} (text, fonts and pictures)…`), { splitSpreads: true })
       const saved = remember<PdfProfile>('pdfprofile', b.meta.publisher)
       const savedRules = remember<CopyrightRules>('copyright', b.meta.publisher)
       setStyles(b.styles.map((s) => (saved?.[s.key] ? { ...s, role: saved[s.key], unsure: false, reason: 'from saved publisher settings' } : s)))

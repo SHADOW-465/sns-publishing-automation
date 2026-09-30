@@ -1,4 +1,6 @@
-import { pageLayout, isBoldFont, type Line, type PageLayout } from '../pdf/layout.ts'
+import { pageLayout, splitSpread, isBoldFont, type Line, type PageLayout } from '../pdf/layout.ts'
+import { isSlug } from '../pdf/slug.ts'
+import { readContents, readLists, matchHeadings, type Contents } from './contents.ts'
 import { fillNumbers } from '../pdf/numbers.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
@@ -31,6 +33,12 @@ export interface PLine extends Line {
   page: number // pdf page index
   col: number // column start x
   imprint?: boolean
+  /** this very line is a heading the printed contents names, whatever its font style says */
+  forced?: PdfRole
+  /** the properly cased text from the contents page, for a heading set in small caps ("cambia tu mente: …") */
+  replaceWith?: string
+  /** the rest of a heading whose text was replaced */
+  skip?: boolean
   dropcap?: string
   /** page marker to emit with this line (TOC / index pages, rebuilt from raw lines) */
   mark?: string
@@ -64,10 +72,12 @@ export interface PdfBook {
   lead: number // body line spacing
   step: number // paragraph indent
   imprintPage?: number
+  /** the printed contents page(s), read: where each part and chapter starts */
+  contents?: Contents
 }
 
-// InDesign slug: file name + print date/time, often doubled ("02-06-202602-06-2026  19:06") so no \b
-const SLUG = /\.indd\b|\d{1,2}[/-]\d{1,2}[/-]\d{4}|\b\d{1,2}:\d{2}:\d{2}/i
+// InDesign slug: file name + print date/time, often doubled ("02-06-202602-06-2026  19:06"): see pdf/slug.ts
+const SLUG = { test: (t: string) => isSlug(t) || /\d{1,2}[/-]\d{1,2}[/-]\d{4}|\b\d{1,2}:\d{2}:\d{2}/.test(t) }
 const shape = (s: string) => s.replace(/\d+/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
 const family = (font: string) => font.replace(/-.*$/, '').replace(/(MT|Std|Pro|LT)$/g, (m) => m)
 export const styleKey = (l: Line) => `${family(l.font)}${isBoldFont(l.font) ? ' Bold' : ''} ${Math.round(l.size * 2) / 2}`
@@ -105,6 +115,7 @@ export const columnOf = (starts: number[], x0: number) => [...starts].reverse().
 export async function analyzePdf(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pdfjs: any, data: Uint8Array, raster: Raster, saved: PdfProfile = {}, onProgress?: (done: number, total: number) => void,
+  opts: { splitSpreads?: boolean; /** false: do not derive heading roles from a printed contents page (accessible PDF keeps the font-size rules) */ structure?: boolean } = {},
 ): Promise<PdfBook> {
   const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
   const raw: PageLayout[] = []
@@ -116,7 +127,9 @@ export async function analyzePdf(
       const obj = await imageObject(page, im.id)
       im.jpeg = obj ? await raster.image(obj, im.crop, MAX_IMAGE_SIDE).catch(() => null) : null
     }
-    raw.push(layout)
+    // a spread PDF (two printed pages side by side) is read as two pages, or the left page's text would be a "column" of the right one
+    if (opts.splitSpreads && layout.width > layout.height * 1.2) for (const half of splitSpread(layout, i - 1)) raw.push({ ...half, index: raw.length })
+    else raw.push({ ...layout, src: i - 1, index: raw.length })
     page.cleanup()
     onProgress?.(i, doc.numPages)
   }
@@ -189,12 +202,60 @@ export async function analyzePdf(
     else if (r >= 1.6 && avg < 70) (role = 'title'), (reason = 'large short lines')
     else if (s.bold && r >= 1.05 && avg < 80) (role = 'subhead'), (reason = 'bold, larger than body text')
     else if (r <= 0.88 && (share((l) => l.marker) >= 0.15 || share((l) => imageLines.has(l)) >= 0.3)) (role = 'caption'), (reason = 'small text next to pictures')
+    else if (opts.structure !== false && share((l) => !!l.sc) >= 0.7 && avg < 90 && s.lines.length >= 2) (role = 'subhead2'), (reason = 'short lines in small caps'), (unsure = s.lines.length < 4)
     else if (s.bold && avg < 60) (role = 'subhead2'), (reason = 'bold short lines'), (unsure = s.lines.length < 4)
     else (role = 'text'), (reason = 'paragraph text in another style'), (unsure = s.lines.length < 4)
     if (saved[key]) (role = saved[key]), (reason = 'from saved publisher profile'), (unsure = false)
     infos.push({ key, count: s.lines.length, samples: s.lines.slice(0, 3).map((l) => l.text.slice(0, 120)), role, unsure, reason })
   }
   infos.sort((a, b) => b.count - a.count)
+
+  // ---- the printed contents: where each part and chapter starts, and what its heading looks like ----
+  // Font sizes alone cannot tell a chapter label ("Capítulo 1", 15pt) from a subhead. The contents page names every
+  // chapter: the lines that match it in the body show which font styles are chapter labels and titles.
+  const contents = opts.structure === false ? undefined : readContents(pages, textSize)
+  if (contents) {
+    const all = matchHeadings(contents, pages, numbers, (l) => l.key === bodyKey)
+    const found = all.filter((m) => m.entry.level !== 2)
+    // subsections listed in the contents are subheads inside the chapters
+    for (const m of all.filter((x) => x.entry.level === 2)) for (const l of m.lines) l.forced = 'subhead'
+    const votes = new Map<string, { label: number; title: number }>()
+    for (const m of found) {
+      const last = m.lines[m.lines.length - 1].key
+      for (const l of m.lines) {
+        const v = votes.get(l.key) ?? { label: 0, title: 0 }
+        // the leading lines in another style than the last one are the label ("Capítulo 1"); the rest is the title
+        if (l.key !== last && m.lines.length > 1) v.label++
+        else v.title++
+        votes.set(l.key, v)
+      }
+    }
+    // …and each matched line itself is a chapter label or title, even where its font style is shared with other text
+    for (const m of found) {
+      const last = m.lines[m.lines.length - 1].key
+      for (const l of m.lines) l.forced = l.key !== last && m.lines.length > 1 ? 'chapter-number' : 'title'
+    }
+    // lists of exercises and the like: their entries name subheads inside the chapters
+    for (const list of readLists(pages, textSize, Math.max(...contents.pages))) {
+      for (const m of matchHeadings(list, pages, numbers, (l) => l.key === bodyKey)) {
+        m.lines.forEach((l, k) => {
+          if (l.forced) return
+          l.forced = 'subhead2'
+          if (k === 0) l.replaceWith = m.entry.text
+          else l.skip = true
+        })
+      }
+    }
+    for (const [key, v] of votes) {
+      const info = infos.find((i) => i.key === key)
+      // a style that a chapter shares with many other headings (Ceramics: "The Contributors" set like every subhead) keeps its
+      // own role; only the matched lines themselves are headings (forced above)
+      if (!info || saved[key] || key === bodyKey || info.role === 'drop' || v.label + v.title < info.count * 0.5) continue
+      info.role = v.label > v.title ? 'chapter-number' : 'title'
+      info.reason = 'heading listed in the printed contents'
+      info.unsure = false
+    }
+  }
   const roleOf = new Map(infos.map((i) => [i.key, i.role]))
 
   // ---- body metrics: line spacing and paragraph indent ----
@@ -244,6 +305,19 @@ export async function analyzePdf(
     }
   }
 
+  // no ISBN printed (the e-book has its own): a front page full of imprint wording is still the copyright page
+  if (imprintPage === undefined && opts.structure !== false) {
+    const IMPRINT_LINE = /©|\(c\)\s*\d{4}|edici[óo]n|edition|auflage|first published|dep[óo]sito legal|printed in|impreso en|gedruckt|todos los derechos|all rights reserved|derechos reservados|t[íi]tulo original|original title|traducci[óo]n|translated by|^www\.|copyright/i
+    for (const p of pages.slice(0, 16)) {
+      const hits = p.lines.filter((l) => IMPRINT_LINE.test(l.text)).length
+      if (hits >= 3 && hits >= p.lines.length * 0.3) {
+        p.lines.forEach((l) => (l.imprint = true))
+        imprintPage = p.index
+        break
+      }
+    }
+  }
+
   // ---- metadata guesses ----
   const frontText = front.map((i) => pages[i]).filter((p) => p.lines.length)
   const half = frontText[0]
@@ -288,5 +362,5 @@ export async function analyzePdf(
     }
   const brand = [...colours].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#333333'
 
-  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage }
+  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, contents }
 }

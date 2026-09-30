@@ -8,6 +8,9 @@ import { transformImprint, PRINT_RIGHTS, type CopyrightRules, type ImprintPara }
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
+import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
+import { detectTables, type PdfTable } from '../pdf/tables.ts'
+import { settings } from '../settings.ts'
 
 // =============================================================================================
 // Print PDF → EPUB, step 2: rebuild the text flow, pictures and navigation.
@@ -34,7 +37,7 @@ export interface PdfBuildResult {
 }
 
 type Seg = { t: string; b?: boolean; i?: boolean; raw?: boolean }
-type Block = { kind: 'p' | 'extract' | 'raw'; cls?: string; html: string }
+type Block = { kind: 'p' | 'extract' | 'raw' | 'li'; cls?: string; html: string }
 interface PSec {
   type: SectionType
   stem: string
@@ -45,6 +48,13 @@ interface PSec {
   raw: PLine[] // toc / index lines
   firstPage?: number // printed page of the heading
   nav: string
+  /** the printed contents, read (contents page of a book with parts and chapters) */
+  entries?: ContentsEntry[]
+  /** page markers of the later contents pages, by PDF page: each goes before the first entry of its page */
+  marks?: Map<number, string>
+  /** marker of the page the heading is on, in front of it */
+  lead?: string
+  parent?: string
 }
 interface Float {
   page: number // pdf page
@@ -82,7 +92,7 @@ function autolink(escaped: string) {
   return escaped.replace(URL_RE, (m) => `<a href="${m.includes('@') && !m.startsWith('http') ? 'mailto:' + m : m.startsWith('www.') ? 'https://' + m : m}">${m}</a>`)
 }
 
-const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.runs.map((r) => ({ t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
+const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => ({ t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
 
 export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: Raster): Promise<PdfBuildResult> {
@@ -91,7 +101,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const review: ReviewItem[] = []
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
-  const roleOf = (l: PLine): PdfRole => role.get(l.key) ?? 'text'
+  const roleOf = (l: PLine): PdfRole => l.forced ?? role.get(l.key) ?? 'text'
   const printNo = (pdfIdx: number) => String(book.numbers[pdfIdx])
   const lead = book.lead
   const step = book.step
@@ -112,6 +122,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const images: ImageOut[] = []
   const pictures: PdfBuildResult['pictures'] = []
   const markerDone = new Set<string>()
+  let anchorNo = 0 // ids given to subheads the contents links to
+  let tableNo = 0
   const marker = (pdfIdx: number) => {
     const n = printNo(pdfIdx)
     if (markerDone.has(n)) return ''
@@ -126,18 +138,20 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     closePara()
     flushFloats(lastPdf.page - 1, false) // this page's pictures and openers belong to the new section
     const s: PSec = { type, stem: '', title: [], headRole, blocks: [], raw: [], nav: '', firstPage: first }
+    // the marker of the page the heading is on goes in front of the heading
+    if (pending) (s.lead = pending), (pending = '')
     secs.push(s)
     cur = s
     return s
   }
 
   // ---------------------------------------------------------------- paragraphs
-  type Para = { kind: 'body' | 'extract' | 'text' | 'caption' | 'hang'; first: string; segs: Seg[]; last?: PLine; lastPage: number; dropcap?: string; cont?: boolean }
+  type Para = { kind: 'body' | 'extract' | 'text' | 'caption' | 'hang' | 'li'; first: string; segs: Seg[]; last?: PLine; lastPage: number; dropcap?: string; cont?: boolean; bx?: number }
   let para: Para | null = null
   let pending = '' // page marker waiting for the next text
   let floats: Float[] = []
   const lastPdf = { page: 0 }
-  const tocLike = (s: PSec | null) => s?.type === 'toc' || s?.type === 'index'
+  const tocLike = (s: PSec | null) => s?.type === 'toc' || s?.type === 'index' || s?.type === 'list'
 
   function closePara() {
     if (!para || !cur) {
@@ -149,9 +163,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     let html = segHtml(p.segs)
     if (!html) return
     // a page marker at the start stays before the drop cap, so the first word is not split ("I|n this")
-    if (p.dropcap) html = html.replace(/^((?:<span[^>]*epub:type="pagebreak"[^>]*\/>)*)/, `$1<span class="dropcap">${esc(p.dropcap)}</span>`)
+    if (p.dropcap) html = html.replace(/^((?:<span[^>]*epub:type="pagebreak"[^>]*\/>)*)/, `$1<span class="dropcap">${esc(p.dropcap.length === 1 ? p.dropcap.toLocaleUpperCase() : p.dropcap)}</span>`)
     const sec = cur
     if (p.kind === 'extract') sec.blocks.push({ kind: 'extract', html, cls: p.cont ? 'cont' : 'start' })
+    else if (p.kind === 'li') sec.blocks.push({ kind: 'li', html })
     else {
       const cls =
         p.kind === 'caption' ? 'caption1'
@@ -203,7 +218,28 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   for (const page of book.pages) {
     if (frontSet.has(page.index)) continue
     lastPdf.page = page.index
-    const lines = page.lines.filter((l) => roleOf(l) !== 'drop' && !l.imprint)
+    // the marker of the previous page was never used (a part or chapter page holds only its heading): it goes in front of that heading
+    if (pending && cur) {
+      if (!cur.blocks.length && cur.title.length) cur.lead = (cur.lead ?? '') + pending
+      else cur.blocks.push({ kind: 'raw', html: pending })
+      pending = ''
+    }
+    // a page with nothing on it (only the slug) has no page marker, as in the hand-made e-books
+    if (!page.lines.length && !page.images.length && !page.fills.length) continue
+    if (book.contents?.pages.includes(page.index) && book.contents.entries.some((e) => e.kind === 'part' || sectionTypeOf(e.text) === 'chapter')) {
+      // the printed contents of a book with parts and chapters: read once (analyze), rendered from its entries
+      const mk = marker(page.index)
+      if (page.index === book.contents.pages[0]) {
+        const head = page.lines.filter((l) => l.size >= book.bodySize * 1.2 && sectionTypeOf(l.text.trim()) === 'toc').sort((a, b) => a.y - b.y)[0]
+        const s = newSec('toc', 'title', book.numbers[page.index])
+        if (head) s.title.push(segsOf(head))
+        s.entries = book.contents.entries
+        s.lead = mk
+        s.marks = new Map()
+      } else if (cur?.type === 'toc') cur.marks?.set(page.index, mk)
+      continue
+    }
+    const lines = page.lines.filter((l) => roleOf(l) !== 'drop' && !l.imprint && !l.skip)
 
     // drop caps: a giant first letter spanning several lines belongs to the paragraph's first line
     for (const l of [...lines]) {
@@ -269,7 +305,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (scored[0]) capOf.set(scored[0].im, g)
     }
     const used = new Set([...capOf.values()])
-    const flow = lines.filter((l) => !inBox.has(l) && !(roleOf(l) === 'caption' && groups.some((g) => used.has(g) && g.lines.includes(l))))
+    // ruled grids are tables: their text goes into cells, and the table is placed where its first line stands
+    const tables = detectTables(page)
+    const inTable = new Set<PLine>(tables.flatMap((t) => t.lines))
+    const tableAt = new Map<PLine, PdfTable<PLine>>(tables.map((t) => [[...t.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0)[0], t]))
+    const flow = lines.filter((l) => !inBox.has(l) && (!inTable.has(l) || tableAt.has(l)) && !(roleOf(l) === 'caption' && groups.some((g) => used.has(g) && g.lines.includes(l))))
     const hasText = flow.length > 0
 
     // page marker: goes with the first text of the page, or with its first picture/box
@@ -331,6 +371,15 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       const r = roleOf(l)
+      const tbl = tableAt.get(l)
+      if (tbl) {
+        closePara()
+        if (!cur) newSec('other', 'title')
+        const lead = pending
+        pending = ''
+        cur!.blocks.push({ kind: 'raw', html: lead + renderTable(tbl) })
+        continue
+      }
       const text = titleCase(l.text.trim())
       // contents / index pages are rebuilt from their raw lines (chapter numbers there are just text)
       const startsSection = r === 'title' || ((r === 'subhead' || r === 'subhead2') && !!sectionTypeOf(text) && sectionTypeOf(text) !== cur?.type)
@@ -341,7 +390,9 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       }
       if (r === 'chapter-number') {
         const s = cur && cur.number === undefined && !cur.blocks.length && cur.title.length && cur.firstPage === book.numbers[page.index] ? cur : newSec('chapter', 'title', book.numbers[page.index])
-        s.type = 'chapter'
+        // "Primera parte" / "Part One" opens a part; anything else ("Capítulo 1", "3") a chapter
+        const kind = sectionTypeOf(l.text.trim())
+        s.type = kind === 'part' || kind === 'appendix' ? kind : 'chapter'
         s.number = l.text.trim()
         continue
       }
@@ -367,7 +418,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
           continue
         }
         closePara()
-        const h = r === 'subhead' ? 'h2' : 'h3'
+        // subheads sit one level under the chapter heading (h1); a book with a single subhead style uses h2 for it
+        const h = r === 'subhead' || !book.styles.some((x) => x.role === 'subhead' && x.count >= 10) ? 'h2' : 'h3'
         if (lastBlock?.kind === 'raw' && lastBlock.html.startsWith(`<${h}`) && prev && roleOf(prev) === r && l.y - prev.y < l.size * 2) {
           lastBlock.html = lastBlock.html.replace(`</${h}>`, ` ${segHtml(segsOf(l))}</${h}>`) // two-line subhead
           continue
@@ -387,8 +439,24 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       // ---- paragraph logic ----
       const prev = para?.last
       const k = kindOf(l)
+      // list items: a bullet starts an item, its wrapped lines are set deeper than the bullet; anything else ends the list
+      if (r === 'body' && /^[•▪●◦■·]\s*\S/.test(l.text.trim())) {
+        closePara()
+        para = { kind: 'li', first: k, segs: [], lastPage: l.page, bx: l.x0 }
+        appendLine(l, para)
+        const first = para.segs.find((x) => !x.raw && x.t.trim())
+        if (first) first.t = first.t.replace(/^\s*[•▪●◦■·]\s*/, '')
+        continue
+      }
+      if (para?.kind === 'li' && r === 'body') {
+        if (prev && prev.page === l.page && prev.col === l.col && l.x0 > (para.bx ?? 0) + 4 && l.y - prev.y < lead * 1.6) {
+          appendLine(l, para)
+          continue
+        }
+        closePara()
+      }
       const next = ordered.slice(i + 1).find((x) => roleOf(x) === r)
-      const nk = next ? kindOf(next) : 'flush'
+      const nk = next && !/^[•▪●◦■·]\s*\S/.test(next.text.trim()) ? kindOf(next) : 'flush' // a list item is not the second line of an extract
       const sameFlow = prev && prev.page === l.page && prev.col === l.col
       const gap = sameFlow && l.y - prev!.y > lead * 1.45
       const kind: Para['kind'] = r === 'caption' ? 'caption' : cur!.type === 'bibliography' ? 'hang' : r === 'body' ? 'body' : 'text'
@@ -398,7 +466,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       // a flush-left paragraph ends on a short line that closes a sentence (bios, lists)
       const colRight = Math.max(...ordered.filter((x) => x.col === (prev?.col ?? l.col) && roleOf(x) === r).map((x) => x.x1))
       const shortEnd = !!prev && prev.x1 - prev.col < (colRight - prev.col) * 0.72 && /[.!?:)’”]$/.test(prev.text.trim()) && /^[\p{Lu}‘“(]/u.test(l.text.trim())
-      if (!start && para && shortEnd && k === 'flush' && para.kind !== 'hang') start = true
+      if (!start && para && shortEnd && (k === 'flush' || para.kind === 'extract') && para.kind !== 'hang') (start = true), (asExtract = para.kind === 'extract')
       else if (!start && para) {
         if (kind === 'hang') start = k === 'flush'
         else if (para.kind === 'body' && prev && Math.abs(l.x0 - prev.x0) < 2 && k !== 'flush') {
@@ -428,6 +496,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   let halfDone = false
   let fm = 0
   for (const idx of book.front) {
+    if (idx === book.imprintPage) continue // the imprint page becomes the copyright page below
     const p = book.pages[idx]
     const mk = marker(idx)
     if (p.lines.length) {
@@ -485,13 +554,26 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       type: 'copyright', stem: 'copyright', title: [], headRole: 'title', raw: [], nav: L.copyright,
       blocks: res.paras.map((p) => ({ kind: 'p' as const, cls: p.cls === 'first' ? 'copyr-top' : p.cls === 'spaced' ? 'copyr2' : 'copyr1', html: p.html })),
     }
+    copyright.lead = marker(book.imprintPage!)
     if (book.imprintPage !== undefined && book.imprintPage < book.pages.length - 3) front.push(copyright)
   } else review.push({ level: 'warn', msg: 'No imprint (ISBN / copyright lines) found in the PDF — the EPUB has no copyright page.' })
   const all = [...front, ...secs, ...(copyright && !front.includes(copyright) ? [copyright] : [])]
+  // the publisher's own last page (advertising for other titles) is print promotion, not part of the book
+  const tail = all[all.length - 1]
+  if (tail && tail.type === 'other' && all.length > 4 && all.slice(0, -1).some((x) => x.type === 'about' || x.type === 'bibliography' || x.type === 'index' || x.type === 'glossary')) {
+    const said = [...tail.title.map(plain), ...tail.blocks.map((x) => x.html.replace(/<[^>]+>/g, ' ')), ...tail.raw.map((l) => l.text)].join(' ').replace(/\s+/g, ' ').trim()
+    if (said.split(' ').length < 90 && /www\.|https?:|@|tel[.:é]|visit[ae]?|m[áa]s informaci[óo]n|more information|newsletter|suscr[ií]b|subscribe|s[íi]guenos|follow us/i.test(said)) {
+      all.pop()
+      dropped.push(said)
+      review.push({ level: 'info', msg: `Left out the publisher’s last page (“${said.slice(0, 70)}…”): advertising for other titles, not part of the book.` })
+    }
+  }
 
   // ---------------------------------------------------------------- names and labels
   let chapterNo = 0
+  let lastPart: PSec | undefined
   const counters = new Map<string, number>()
+  const sentence = (t: string) => (t ? t.charAt(0).toLocaleUpperCase() + t.slice(1).toLocaleLowerCase() : t)
   for (const s of all) {
     if (s.stem) continue
     if (s.type === 'chapter') s.stem = `chapter${String(++chapterNo).padStart(2, '0')}`
@@ -499,10 +581,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const base = s.type === 'other' ? 'sec' : SECTION_META[s.type].file
       const n = (counters.get(base) ?? 0) + 1
       counters.set(base, n)
-      s.stem = n > 1 ? `${base}${n}` : base
+      s.stem = n > 1 || s.type === 'part' ? `${base}${n}` : base
     }
     const title = titleCase(s.title.map(plain).join(' '))
-    s.nav ||= s.number ? `${s.number}: ${title}` : title
+    // "Capítulo 1. Title", "Primera parte: Title", "3: Title" — as the InDesign workflow names them
+    s.nav ||= !s.number ? title : s.type === 'part' ? `${sentence(s.number)}: ${title}` : /\p{L}/u.test(s.number) && /\d$/.test(s.number) ? `${s.number}. ${title}` : `${s.number}: ${title}`
+    if (s.type === 'part') lastPart = s
+    else if (s.type === 'chapter' && lastPart) s.parent = `${lastPart.stem}.xhtml`
+    else if (s.type !== 'chapter') lastPart = undefined
   }
 
   // ---------------------------------------------------------------- render sections
@@ -521,8 +607,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         : `<h1 class="${cls}" id="${headId}">${t}</h1>`
     }
     // page markers that arrived before the heading text go in front of it
-    let body = heading ? `${heading}\n` : ''
-    if (s.type === 'toc') body += renderToc(s)
+    let body = (s.lead ? `${s.lead}\n` : '') + (heading ? `${heading}\n` : '')
+    if (s.type === 'toc' || s.type === 'list') body += renderToc(s)
     else if (s.type === 'index') body += renderIndex(s)
     else body += renderBlocks(s.blocks)
     bodyOf.set(s, body)
@@ -543,7 +629,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     })
     const label = s.title.length ? ` aria-labelledby="${s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem}"` : ` aria-label="${esc(s.nav || s.stem)}"`
     sections.push({
-      file: `${s.stem}.xhtml`, id: s.stem, type: s.type, nav: s.nav, title: s.nav || meta.title,
+      file: `${s.stem}.xhtml`, id: s.stem, type: s.type, nav: s.nav, parent: s.parent, title: s.nav || meta.title,
       body: `<section${label} epub:type="${s.stem.startsWith('fm') ? 'frontmatter' : meta0.epubType}"${meta0.role && !s.stem.startsWith('fm') ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`,
     })
   }
@@ -579,10 +665,68 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   return { epub, files, sections: navSections, review, pictures, source }
 
   // ================================================================ helpers (need closure state)
+  /** A table as the InDesign workflow writes it: colgroup widths that add up to 100%, header row as <thead><th> (Settings can keep plain cells). */
+  function renderTable(t: PdfTable<PLine>): string {
+    const nC = t.cols.length - 1
+    const span = t.cols[nC] - t.cols[0]
+    const widths = Array.from({ length: nC }, (_, c) => Math.max(10, Math.round(((t.cols[c + 1] - t.cols[c]) / span) * 100)))
+    for (let over = widths.reduce((a, b) => a + b, 0) - 100; over !== 0; over -= Math.sign(over)) {
+      const k = over > 0 ? widths.indexOf(Math.max(...widths)) : widths.indexOf(Math.min(...widths))
+      widths[k] -= Math.sign(over)
+    }
+    const text = (ls: PLine[]) => {
+      const segs: Seg[] = []
+      for (const l of ls) {
+        const now = segsOf(l)
+        const tail = plain(segs).match(/(\p{L}+)-$/u)?.[1]
+        const head = now.find((x) => x.t.trim())?.t.trim().match(/^\p{Ll}+/u)?.[0]
+        if (tail && head && !keepHyphen(tail, head)) {
+          const last = [...segs].reverse().find((x) => !x.raw && x.t.trim())!
+          last.t = last.t.replace(/-\s*$/, '')
+        } else if (segs.length) segs.push({ t: ' ' })
+        segs.push(...now)
+      }
+      return segHtml(segs)
+    }
+    const nR = t.rows.length - 1
+    const asTh = settings().tableHeaders === 'th'
+    const row = (r: number, head: boolean) =>
+      `<tr>\n${t.cells
+        .filter((k) => k.r === r)
+        .sort((a, b) => a.c - b.c)
+        .map((k) => {
+          const tag = head && asTh ? 'th' : 'td'
+          const attrs = `${tag === 'th' ? ' scope="col"' : ''}${head && !asTh ? ' class="tbl-h"' : ''}${k.colspan > 1 ? ` colspan="${k.colspan}"` : ''}${k.rowspan > 1 ? ` rowspan="${k.rowspan}"` : ''}`
+          const inner = text(k.lines)
+          return inner ? `<${tag}${attrs}>${inner}</${tag}>` : `<${tag}${attrs}/>`
+        })
+        .join('\n')}\n</tr>`
+    const body = Array.from({ length: nR }, (_, r) => r).filter((r) => !(t.head && r === 0 && asTh))
+    return [
+      `<table class="tbl" id="table${String(++tableNo).padStart(3, '0')}">`,
+      `<colgroup>\n${widths.map((w) => `<col style="width:${w}%;"/>`).join('\n')}\n</colgroup>`,
+      t.head && asTh ? `<thead>\n${row(0, true)}\n</thead>` : '',
+      `<tbody>\n${body.map((r) => row(r, t.head && r === 0)).join('\n')}\n</tbody>`,
+      `</table>`,
+    ].filter(Boolean).join('\n')
+  }
+
   function renderBlocks(blocks: Block[]): string {
     const out: string[] = []
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i]
+      if (b.kind === 'li') {
+        // consecutive items (a page marker may sit between two of them) are one list
+        const items: string[] = []
+        while (i < blocks.length && (blocks[i].kind === 'li' || (blocks[i].kind === 'raw' && blocks[i].html.startsWith('<span') && blocks[i + 1]?.kind === 'li'))) {
+          if (blocks[i].kind === 'li') items.push(`<li>${blocks[i].html}</li>`)
+          else items[items.length - 1] = items[items.length - 1].replace(/<\/li>$/, `${blocks[i].html}</li>`)
+          i++
+        }
+        i--
+        out.push(`<ul class="bull">\n${items.join('\n')}\n</ul>`)
+        continue
+      }
       if (b.kind !== 'extract') {
         out.push(b.kind === 'raw' ? b.html : `<p class="${b.cls}">${b.html}</p>`)
         continue
@@ -639,7 +783,77 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     return `<aside class="box">\n${headHtml}<div class="brownbox_1">\n${out.join('\n')}\n</div>\n</aside>`
   }
 
+  /** Contents page of a book with parts and chapters, from the entries read in the analysis: every entry linked to its section. */
+  function renderEntries(s: PSec, entries: ContentsEntry[]): string {
+    const others = all.filter((x) => x !== s && x.type !== 'toc')
+    const full = (x: PSec) => cnorm(`${x.number ?? ''}${x.title.map(plain).join(' ')}`)
+    const titleOf = (x: PSec) => cnorm(x.title.map(plain).join(' '))
+    const findSec = (e: ContentsEntry): PSec | undefined => {
+      const n = cnorm(e.text)
+      if (e.kind === 'part') return others.find((x) => x.type === 'part' && (full(x) === n || n.startsWith(cnorm(x.number ?? '#')) && (titleOf(x) === n.slice(cnorm(x.number ?? '').length) || !titleOf(x))))
+      if (e.kind === 'label') return others.find((x) => x.type === 'chapter' && x.number && cnorm(x.number) === n)
+      // a list of exercises names things inside the chapters, not the chapters themselves
+      if (s.type === 'list') return undefined
+      return (
+        others.find((x) => full(x) === n) ??
+        others.find((x) => titleOf(x).length > 3 && (n === titleOf(x) || n.endsWith(titleOf(x)))) ??
+        others.find((x) => e.page !== undefined && x.firstPage === e.page && x.type !== 'part') ??
+        others.find((x) => x.type === 'chapter' && titleOf(x).length > 3 && titleOf(x).startsWith(n))
+      )
+    }
+    // an exercise under a chapter label links to the subhead with its wording, in the chapter that holds its page
+    const anchor = (e: ContentsEntry): string | undefined => {
+      if (e.page === undefined) return undefined
+      const holder = [...others].filter((x) => x.firstPage !== undefined && x.firstPage <= e.page!).sort((a, b) => b.firstPage! - a.firstPage!)[0]
+      if (!holder) return undefined
+      const want = cnorm(e.text)
+      for (const b of holder.blocks) {
+        const m = b.html.match(/^<(h[23]) class="subhead1?"( id="([^"]+)")?>(.*)<\/\1>$/)
+        if (b.kind !== 'raw' || !m || cnorm(m[4].replace(/<[^>]+>/g, '')) !== want) continue
+        if (m[3]) return `${holder.stem}.xhtml#${m[3]}`
+        const id = `sec${++anchorNo}`
+        b.html = b.html.replace(/^<(h[23]) class="([^"]+)"/, `<$1 class="$2" id="${id}"`)
+        return `${holder.stem}.xhtml#${id}`
+      }
+      return undefined
+    }
+    const out: string[] = []
+    let prevCls = ''
+    const first = new Map<number, ContentsEntry>()
+    for (const e of entries) if (!first.has(e.on)) first.set(e.on, e)
+    for (const e of entries) {
+      const mk = (first.get(e.on) === e && e.on !== entries[0].on ? (s.marks?.get(e.on) ?? '') : '') + e.lines.map((l) => l.mark ?? '').join('')
+      const target = findSec(e)
+      let cls: string
+      let html: string
+      if (e.kind === 'part' && target) {
+        cls = 'toc_2'
+        const label = (target.number ?? '').toLocaleUpperCase()
+        html = `<a href="${target.stem}.xhtml">${esc(label)} <span class="toc_2a">${esc(titleCase(target.title.map(plain).join(' ')))}</span></a>`
+      } else if (e.kind === 'label') {
+        cls = 'toc_3'
+        html = target ? `<a href="${target.stem}.xhtml">${esc(titleCase(target.number ?? e.text))}</a>` : esc(e.text)
+      } else {
+        const href = target ? `${target.stem}.xhtml` : anchor(e)
+        cls = target?.type === 'chapter' || (!target && href) ? 'toc_1a' : prevCls === 'toc_1a' ? 'toc_1t' : 'toc_1'
+        const label = target ? target.nav : e.text
+        html = href ? `<a href="${href}">${esc(label)}</a>` : esc(label)
+        if (!href) review.push({ level: 'warn', msg: `Contents entry "${e.text}" could not be linked to a section.`, where: 'toc.xhtml' })
+      }
+      prevCls = cls
+      out.push(`${mk ? mk + '\n' : ''}<p class="${cls}">${html}</p>`)
+    }
+    return out.join('\n')
+  }
+
   function renderToc(s: PSec): string {
+    if (s.entries) return renderEntries(s, s.entries)
+    if (s.type === 'list' && s.raw.length) {
+      // page by page, in reading order
+      const pages = [...new Set(s.raw.map((l) => l.page))].sort((a, b) => a - b)
+      const entries = pages.flatMap((pg) => entriesOf(rowsOf(s.raw.filter((l) => l.page === pg), book.pages[pg]?.width ?? 400, pg), pg))
+      if (entries.length) return renderEntries(s, entries)
+    }
     // entries: text + page number on the same baseline (the number is often a separate line)
     const rows: { l: PLine; segs: Seg[]; page?: number }[] = []
     for (const l of [...s.raw].sort((a, b) => a.y - b.y || a.x0 - b.x0)) {

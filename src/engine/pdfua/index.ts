@@ -2,7 +2,7 @@ import { PDFDocument, PDFName, PDFArray, PDFDict, PDFNumber, PDFString, PDFHexSt
 import { analyzePdf, titleCase, type PdfBook } from '../pdfepub/analyze.ts'
 import type { Raster } from '../pdf/raster.ts'
 import type { ReviewItem } from '../epub/package.ts'
-import { inferUaStyles, buildStructure, type UaStyle, type Figure, type UaRole } from './structure.ts'
+import { inferUaStyles, buildStructure, imageList, type UaStyle, type Figure, type UaRole } from './structure.ts'
 import { detectFigures } from './figures.ts'
 import { readAltDocx, matchAlt, type AltEntry } from './altdocx.ts'
 import { planPages, writeUa, type UaMeta } from './write.ts'
@@ -82,7 +82,7 @@ export async function analyzeUa(
 ): Promise<UaAnalysis> {
   const review: ReviewItem[] = []
   const merged = await mergeInputs(inp)
-  const book = await analyzePdf(pdfjs, merged, raster, {}, onProgress)
+  const book = await analyzePdf(pdfjs, merged, raster, {}, onProgress, { structure: false })
   const plan = await planPages(merged)
   // slug notes outside the trim ("[Page v]", job info) are never content
   plan.doc.getPages().forEach((pg, i) => {
@@ -98,7 +98,11 @@ export async function analyzeUa(
   const alt = inp.altDocx ? readAltDocx(inp.altDocx) : []
   const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected))
   const pageArea = book.pages[1] ? book.pages[1].width * book.pages[1].height : 1
-  const { unused } = matchAlt(st.figures, alt, pageArea)
+  // the Word file lists descriptions in the order of the image list: put the figures in that order first
+  const il = imageList(st, book)
+  const rank = (f: Figure) => [...(il?.byN ?? [])].find(([, x]) => x === f)?.[0] ?? Infinity
+  const ordered = il && il.byN.size === il.figures.length ? [...st.figures.filter((f) => !il.figures.includes(f)), ...[...il.figures].sort((a, b) => rank(a) - rank(b))] : st.figures
+  const { unused } = matchAlt(ordered, alt, pageArea)
   if (unused.length) review.push({ level: 'warn', msg: `${unused.length} alt text(s) from the Word file were not matched to a figure — check the figure list.` })
 
   // metadata: document info if meaningful, else title pages / first heading

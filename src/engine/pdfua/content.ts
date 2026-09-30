@@ -8,6 +8,24 @@ export type Op = {
   args: string[] // raw operand tokens
   start: number // source offset of the first operand (or operator)
   end: number // offset after the operator
+  /** written with the operator before it and no space (`lS`): a space must be put between them again */
+  glued?: boolean
+}
+
+const OPERATORS = new Set(('b B b* B* BDC BI BMC BT BX c cm CS cs d d0 d1 Do DP EI EMC ET EX f F f* G g gs h i ID j J K k l m M MP n q Q re RG rg ri s S SC sc SCN scn sh T* Tc Td TD Tf Tj TJ TL Tm Tr Ts Tw Tz u v w W W* y \' "').split(' '))
+
+/** Some producers write operators without a space between them ("lS", "ref"); readers take them apart, so do we. */
+function unglue(tok: string): string[] | null {
+  if (OPERATORS.has(tok)) return null
+  const out: string[] = []
+  for (let i = 0; i < tok.length; ) {
+    let len = 0
+    for (let l = Math.min(3, tok.length - i); l >= 1 && !len; l--) if (OPERATORS.has(tok.slice(i, i + l))) len = l
+    if (!len) return null
+    out.push(tok.slice(i, i + len))
+    i += len
+  }
+  return out
 }
 
 const WS = /[\0\t\n\f\r ]/
@@ -136,7 +154,14 @@ export function tokenize(src: string): Op[] {
       argStart = -1
       continue
     }
-    ops.push({ op: tok, args, start: argStart >= 0 ? argStart : at, end: i })
+    const parts = unglue(tok)
+    if (parts) {
+      let from = at
+      parts.forEach((op, k) => {
+        ops.push({ op, args: k ? [] : args, start: k ? from : argStart >= 0 ? argStart : at, end: from + op.length, glued: k > 0 })
+        from += op.length
+      })
+    } else ops.push({ op: tok, args, start: argStart >= 0 ? argStart : at, end: i })
     args = []
     argStart = -1
   }
@@ -165,6 +190,7 @@ export type Paint =
 export type Box = { x0: number; y0: number; x1: number; y1: number }
 
 const PATH_PAINT = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*'])
+const PATH_BUILD = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're'])
 const TEXT_SHOW = new Set(['Tj', 'TJ', "'", '"'])
 const num = (s: string) => parseFloat(s)
 
@@ -304,16 +330,42 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
   let open: { key: string } | null = null
   const mcids: number[] = []
   const ocDepth: boolean[] = [] // stack of BDC/BMC in the source: true = kept (/OC)
+  // A path object runs from its first construction operator to its painting operator; marked content may only start
+  // or end outside it (PDF 32000 §14.6, and PAC's content check). The path is held back and written with its paint.
+  let path: string | null = null
   const close = () => {
     if (open) out += '\nEMC\n'
     open = null
   }
+  const flushPath = () => {
+    if (path !== null) out += path
+    path = null
+  }
   for (let i = 0; i < ops.length; i++) {
     const o = ops[i]
     // copy anything between operators (whitespace, comments) verbatim
-    out += src.slice(pos, o.start)
+    const gap = src.slice(pos, o.start) || (o.glued ? ' ' : '')
     pos = o.end
     const raw = src.slice(o.start, o.end)
+    if (PATH_BUILD.has(o.op)) {
+      path = (path ?? '') + gap + raw
+      continue
+    }
+    if (path !== null && (o.op === 'W' || o.op === 'W*')) {
+      path += gap + raw
+      continue
+    }
+    if (path !== null && o.op === 'n') {
+      // a clipping path: no paint, stays inside whatever sequence is open
+      out += path + gap + raw
+      path = null
+      continue
+    }
+    const held = path !== null && PATH_PAINT.has(o.op)
+    if (!held) {
+      flushPath()
+      out += gap
+    }
     if (o.op === 'BDC' || o.op === 'BMC') {
       const keep = o.op === 'BDC' && o.args[0] === '/OC'
       ocDepth.push(keep)
@@ -340,11 +392,13 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
         } else out += '\n/Artifact BMC\n'
         open = { key }
       }
+      if (held) (out += path + gap), (path = null)
       out += raw
       continue
     }
     out += raw
   }
+  flushPath()
   close()
   out += src.slice(pos)
   return { stream: out, mcids }

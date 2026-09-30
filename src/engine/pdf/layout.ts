@@ -23,6 +23,8 @@ export interface Line {
   text: string
   /** line started with a dingbat (Wingdings ▶ caption marker, bullet) that was removed */
   marker: boolean
+  /** set in small caps: capitals and smaller capitals of one font mixed in the line (the lowercase text reads "cambia tu mente") */
+  sc?: boolean
 }
 
 export interface ImgBox {
@@ -45,8 +47,24 @@ export interface FillBox {
   color: string
 }
 
+/** A ruled line: a horizontal one runs from a to b at height p (or a vertical one from a to b at x = p); top-down points. */
+export interface Rule {
+  a: number
+  b: number
+  p: number
+}
+
 export interface PageLayout {
-  index: number // 0-based PDF page
+  /** the drawn lines of the page (table borders, rules) */
+  rules?: { h: Rule[]; v: Rule[] }
+  /** small tinted rectangles (a shaded table header cell) */
+  shades?: FillBox[]
+  index: number // 0-based page (a spread counts as two pages)
+  /** 0-based PDF page this page was read from, and which half of a spread it is */
+  src?: number
+  half?: 0 | 1
+  /** x of the page's left edge on the PDF page (points): 0, or half the width for the right page of a spread */
+  ox?: number
   width: number
   height: number
   lines: Line[]
@@ -85,6 +103,8 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
   // ---- images and filled boxes from the operator list ----
   const images: ImgBox[] = []
   const fills: FillBox[] = []
+  const rules: { h: Rule[]; v: Rule[] } = { h: [], v: [] }
+  const shades: FillBox[] = []
   let ctm: M = [1, 0, 0, 1, 0, 0]
   let fill = '#000000'
   let clip = null as { x0: number; y0: number; x1: number; y1: number } | null
@@ -125,8 +145,45 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
         if (pendingClip) {
           clip = clip ? { x0: Math.max(clip.x0, b.x0), y0: Math.max(clip.y0, b.y0), x1: Math.min(clip.x1, b.x1), y1: Math.min(clip.y1, b.y1) } : b
           pendingClip = false
-        } else if (/fill/i.test(kind) && b.x1 - b.x0 > 60 && b.y1 - b.y0 > 20 && b.x1 - b.x0 < (vx1 - vx0) * 0.98) {
-          fills.push({ x0: b.x0, x1: b.x1, y0: H - b.y1, y1: H - b.y0, color: fill })
+        } else {
+          if (/fill/i.test(kind) && b.x1 - b.x0 > 60 && b.y1 - b.y0 > 20 && b.x1 - b.x0 < (vx1 - vx0) * 0.98) fills.push({ x0: b.x0, x1: b.x1, y0: H - b.y1, y1: H - b.y0, color: fill })
+          const w = b.x1 - b.x0
+          const h = b.y1 - b.y0
+          // a filled rectangle thin as a hairline is a rule; a small filled one shades a table cell
+          if (/^fill|^eoFill/i.test(kind) && !/stroke/i.test(kind)) {
+            if (h <= 1.6 && w > 3) rules.h.push({ a: b.x0, b: b.x1, p: H - (b.y0 + b.y1) / 2 })
+            else if (w <= 1.6 && h > 3) rules.v.push({ a: H - b.y1, b: H - b.y0, p: (b.x0 + b.x1) / 2 })
+            else if (w > 8 && h > 8 && w * h < (vx1 - vx0) * (vy1 - vy0) * 0.5) shades.push({ x0: b.x0, x1: b.x1, y0: H - b.y1, y1: H - b.y0, color: fill })
+          }
+          if (/stroke/i.test(kind)) {
+            // stroked path: every horizontal or vertical segment is a rule (a rectangle gives its four sides)
+            const path = (Array.isArray(args[1]) ? (args[1] as Any[])[0] : undefined) as ArrayLike<number> | undefined
+            const seg = (x0: number, y0: number, x1: number, y1: number) => {
+              const [ax, ay] = apply(ctm, x0, y0)
+              const [bx, by] = apply(ctm, x1, y1)
+              if (Math.abs(ay - by) < 0.6 && Math.abs(ax - bx) > 3) rules.h.push({ a: Math.min(ax, bx), b: Math.max(ax, bx), p: H - (ay + by) / 2 })
+              else if (Math.abs(ax - bx) < 0.6 && Math.abs(ay - by) > 3) rules.v.push({ a: H - Math.max(ay, by), b: H - Math.min(ay, by), p: (ax + bx) / 2 })
+            }
+            if (path && path.length) {
+              let cx = 0
+              let cy = 0
+              let sx = 0
+              let sy = 0
+              for (let k = 0; k < path.length; ) {
+                const op = path[k++]
+                if (op === 0) (cx = sx = path[k++]), (cy = sy = path[k++])
+                else if (op === 1) {
+                  const nx = path[k++]
+                  const ny = path[k++]
+                  seg(cx, cy, nx, ny)
+                  ;[cx, cy] = [nx, ny]
+                } else if (op === 2) (k += 6), ([cx, cy] = [path[k - 2], path[k - 1]])
+                else if (op === 3) (k += 4), ([cx, cy] = [path[k - 2], path[k - 1]])
+                else if (op === 4) (seg(cx, cy, sx, sy), ([cx, cy] = [sx, sy]))
+                else break // an operator we do not know: stop reading this path
+              }
+            }
+          }
         }
         break
       }
@@ -191,7 +248,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
   }
   flushRow()
 
-  return { index, width: vx1 - vx0, height: vy1 - vy0, lines: lines.filter((l) => l.text.trim() || l.marker), images, fills }
+  return { index, width: vx1 - vx0, height: vy1 - vy0, lines: lines.filter((l) => l.text.trim() || l.marker), images, fills, rules, shades }
 
   function makeLine(its: Item[]): Line {
     const runs: Run[] = []
@@ -216,7 +273,16 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
     // dominant font = most characters
     const weight = new Map<string, number>()
     for (const r of runs) weight.set(`${r.font}|${r.size.toFixed(1)}`, (weight.get(`${r.font}|${r.size.toFixed(1)}`) ?? 0) + r.text.trim().length)
-    const [font, size] = ([...weight].sort((a, b) => b[1] - a[1])[0]?.[0] ?? `${its[0].font}|${its[0].size}`).split('|')
+    const ranked = [...weight].sort((a, b) => b[1] - a[1])
+    let [font, size] = (ranked[0]?.[0] ?? `${its[0].font}|${its[0].size}`).split('|')
+    // small caps: the same font at two sizes 0.62–0.86 apart (capitals and small capitals). The line belongs to the larger size.
+    let sc = false
+    if (ranked.length > 1) {
+      const fam = (f: string) => f.replace(/-.*$/, '')
+      const [f0, s0] = ranked[0][0].split('|')
+      const big = ranked.map(([k]) => k.split('|')).find(([f1, s1]) => fam(f1) === fam(f0) && Number(s0) / Number(s1) > 0.62 && Number(s0) / Number(s1) < 0.86)
+      if (big) [font, size, sc] = [big[0], big[1], true]
+    }
     const sz = Number(size)
     return {
       runs,
@@ -228,6 +294,28 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
       font,
       text: runs.map((r) => r.text).join('').replace(/\s+/g, ' '),
       marker,
+      sc: sc || undefined,
     }
   }
+}
+
+/** A 2-up spread (two printed pages side by side) as two pages, left then right; things are placed by their centre. */
+export function splitSpread(l: PageLayout, src: number): PageLayout[] {
+  const mid = l.width / 2
+  return ([0, 1] as const).map((h) => {
+    const ox = h ? mid : 0
+    const mine = (a: number, b: number) => ((a + b) / 2 >= mid) === !!h
+    const runs = (ln: Line): Line => ({ ...ln, x0: ln.x0 - ox, x1: ln.x1 - ox, runs: ln.runs.map((r) => ({ ...r, x0: r.x0 - ox, x1: r.x1 - ox })) })
+    return {
+      index: 0, src, half: h, ox, width: mid, height: l.height,
+      lines: l.lines.filter((ln) => mine(ln.x0, ln.x1)).map(runs),
+      images: l.images.filter((im) => mine(im.x0, im.x1)).map((im) => ({ ...im, x0: im.x0 - ox, x1: im.x1 - ox })),
+      fills: l.fills.filter((f) => mine(f.x0, f.x1)).map((f) => ({ ...f, x0: f.x0 - ox, x1: f.x1 - ox })),
+      rules: {
+        h: (l.rules?.h ?? []).filter((r) => mine(r.a, r.b)).map((r) => ({ ...r, a: r.a - ox, b: r.b - ox })),
+        v: (l.rules?.v ?? []).filter((r) => mine(r.p, r.p)).map((r) => ({ ...r, p: r.p - ox })),
+      },
+      shades: (l.shades ?? []).filter((f) => mine(f.x0, f.x1)).map((f) => ({ ...f, x0: f.x0 - ox, x1: f.x1 - ox })),
+    }
+  })
 }

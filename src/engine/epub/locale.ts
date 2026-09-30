@@ -210,6 +210,7 @@ export type SectionType =
   | 'appendix' | 'bibliography' | 'notes' | 'index' | 'about' | 'contributors' | 'acknowledgments' | 'other'
 
 const KEYWORDS: [SectionType, RegExp][] = [
+  ['part', /^((primera|segunda|tercera|cuarta|quinta|sexta|s[eé]ptima|octava|novena|d[eé]cima)\s+parte|parte\s+([\divxlc]+|uno|dos|tres|cuatro|cinco|seis|siete)|part\s+([\divxlc]+|one|two|three|four|five|six|seven|eight)|(first|second|third|fourth|fifth|sixth)\s+part|teil\s+([\divxlc]+|eins|zwei|drei|vier|f[üu]nf)|(erster|zweiter|dritter|vierter)\s+teil|partie\s+([\divxlc]+|un|deux|trois|quatre)|(premi[èe]re|deuxi[èe]me|troisi[èe]me)\s+partie|deel\s+([\divxlc]+|een|twee|drie)|(prima|seconda|terza)\s+parte|parte\s+(prima|seconda|terza))\s*$/iu],
   ['dedication', /^(dedicatoria|dedication|widmung|d[ée]dicace|dedica|dedicat[oò]ria)\b/i],
   ['index', /^(index|[íi]ndice (anal[íi]tico|onom[áa]stico|tem[áa]tico|alfab[ée]tico|remissivo)|register|stichwortverzeichnis)\b/i],
   ['toc', /^([íi]ndice( general| de contenidos?)?|contents|table of contents|sumario|sum[áa]rio|inhalt(sverzeichnis)?|table des mati[èe]res|sommaire|contenidos?|sommario)$/i],
