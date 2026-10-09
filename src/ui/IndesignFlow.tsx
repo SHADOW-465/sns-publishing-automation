@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
 import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages } from './wizard.tsx'
-import { unzip } from '../engine/zip.ts'
+import { unzip, text } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
@@ -200,7 +200,7 @@ export function IndesignFlow() {
             </p>
           )}
           <CheckFirst
-            input={{ styles, sources: analysis.sources, meta: meta!, sections: result.sections, notes: result.review }}
+            input={{ styles, sources: analysis.sources, meta: meta!, sections: result.sections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })), notes: result.review }}
             setStyle={setStyle}
             onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))}
             onMeta={() => setStep(1)}

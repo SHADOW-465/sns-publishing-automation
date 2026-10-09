@@ -37,7 +37,7 @@ export interface ReviewInput {
   /** where each book detail came from (analyze → sources) */
   sources: Partial<Record<string, string>>
   meta: { title: string; authors: string; publisher: string; printIsbn?: string; eisbn: string }
-  sections: { type: SectionType | string; nav: string }[]
+  sections: { type: SectionType | string; nav: string; /** first words of the section, to recognise an untitled one */ preview?: string }[]
   /** conversion notes from the build */
   notes: ReviewItem[]
 }
@@ -58,11 +58,11 @@ export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number }
     else sure++
   }
   a.sections.forEach((s, i) => {
-    if (s.type === 'other') items.push({ id: `section:${i}`, area: 'section', confidence: 'low', title: `“${s.nav || '(no title)'}” is an unknown kind of section`, why: 'The title is not a known front or back matter name. Choose what it is.', ref: i })
+    if (s.type === 'other') items.push({ id: `section:${i}`, area: 'section', confidence: 'low', title: `“${s.nav || '(no title)'}” is an unknown kind of section`, why: `The title is not a known front or back matter name. ${s.preview ? `It starts: “${s.preview}”. ` : ''}Choose what it is.`, ref: i })
     else sure++
   })
   for (const n of a.notes)
-    if (n.level !== 'info') items.push({ id: `note:${items.length}`, area: 'note', confidence: n.level === 'error' ? 'low' : 'medium', title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
+    if (n.level !== 'info') items.push({ id: `note:${items.length}`, area: /ISBN|publisher|author|title/i.test(n.msg) && !/picture|section|style/i.test(n.msg) ? 'meta' : 'note', confidence: n.level === 'error' ? 'low' : 'medium', title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
   items.sort((x, y) => (x.confidence === y.confidence ? 0 : x.confidence === 'low' ? -1 : 1))
   return { items, sure }
 }
