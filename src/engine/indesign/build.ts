@@ -548,7 +548,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         const name = imgName(b.src)
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
         if (!c.alt && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
-        items.push({ kind: 'other', html: `<p class="img"><img alt="${c.decorative ? '' : esc(c.alt)}"${c.decorative ? ' role="presentation"' : ''} src="${name}"/></p>` })
+        // the client's language sheet: a picture with no description reads "imagen", a decorative one "decorativa"
+        items.push({ kind: 'other', html: `<figure class="fig_group"><img alt="${esc(c.decorative ? L.decorativeAlt : c.alt || L.imageAlt)}" src="${name}"/></figure>` })
         continue
       }
       if (b.t === 'table') {
@@ -782,7 +783,7 @@ function linkNotes(items: Item[], key: string): number {
   return refd.size
 }
 
-/** consecutive list items → <ul>, indented blocks → <div class="top">, notes → <section role="doc-endnotes"> */
+/** consecutive list items → <ul>, indented blocks → <blockquote>, notes → <section role="doc-endnotes"> */
 function groupItems(items: Item[]): string {
   const out: string[] = []
   for (let i = 0; i < items.length; ) {
@@ -808,7 +809,7 @@ function groupItems(items: Item[]): string {
         ? renderList(rows)
         : k === 'note'
           ? `<section epub:type="endnotes" role="doc-endnotes">\n${run.join('\n')}\n</section>`
-          : `<div class="top">\n${run.join('\n')}\n</div>`,
+          : `<blockquote>\n${run.join('\n')}\n</blockquote>`, // the Standard EPUB writes it as <div class="top">
     )
   }
   return out.join('\n')
@@ -948,8 +949,9 @@ function renderFront(
       continue
     }
     if (s.type === 'title') {
-      if (eq(b.text, meta.title)) out.push(`<h1 class="title_1">${inlineHtml(b.el, ctx, { heading: true })}</h1>`)
-      else if (authors.some((a) => eq(b.text, a))) out.push(`<p class="title-3">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
+      if (eq(b.text, meta.title)) out.push(`<h1 aria-label="${esc(L.titleWord)}" class="title_1">${inlineHtml(b.el, ctx, { heading: true })}</h1>`)
+      else if (authors.some((a) => eq(b.text, a))) out.push(`<p aria-label="${esc(L.authorWord)}" class="title-3">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
+      else if (meta.publisher && eq(b.text, meta.publisher)) out.push(`<p aria-label="${esc(L.publisherWord)}" class="title-2">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
       else if (eq(b.text, meta.subtitle)) out.push(`<p class="title-4">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
       else out.push(`<p class="title-2">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
       continue

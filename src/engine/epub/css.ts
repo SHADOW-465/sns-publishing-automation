@@ -45,7 +45,8 @@ p.extract1 { text-align: left; margin: 0 0 0 1.5em; text-indent: 0; font-family:
 p.extract2 { text-align: left; margin: 0 0 1em 1.5em; text-indent: 0; font-family: serif; }
 p.hang { text-align: left; margin: 0 0 0.3em 1.5em; text-indent: -1.5em; font-family: serif; }
 p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
-p.img { text-align: center; margin: 1em auto; text-indent: 0; }
+p.img, p.image_Container { text-align: center; margin: 1em auto; text-indent: 0; }
+figure.fig_group, div.fig_group { text-align: center; margin: 1em 0; }
 h3.sec1, h4.sec1, h5.sec1 { font-size: 100%; text-align: left; margin: 1em 0; font-family: serif; }
 ul.bull { text-align: justify; margin: 1em 0; font-family: serif; }
 ol.num { text-align: justify; margin: 1em 0; font-family: serif; }
@@ -109,6 +110,7 @@ export function houseDecls(tag: string, d: Decls, body: Decls): Decls {
   if (w >= 600 || (heading && w >= 500)) out['font-weight'] = 'bold'
   else if (heading) out['font-weight'] = 'normal'
   if (d['font-style'] === 'italic' || d['font-style'] === 'oblique') out['font-style'] = 'italic'
+  if (d['text-transform'] === 'uppercase') out['text-transform'] = 'uppercase'
   out['font-family'] = /sans|avenir|helvetica|arial|futura|gill|myriad|frutiger|univers|verdana/i.test(d['font-family'] ?? '') ? 'sans-serif' : 'serif'
   if (d['color'] && !/^#0{3}(0{3})?$|^black$/i.test(d['color'])) out['color'] = d['color']
   if (d['page-break-after'] === 'avoid' || heading) out['page-break-after'] = 'avoid'
@@ -146,6 +148,7 @@ function optionCss(): string {
   return [
     `hr.footline { width: ${width}%; margin: 0 auto 0.5em 0; border: 0; border-top: 1px solid; height: 0; }`,
     `div.top { margin: ${s.blockSpaceEm}em 0; }`,
+    `blockquote { margin: ${s.blockSpaceEm}em 0; }`,
     // footnotes indented as in print (V3 row 20); contents entries flush as in print (V3 rows 18–19)
     `p.Nota-al-pie { text-indent: ${s.footnoteIndentEm}em; }`,
     // a chapter entry starts flush and its wrapped lines hang in by this much, as the printed contents page

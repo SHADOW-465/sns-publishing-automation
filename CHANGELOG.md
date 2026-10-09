@@ -3,6 +3,29 @@
 Newest first. Each entry says what changed for the people using the tool, and which client
 feedback it answers. Keep this file up to date with every change.
 
+## 2026-10-09 — Standard EPUB builder, language sheet, *Cartografías del poder*
+
+Answers the client's three new sheets (Standard vs Accessible tag differences, Standard specification, Accessible language specification) and the new test book.
+
+**Standard EPUB** (Settings → Kind of e-book, or per book) now follows the sheet row by row:
+- headings are classed paragraphs; bold and italic are `<b>` and `<i>`; a figure is a `<div class="fig_group">` with the picture in `<p class="image_Container">` and a caption paragraph;
+- lists are paragraphs with the bullet or number typed in (`• First item`, `1. First item`);
+- quotes are `<div class="top">`; tables have bare rows (no `thead`/`tbody`/`tfoot`, header cells are plain cells, still bold);
+- notes, links and page numbers carry no roles: page numbers are `<a id="Page_1"/>`;
+- no `section` or language wrapper, no language on `<html>`, `<link>` before `<title>`, and every page titled with the book's title;
+- picture descriptions read "imagen" (or "decorativa" for a decorative picture); the stylesheet selects `p` where it selected headings.
+
+**Accessible EPUB** gets the matching rows: quotes are `<blockquote>`, pictures `<figure class="fig_group">`, title-page lines carry `aria-label` (Título, Autor, Editorial), landmarks `role="navigation"`.
+
+**Language sheet**: German, French, Spanish, Italian, Portuguese and Mexican Spanish words are exactly those of the sheet (page, chapter, contents, landmarks, cover, title page, start reading, title / author / publisher, default picture descriptions).
+
+**The built-in check** knows a standard EPUB: it no longer asks for page language, headings, landmarks, `th` cells or link-less anchors there, and it counts `Page_1` markers.
+
+**Cartografías del poder** (one-line chapter heads, no "Chapter 1" label):
+- the contents page names the chapters, so the styles of the paragraphs that repeat those names become chapter heads (8 chapters, Presentación and Prefacio as front matter);
+- title, authors (a run of name lines), publisher (El Colegio de México) and a lowercase subtitle after a full stop are read correctly;
+- a paragraph style set in capitals in print keeps natural text with `text-transform: uppercase`, so contents labels are not shouted.
+
 ## 2026-10-01 — Feedback round 3: standard EPUB, Word/PDF → EPUB structure, PAC-clean accessible PDF
 
 **InDesign → EPUB** (client: "80% done, language, specification and complex EPUB testing pending")

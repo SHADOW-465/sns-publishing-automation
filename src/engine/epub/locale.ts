@@ -20,6 +20,13 @@ export interface Labels {
   dedication: string
   epigraph: string
   front: string
+  /** words the client's language sheet fixes: chapter title, title-page captions, default picture descriptions */
+  chapter: string
+  titleWord: string
+  authorWord: string
+  publisherWord: string
+  imageAlt: string
+  decorativeAlt: string
 }
 
 const es: Labels = {
@@ -39,6 +46,7 @@ const es: Labels = {
   dedication: 'Dedicatoria',
   epigraph: 'Epígrafe',
   front: 'Preliminares',
+  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editorial', imageAlt: 'imagen', decorativeAlt: 'decorativa',
 }
 
 const en: Labels = {
@@ -58,16 +66,18 @@ const en: Labels = {
   dedication: 'Dedication',
   epigraph: 'Epigraph',
   front: 'Front matter',
+  chapter: 'Chapter', titleWord: 'Title', authorWord: 'Author', publisherWord: 'Publisher', imageAlt: 'image', decorativeAlt: 'decorative',
 }
 
 const de: Labels = {
   ...en,
-  cover: 'Cover', halftitle: 'Schmutztitel', title: 'Titelseite', copyright: 'Impressum',
+  cover: 'Umschlag', halftitle: 'Schmutztitel', title: 'Titelseite', copyright: 'Impressum',
   navTitle: 'Inhaltsverzeichnis', landmarks: 'Orientierungspunkte', pageList: 'Seitenliste',
   startReading: 'Lesen beginnen', page: 'Seite', eisbn: 'ISBN E-Book', logoAlt: 'Verlagslogo',
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Verlagslogo: ${publisher}` : ''),
   a11ySummary: 'Diese Publikation entspricht WCAG 2.0 Level AA.',
   dedication: 'Widmung', epigraph: 'Motto', front: 'Titelei',
+  chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', imageAlt: 'Bild', decorativeAlt: 'dekorativ',
 }
 
 const fr: Labels = {
@@ -78,26 +88,29 @@ const fr: Labels = {
   coverAlt: ({ title, authors, publisher }) => `Titre : ${title}.` + (authors ? ` Auteur : ${authors}.` : '') + (publisher ? ` Logo de l'éditeur : ${publisher}` : ''),
   a11ySummary: 'Cette publication est conforme aux WCAG 2.0 niveau AA.',
   dedication: 'Dédicace', epigraph: 'Épigraphe', front: 'Pages liminaires',
+  chapter: 'Chapitre', titleWord: 'Titre', authorWord: 'Auteur', publisherWord: 'Éditeur', imageAlt: 'image', decorativeAlt: 'décorative',
 }
 
 const it: Labels = {
   ...en,
-  cover: 'Copertina', halftitle: 'Occhietto', title: 'Frontespizio', copyright: 'Colophon',
+  cover: 'Copertina', halftitle: 'Occhietto', title: 'Pagina del titolo', copyright: 'Colophon',
   navTitle: 'Indice', landmarks: 'Punti di riferimento', pageList: 'Elenco delle pagine',
   startReading: 'Inizia a leggere', page: 'pagina', eisbn: 'ISBN digitale', logoAlt: "Logo dell'editore",
   coverAlt: ({ title, authors, publisher }) => `Titolo: ${title}.` + (authors ? ` Autore: ${authors}.` : '') + (publisher ? ` Logo dell'editore: ${publisher}` : ''),
   a11ySummary: 'Questa pubblicazione è conforme alle WCAG 2.0 livello AA.',
   dedication: 'Dedica', epigraph: 'Epigrafe', front: 'Pagine iniziali',
+  chapter: 'Capitolo', titleWord: 'Titolo', authorWord: 'Autore', publisherWord: 'Editore', imageAlt: 'immagine', decorativeAlt: 'decorativa',
 }
 
 const pt: Labels = {
   ...es,
-  cover: 'Capa', halftitle: 'Anterrosto', title: 'Folha de rosto', copyright: 'Ficha técnica',
+  cover: 'Capa', halftitle: 'Anterrosto', title: 'Página de título', copyright: 'Ficha técnica',
   navTitle: 'Índice', landmarks: 'Pontos de referência', pageList: 'Lista de páginas',
   startReading: 'Começar a ler', page: 'página', eisbn: 'ISBN digital', logoAlt: 'Logótipo da editora',
   coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logótipo da editora: ${publisher}` : ''),
   a11ySummary: 'Esta publicação está em conformidade com as WCAG 2.0 nível AA.',
   dedication: 'Dedicatória', epigraph: 'Epígrafe', front: 'Pré-textuais',
+  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editora', imageAlt: 'imagem', decorativeAlt: 'decorativa',
 }
 
 
@@ -191,12 +204,16 @@ const he: Labels = {
   dedication: 'הקדשה', epigraph: 'מוטו', front: 'עמודי פתיחה',
 }
 
+/** Mexican Spanish (client language sheet): the cover is the Portada, the title page the Página de título. */
+const esMX: Labels = { ...es, cover: 'Portada', title: 'Página de título' }
+
 const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es, nl, pl, sv, da, no: da, nb: da, tr, ru, el, ar, fa: ar, ur: ar, he }
 
 /** Built-in labels for the language, with the house's own wording from Settings on top. */
 export const labelsFor = (lang: string): Labels => {
   const code = lang.slice(0, 2).toLowerCase()
-  return { ...(TABLE[code] ?? en), ...(settings().labels[code] ?? {}) }
+  const base = /^es[-_]mx$/i.test(lang) ? esMX : (TABLE[code] ?? en)
+  return { ...base, ...(settings().labels[code] ?? {}) }
 }
 
 /** Label keys the Settings screen lets a house reword. */
@@ -217,7 +234,7 @@ const KEYWORDS: [SectionType, RegExp][] = [
   ['list', /^(lista de|list of|liste des|verzeichnis der|elenco de)/i],
   ['introduction', /^(introducci[óo]n|introduction|einleitung|einf[üu]hrung|introduzione|introdu[çc][ãa]o)\b/i],
   ['preface', /^(prefacio|preface|vorwort|pr[ée]face|prefazione|pref[áa]cio)\b/i],
-  ['foreword', /^(foreword|pre[áa]mbulo)\b/i],
+  ['foreword', /^(foreword|pre[áa]mbulo|presentaci[óo]n|apresenta[çc][ãa]o|presentazione)\b/i],
   ['prologue', /^(pr[óo]logo|prologue|prolog)\b/i],
   ['conclusion', /^(conclusi[óo]n|conclusion|schluss(wort)?|conclusione|conclus[ãa]o)\b/i],
   ['epilogue', /^(ep[íi]logo|epilogue|epilog|[ée]pilogue)\b/i],

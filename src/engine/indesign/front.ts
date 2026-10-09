@@ -20,14 +20,14 @@ export const norm = (s: string) => s.toLocaleLowerCase().normalize('NFD').replac
 const IMPRINT_ANY =
   /©|\(c\)\s*\d{4}|\bi\.?\s?s\.?\s?b\.?\s?n\b|\bedici[óo]n\b|\bedition\b|\bauflage\b|\bderechos\b|\brights\b|copyright|dep[óo]sito legal|printed in|impreso en|published (by|in)|publicado por|t[íi]tulo original|original title|traducci[óo]n|translat|www\.|@|\bs\.\s?a\.|\bs\.\s?l\.|\bltd\b|\binc\b|\bgmbh\b/i
 const DEDICATION = /^(para|a mis?|a la memoria|a mi|en memoria|dedicad[oa]|con amor|to\b|for\b|in (loving )?memory|in memoriam|für|à|pour|per\b|ai miei|al mio|alla mia)/i
-const CREDIT = /^(autor|autora|author|traducci[óo]n|traducido|translated|pr[óo]logo de|foreword by|introducci[óo]n de|ilustraciones|illustrat|edited|editado|edici[óo]n (de|a cargo)|coordinad|compilad|selecci[óo]n)/i
+const CREDIT = /^\(?\s*(autor|autora|author|traducci[óo]n|traducido|translated|pr[óo]logo de|foreword by|introducci[óo]n de|ilustraciones|illustrat|edited|editado|edici[óo]n (de|a cargo)|coordinad|compilad|selecci[óo]n)/i
 export const COMPANY =
-  /\b(grupo editorial|editorial|ediciones|editores|publishing|publishers|press|books|verlag|[ée]ditions|edizioni|editora|random house|distribuciones|s\.?\s?a\.?\s?de\s?c\.?\s?v\.?|s\.?\s?a\.?\s?u\.?|s\.\s?a\.|s\.\s?l\.|ltd|limited|llc|inc|gmbh|ag)\b/i
-const LEGAL_FORM = /,?\s*\b(s\.?\s?a\.?\s?(de\s?c\.?\s?v\.?|u\.?)?|s\.\s?l\.(\s?u\.)?|ltd\.?|limited|llc|inc\.?|gmbh|ag|s\.?\s?r\.?\s?l\.?)\s*\.?$/i
+  /\b(grupo editorial|editorial|ediciones|editores|publishing|publishers|press|books|verlag|[ée]ditions|edizioni|editora|random house|distribuciones|s\.?\s?a\.?\s?de\s?c\.?\s?v\.?|s\.?\s?a\.?\s?u\.?|s\.\s?a\.|s\.\s?l\.|ltd|limited|llc|inc|gmbh|ag|colegio de|universidad|university|fondo de cultura|instituto|institute)\b/i
+const LEGAL_FORM = /,?\s*\b(a\.\s?c\.|s\.?\s?a\.?\s?(de\s?c\.?\s?v\.?|u\.?)?|s\.\s?l\.(\s?u\.)?|ltd\.?|limited|llc|inc\.?|gmbh|ag|s\.?\s?r\.?\s?l\.?)\s*\.?$/i
 const PARTICLE = /^(de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|el|st\.?|zu|af)$/i
 /** "Elena Chávez", "RJ Spina", "Ana María de la Fuente", "J. R. R. Tolkien" */
 const NAME = /^(\p{Lu}[\p{L}'’.-]*\.?)(\s+((de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|st\.?|zu)\s+)*\p{Lu}[\p{L}'’.-]*\.?){1,4}$/u
-const NOT_A_NAME = /derechos|rights|edici[óo]n|edition|traducci|translat|ilustr|illustr|fotograf|photo|cubierta|cover|dise[ñn]o|design|texto|text|reservados|reserved|grupo|editorial|books|press/i
+const NOT_A_NAME = /centro|instituto|institute|universidad|university|colegio|college|departamento|department|facultad|fundaci[óo]n|asociaci[óo]n|derechos|rights|edici[óo]n|edition|traducci|translat|ilustr|illustr|fotograf|photo|cubierta|cover|dise[ñn]o|design|texto|text|reservados|reserved|grupo|editorial|books|press/i
 
 const isCaps = (s: string) => /\p{L}/u.test(s) && s === s.toLocaleUpperCase() && s !== s.toLocaleLowerCase()
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length
@@ -167,6 +167,9 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
     source.title = 'first line of the book — check it'
   }
 
+  // a cataloguing-style title break ("Cartografías del poder. exploraciones en…"): colon and a capital for the subtitle
+  title = title.replace(/^([^.:]{3,}?)\.\s+(\p{Ll})/u, (_m, x: string, y: string) => `${x}: ${y.toLocaleUpperCase(lang)}`)
+
   // ---- author: the © holder who is a person, confirmed by the title page when possible ----
   const tpLines = pages.filter((g) => displayPage(g) && !isImprintPage(g, roleOf)).flatMap(linesOf).map((b) => b.text)
   const holders: string[] = []
@@ -181,8 +184,16 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
   let author = holders.find(onTitlePage) ?? holders[0] ?? ''
   if (author) source.author = holders.length > 1 && !onTitlePage(author) ? 'copyright line (several holders — check)' : 'copyright line'
   else {
-    const cand = tpLines.find((l) => norm(l) !== norm(printed) && norm(l) !== norm(title) && words(l) <= 5 && !CREDIT.test(l) && NAME.test(nameCase(l, lang)))
-    if (cand) (author = nameCase(cand, lang)), (source.author = 'title page')
+    const isName = (l: string) => norm(l) !== norm(printed) && norm(l) !== norm(title) && words(l) <= 5 && !CREDIT.test(l) && !NOT_A_NAME.test(l) && NAME.test(nameCase(l, lang))
+    // several authors: the run of name lines after the title ("Gustavo Urbina Cortés", "Isaac Cisneros Yescas")
+    const at = tpLines.findIndex((l) => !!printed && norm(l) === norm(printed))
+    const run: string[] = []
+    for (const l of tpLines.slice(at + 1)) {
+      if (isName(l)) run.push(nameCase(l, lang))
+      else if (run.length) break
+    }
+    const cand = run.length ? run.join(', ') : tpLines.find(isName)
+    if (cand) (author = run.length ? cand : nameCase(cand, lang)), (source.author = 'title page')
   }
 
   // ---- subtitle: the title-page line after the title that is neither the author nor a credit ----

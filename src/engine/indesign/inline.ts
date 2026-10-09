@@ -75,11 +75,12 @@ export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): s
  *  acronym typed in lowercase ("unam" → "UNAM"); other small caps keep their spelling ("Capítulo"). */
 export function inlineText(p: Element, css: StyleSheet, lang: string): string {
   let out = ''
+  const baseUpper = css.paragraphFace(classesOf(p)).upper // a style that is all capitals in print stays natural text + CSS text-transform
   const walk = (el: Element, face: Face) => {
     for (const n of Array.from(el.childNodes)) {
       if (n.nodeType === 3) {
         const t = (n.textContent ?? '').replace(/­/g, '')
-        out += face.upper || (face.smallCaps && /^\s*\p{Ll}{2,6}\s*$/u.test(t)) ? t.toLocaleUpperCase(lang) : t
+        out += (face.upper && !baseUpper) || (face.smallCaps && /^\s*\p{Ll}{2,6}\s*$/u.test(t)) ? t.toLocaleUpperCase(lang) : t
       } else if (n.nodeType === 1) {
         const c = n as Element
         if (pageBreakOf(c) !== null || isNoteRef(c)) continue
@@ -236,7 +237,7 @@ function render(segs: Seg[], base: Face, lang: string, heading: boolean): string
     let t: string
     if (f.dropcap) t = `<span class="dropcap">${esc(s.text)}</span>`
     else {
-      t = f.upper ? esc(s.text.toLocaleUpperCase(lang)) : f.smallCaps ? smallCaps(s.text, lang) : esc(s.text)
+      t = f.upper && !base.upper ? esc(s.text.toLocaleUpperCase(lang)) : f.smallCaps ? smallCaps(s.text, lang) : esc(s.text)
       const cls = faceClass(f, base).filter((c) => !whole.includes(c))
       if (cls.length && s.text.trim()) t = `<span class="${cls.join(' ')}">${t}</span>`
       if (f.sup && !base.sup) t = `<sup>${t}</sup>`

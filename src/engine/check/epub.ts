@@ -109,6 +109,11 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   if (!opf) return report([group('valid', valid)], stats)
   const meta = (name: string) => Array.from(opf.getElementsByTagName(name))
   const metaText = (name: string) => meta(name).map((e) => (e.textContent ?? '').trim())
+  // a standard EPUB leaves the accessibility layer out on purpose: language on the page, headings, landmarks and ARIA are not expected
+  const hasMeta = (p: string) => Array.from(opf.getElementsByTagName('meta')).some((m) => m.getAttribute('property') === p && (m.textContent ?? '').trim())
+  const standardBook = !A11Y_META.some(hasMeta) && !hasMeta('dcterms:conformsTo')
+  /** a printed-page marker: the accessible span/div, or the standard book's <a id="Page_12"/> */
+  const isPageMark = (e: Element) => /\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak' || (e.localName === 'a' && /^Page_/.test(e.id) && !e.getAttribute('href'))
   const prop = (p: string) => Array.from(opf.getElementsByTagName('meta')).filter((m) => m.getAttribute('property') === p).map((m) => (m.textContent ?? '').trim())
 
   // required metadata, and no empty elements (EPUBCheck RSC-005)
@@ -216,8 +221,8 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     // ---- accessibility, per document ----
     const html = d.documentElement
     const dl = html.getAttribute('xml:lang') ?? html.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang') ?? html.getAttribute('lang')
-    if (!dl) a11y.push({ level: 'error', msg: 'No language on the page (lang / xml:lang): screen readers may use the wrong voice.', where: it.href })
-    else if (lang && dl.slice(0, 2).toLowerCase() !== lang.slice(0, 2).toLowerCase()) a11y.push({ level: 'warn', msg: `Page language "${dl}" differs from the book language "${lang}".`, where: it.href })
+    if (!dl && !standardBook) a11y.push({ level: 'error', msg: 'No language on the page (lang / xml:lang): screen readers may use the wrong voice.', where: it.href })
+    else if (dl && lang && dl.slice(0, 2).toLowerCase() !== lang.slice(0, 2).toLowerCase()) a11y.push({ level: 'warn', msg: `Page language "${dl}" differs from the book language "${lang}".`, where: it.href })
     if (!(d.querySelector('title')?.textContent ?? '').trim()) a11y.push({ level: 'warn', msg: 'Page has an empty <title>.', where: it.href })
     for (const img of Array.from(d.querySelectorAll('img'))) {
       const alt = img.getAttribute('alt')
@@ -235,8 +240,8 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       if (lastH && lv > lastH + 1) a11y.push({ level: 'warn', msg: `Heading level jumps from h${lastH} to h${lv} ("${(h.textContent ?? '').trim().slice(0, 40)}").`, where: it.href })
       lastH = lv
     }
-    if (!hs.length && !d.querySelector('[aria-label], [aria-labelledby]') && it.href !== coverDoc(files, spine)) a11y.push({ level: 'warn', msg: 'Page has no heading and no label: it will be hard to find with a screen reader.', where: it.href })
-    for (const a of Array.from(d.querySelectorAll('a'))) if (!(a.textContent ?? '').trim() && !a.querySelector('img[alt]')) a11y.push({ level: 'error', msg: 'A link has no text: screen readers announce just "link".', where: it.href })
+    if (!standardBook && !hs.length && !d.querySelector('[aria-label], [aria-labelledby]') && it.href !== coverDoc(files, spine)) a11y.push({ level: 'warn', msg: 'Page has no heading and no label: it will be hard to find with a screen reader.', where: it.href })
+    for (const a of Array.from(d.querySelectorAll('a[href]'))) if (!(a.textContent ?? '').trim() && !a.querySelector('img[alt]')) a11y.push({ level: 'error', msg: 'A link has no text: screen readers announce just "link".', where: it.href })
     // a printed contents page whose entries lost their titles ("2.", "3." …)
     // (index page numbers are links too, but share their line with the entry's words)
     const bareLinks = Array.from(d.querySelectorAll('a[href]')).filter((a) => {
@@ -246,7 +251,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     })
     if (bareLinks.length >= 3) content.push({ level: 'error', msg: `${bareLinks.length} contents entries show only a number (${bareLinks.slice(0, 4).map((a) => (a.textContent ?? '').trim()).join(', ')}…): the chapter titles are missing.`, where: it.href })
     for (const t of Array.from(d.querySelectorAll('table'))) {
-      if (!t.querySelector('th')) a11y.push({ level: 'warn', msg: 'A table has no header cells (th): screen readers cannot announce the column names. To mark the first row as headers, choose “First row as table headers” in Settings.', where: it.href })
+      if (!standardBook && !t.querySelector('th')) a11y.push({ level: 'warn', msg: 'A table has no header cells (th): screen readers cannot announce the column names. To mark the first row as headers, choose “First row as table headers” in Settings.', where: it.href })
       const ws = Array.from(t.querySelectorAll('col')).map((c) => (c.getAttribute('style') ?? '').match(/width:\s*([\d.]+)%/)?.[1]).filter((w) => w !== undefined).map(Number)
       const sum = ws.reduce((a, b) => a + b, 0)
       if (ws.length && Math.abs(sum - 100) > 1) valid.push({ level: 'warn', msg: `Table column widths add up to ${sum}%, not 100%: the table is wider or narrower than the page.`, where: it.href })
@@ -267,8 +272,8 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
           if (c.nodeType === 3) words += wordsOf(c.textContent ?? '').length
           else if (c.nodeType === 1) {
             const e = c as Element
-            if (/\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak') {
-              const n2 = e.id.replace(/^page-?/, '') || (e.getAttribute('aria-label') ?? '').replace(/^\D+\s/, '')
+            if (isPageMark(e)) {
+              const n2 = e.id.replace(/^page[-_]?/i, '') || (e.getAttribute('aria-label') ?? '').replace(/^\D+\s/, '')
               if (last && !words) bunched.push([last, n2, it.href])
               last = n2
               words = 0
@@ -278,10 +283,10 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       }
       walk(d.body ?? d.documentElement)
     }
-    for (const pb of Array.from(d.querySelectorAll('*')).filter((e) => /\bpagebreak\b/.test(epubType(e)) || e.getAttribute('role') === 'doc-pagebreak')) {
-      const n = pb.getAttribute('aria-label') ?? pb.getAttribute('title') ?? ''
+    for (const pb of Array.from(d.querySelectorAll('*')).filter(isPageMark)) {
+      const n = pb.getAttribute('aria-label') ?? pb.getAttribute('title') ?? (pb.id ? 'p' : '')
       if (!n) a11y.push({ level: 'error', msg: 'A page marker has no page number (aria-label / title).', where: it.href })
-      pageNums.push(pb.id.replace(/^page-?/, '') || n.replace(/^\D+\s/, ''))
+      pageNums.push(pb.id.replace(/^page[-_]?/i, '') || n.replace(/^\D+\s/, ''))
     }
     stats.notes += Array.from(d.querySelectorAll('a')).filter((a) => /\bnoteref\b/.test(epubType(a)) || a.getAttribute('role') === 'doc-noteref').length
     // content
@@ -301,7 +306,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     if (/\bchapter\b/.test(type) && w.length < 40) content.push({ level: 'warn', msg: `Chapter with only ${w.length} words — is text missing?`, where: it.href })
   }
   stats.pages = pageNums.length
-  if (stats.documents && !headingDocs) a11y.push({ level: 'error', msg: 'The book has no headings at all.' })
+  if (stats.documents && !headingDocs && !standardBook) a11y.push({ level: 'error', msg: 'The book has no headings at all.' })
 
   // ---- navigation ----
   const nav = navPath ? docs.get(navPath) : undefined
@@ -322,8 +327,9 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       })
       if (unlisted.length) a11y.push({ level: 'warn', msg: `Sections with a heading that are missing from the navigation menu: ${unlisted.slice(0, 5).join(', ')}`, where: navPath })
     }
-    if (pageNums.length && !pl) a11y.push({ level: 'error', msg: 'The book has page markers but no page list, so readers cannot "go to page".', where: navPath })
-    if (!lm) a11y.push({ level: 'warn', msg: 'No landmarks (cover, start of the text…) in the navigation document.', where: navPath })
+    if (pageNums.length && !pl && !standardBook) a11y.push({ level: 'error', msg: 'The book has page markers but no page list, so readers cannot "go to page".', where: navPath })
+    if (!lm && standardBook) void 0
+    else if (!lm) a11y.push({ level: 'warn', msg: 'No landmarks (cover, start of the text…) in the navigation document.', where: navPath })
     else if (!Array.from(lm.querySelectorAll('a')).some((a) => /\bbodymatter\b/.test(epubType(a)))) a11y.push({ level: 'warn', msg: 'Landmarks do not mark where the text starts.', where: navPath })
   }
 

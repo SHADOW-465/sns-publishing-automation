@@ -57,13 +57,14 @@ export function resolvePath(base: string, href: string): string {
 }
 
 /** `langAttrs`: the language attribute(s) of <html>, e.g. `xml:lang="es-ES"` (see htmlLangAttrs in settings). */
-export const xhtmlDoc = (langAttrs: string, title: string, css: string, body: string) =>
+export const xhtmlDoc = (langAttrs: string, title: string, css: string, body: string, linkFirst = false) =>
   `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" ${langAttrs}>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"${langAttrs ? ' ' + langAttrs : ''}>
 <head>
-<title>${esc(title)}</title>
-<link href="${css}" rel="stylesheet" type="text/css"/>
+${linkFirst ? `<link href="${css}" rel="stylesheet" type="text/css"/>
+<title>${esc(title)}</title>` : `<title>${esc(title)}</title>
+<link href="${css}" rel="stylesheet" type="text/css"/>`}
 </head>
 <body>
 ${body}

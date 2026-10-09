@@ -164,6 +164,27 @@ completeness check; font sizes are measured against the body text style and roun
 (`h3.Ladillo-2` comes out at 110 %, as in the reference); `tableHeaders` is only declared in the accessibility metadata when tables have
 header cells.
 
+## Accessible and Standard EPUB (client sheets, October 2026)
+
+One export, two kinds of e-book (Settings → *Kind of e-book*, or the selector in each flow). The same text, different markup:
+
+| Element | Standard | Accessible |
+|---|---|---|
+| Heading | `<p class="chapter">` | `<h1 class="chapter" role="heading">` |
+| Bold, italic | `<b>`, `<i>` | `<span class="bold">`, `<span class="italic">` |
+| Picture | `<div class="fig_group"><p class="image_Container"><img alt="imagen">` + caption `<p>` | `<figure class="fig_group"><img alt="description">` + `<figcaption>` |
+| Lists | `<p>• item</p>`, `<p>1. item</p>` | `<ul><li>`, `<ol><li>` |
+| Quote | `<div class="top">` | `<blockquote>` |
+| Table | bare `<tr>` rows | `thead` / `tbody` / `tfoot`, `th` |
+| Footnote | plain links | `epub:type="noteref"`, `doc-noteref`, `doc-footnote`, `doc-backlink` |
+| Page number | `<a id="Page_1"/>` | `<span epub:type="pagebreak" role="doc-pagebreak" aria-label="página 1">` |
+| Language | none on the page | `xml:lang` on `html` and on a `div` |
+| Page title | the book title | the section ("Capítulo 1") |
+| Wrapper | none | `<section epub:type="chapter" role="doc-chapter">` |
+
+The Standard version is made from the accessible markup by `toStandard` (`src/engine/epub/package.ts`), so both always carry the same words.
+The words for each language (page, chapter, contents, landmarks, cover, title page, default picture descriptions) are those of the client's language sheet (`src/engine/epub/locale.ts`).
+
 ## Looks like the print book (`src/engine/check/look.ts`)
 
 With the print PDF, each paragraph's alignment and indent in the e-book (from the stylesheet the reader

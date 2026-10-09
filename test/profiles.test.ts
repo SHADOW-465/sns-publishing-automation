@@ -40,9 +40,17 @@ test('accessible and standard EPUB from one export', { skip: !has(input) && 'sam
   // accessible: the full layer; standard: none of it, same text
   assert.match(text(acc.files.get('OEBPS/content.opf')!), /schema:accessMode/)
   for (const [p, t] of all(std)) assert.doesNotMatch(t, /\srole="|\saria-[a-z]+="|epub:type="pagebreak"|schema:access|conformsTo|doc-pagelist|page-list/, `${p}: accessibility layer removed`)
-  assert.match(text(std.files.get('OEBPS/chapter02.xhtml')!), /epub:type="chapter"/, 'structure semantics stay')
-  const words = (r: ReturnType<typeof make>) => all(r).filter(([p]) => /chapter\d+\.xhtml/.test(p)).map(([, t]) => t.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length).reduce((a, b) => a + b, 0)
-  assert.ok(Math.abs(words(std) - words(acc)) < 40, 'same words in both')
+  // standard: the client's tag-differences sheet
+  const sch = text(std.files.get('OEBPS/chapter02.xhtml')!)
+  assert.doesNotMatch(sch, /<html [^>]*lang=/, 'no language on the page')
+  assert.doesNotMatch(sch, /<section|<h[1-6][ >]|<figure|<blockquote|<thead|<tbody|<ul|<ol|epub:type|xml:lang/, 'plain markup only')
+  assert.match(sch, /<a id="Page_36"\/>/, 'page markers are anchors')
+  assert.match(sch, /<p class="Antetitulo_SUPER" id="chap2">/, 'headings are classed paragraphs')
+  assert.match(sch, /<head>\n<link [^>]*\/>\n<title>Cambia tu mente/, 'link first, then the book title')
+  assert.match(text(std.files.get('OEBPS/css/style.css')!), /^p\.Antetitulo_SUPER\b/m, 'heading rules select p')
+  assert.match(text(acc.files.get('OEBPS/chapter02.xhtml')!), /<section [^>]*epub:type="chapter"/, 'accessible keeps the section')
+  const words = (r: ReturnType<typeof make>) => all(r).filter(([p]) => /chapter\d+\.xhtml/.test(p)).map(([, t]) => t.replace(/^[\s\S]*<body>/, '').replace(/<[^>]+>/g, ' ').split(/\s+/).filter((w) => w && !/^(•|\d+\.)$/.test(w)).length).reduce((a, b) => a + b, 0)
+  assert.ok(Math.abs(words(std) - words(acc)) < 40, `same words in both (${words(std)} vs ${words(acc)})`)
 
   for (const [name, r] of [['accessible', acc], ['standard', std]] as const) {
     assert.deepEqual(r.review.filter((x) => x.level === 'error'), [], `${name}: no build errors`)

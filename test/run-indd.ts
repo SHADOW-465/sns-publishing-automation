@@ -18,7 +18,7 @@ console.log('META', a.meta)
 for (const s of a.styles) console.log(String(s.count).padStart(5), s.role.padEnd(14), s.key.padEnd(34), '|', s.samples[0]?.slice(0, 60))
 const printPages = pdf ? await readPrintPages(pdfjs as never, read(resolve(pdf))) : undefined
 const cover = coverPath ? { name: basename(coverPath), data: read(resolve(coverPath)) } : undefined
-const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn }, cover })
+const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn, ...(process.env.PROFILE ? { profile: process.env.PROFILE as 'standard' } : {}) }, cover })
 mkdirSync(out, { recursive: true })
 writeFileSync(resolve(out, 'book.epub'), r.epub)
 for (const [p, d] of r.files) {

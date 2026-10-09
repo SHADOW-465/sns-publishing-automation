@@ -223,6 +223,30 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       roles.set(f, [part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, false])
     }
   }
+  // pass 1b: no label/title pairs (a book whose chapter heads are one line, "I. Coordenadas…"): the contents page names every
+  // chapter, so the styles of the paragraphs that repeat those names are the chapter heads
+  if (!roles.size) {
+    const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, '')
+    const isToc = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '')
+    const entries = new Set<string>()
+    let last = -1
+    nonEmpty.forEach((b, i) => {
+      if (!isToc(b)) return
+      last = i
+      const before = nonEmpty[i - 1]
+      // a title line, then its author/page line; or one line "Title <tab> page"
+      const t = before && !isToc(before) && before.key !== b.key ? before.text : b.text.replace(/\s*\d+\s*$/, '')
+      if (norm(t).length > 3) entries.add(norm(t))
+    })
+    if (entries.size >= 3) {
+      const hits = new Map<string, number>()
+      for (const b of nonEmpty.slice(last + 1)) if (!isToc(b) && entries.has(norm(b.text))) hits.set(b.key, (hits.get(b.key) ?? 0) + 1)
+      for (const [k, n] of hits) {
+        const total = byKey.get(k)!.blocks.length
+        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) roles.set(k, ['chapter-title', 'its lines are the chapters named in the contents', false])
+      }
+    }
+  }
   for (const k of keys) {
     if (roles.has(k)) continue
     const bl = byKey.get(k)!.blocks

@@ -160,8 +160,8 @@ export const RULES: Rule[] = [
   },
   {
     id: 'TXT-05', group: 'Paragraphs and classes', title: 'Space around indented blocks', kind: 'free', type: 'number', key: 'blockSpaceEm', unit: 'em', min: 0, max: 5,
-    help: 'Space around <div class="top"> blocks. It overlaps the paragraphs’ own space instead of adding to it.',
-    example: (v) => `div.top { margin: ${v}em 0; }`,
+    help: 'Space around quote blocks (<blockquote>; <div class="top"> in a standard EPUB). It overlaps the paragraphs’ own space instead of adding to it.',
+    example: (v) => `blockquote { margin: ${v}em 0; }`,
     keywords: ['spacing', 'espaciado', 'wrong spacing', 'space around', 'espacio entre'],
     origin: 'V3 rows 13–14',
   },

@@ -62,7 +62,7 @@ test('V3 corrections: the Cambia spec gives the hand-finished EPUB', () => {
   assert.doesNotMatch(f('content.opf'), /tableHeaders/, 'no tableHeaders claim without header cells')
 
   // row 12: question/answer lines are an indented block (extract1), not a hanging indent
-  assert.match(ch1, /<div class="top">\n<p class="extract1"><span class="italic">Pregunta<\/span>: ¿Por qué me estoy cepillando el pelo\?<\/p>\n<p class="extract1"><span class="italic">Respuesta<\/span>/)
+  assert.match(ch1, /<blockquote>\n<p class="extract1"><span class="italic">Pregunta<\/span>: ¿Por qué me estoy cepillando el pelo\?<\/p>\n<p class="extract1"><span class="italic">Respuesta<\/span>/)
   assert.doesNotMatch(ch1, /class="hang"/)
 
   // rows 13–14: the space around indented blocks overlaps the paragraphs' own (margin, not padding)
