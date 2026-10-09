@@ -15,7 +15,25 @@ export const VARIANT_GROUPS = {
 } as const
 export type VariantGroup = keyof typeof VARIANT_GROUPS
 
-export interface HouseSettings {
+/** The choices behind the Standard EPUB: one per row of the client's sheet (rules STD-01…STD-12). The first value is the sheet's. */
+export const STD_CHOICES = {
+  stdHeadings: ['paragraph', 'headings'],
+  stdEmphasis: ['bi', 'span'],
+  stdFigures: ['div', 'figure'],
+  stdLists: ['typed', 'lists'],
+  stdQuotes: ['div-top', 'blockquote'],
+  stdTables: ['bare', 'sections'],
+  stdNotes: ['plain', 'roles'],
+  stdPageMarks: ['anchor', 'none', 'keep'],
+  stdAlt: ['generic', 'keep'],
+  stdWrappers: ['none', 'keep'],
+  stdPageLang: ['none', 'xml:lang'],
+  stdTitle: ['book', 'section'],
+} as const
+export type StdOptions = { [K in keyof typeof STD_CHOICES]: (typeof STD_CHOICES)[K][number] }
+export const STD_DEFAULTS = Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, v[0]])) as StdOptions
+
+export interface HouseSettings extends StdOptions {
   /** extra phrases that mark print-only imprint lines (removed from the e-book copyright page) */
   printOnly: string[]
   /** reader-facing labels per language code ("es", "en"…), overriding the built-in ones */
@@ -75,6 +93,7 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   seriesSmallCaps: true,
   verseLines: true,
   defaultProfile: 'accessible',
+  ...STD_DEFAULTS,
   htmlLang: 'xml:lang',
   styleVariants: 'own',
   variantOn: ['align', 'indent', 'face'],
@@ -123,6 +142,7 @@ function sanitize(s: HouseSettings): HouseSettings {
     labels: s.labels && typeof s.labels === 'object' ? s.labels : d.labels,
     extraCss: typeof s.extraCss === 'string' ? s.extraCss : d.extraCss,
     houseCss: typeof s.houseCss === 'string' ? s.houseCss : d.houseCss,
+    ...(Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, (v as readonly unknown[]).includes((s as unknown as Record<string, unknown>)[k]) ? (s as unknown as Record<string, unknown>)[k] : (d as unknown as Record<string, unknown>)[k]])) as StdOptions),
     defaultProfile: oneOf('defaultProfile', ['accessible', 'standard']) as HouseSettings['defaultProfile'],
     htmlLang: oneOf('htmlLang', ['xml:lang', 'both', 'lang']) as HouseSettings['htmlLang'],
     styleVariants: oneOf('styleVariants', ['own', 'ignore']) as HouseSettings['styleVariants'],

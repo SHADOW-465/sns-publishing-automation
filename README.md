@@ -185,6 +185,11 @@ One export, two kinds of e-book (Settings → *Kind of e-book*, or the selector 
 The Standard version is made from the accessible markup by `toStandard` (`src/engine/epub/package.ts`), so both always carry the same words.
 The words for each language (page, chapter, contents, landmarks, cover, title page, default picture descriptions) are those of the client's language sheet (`src/engine/epub/locale.ts`).
 
+### Changing how a book comes out (no code)
+
+Every row above is a rule (`STD-01`…`STD-12` for the Standard EPUB; `TBL-01`, `NOTE-…` and the rest for both). Set it in **Settings** (all books), in the **Spec step** (a publisher, a series or one book), or from **Check these first** next to the part that looks wrong. A change made from there says whether it applies to this book only or to every book of the publisher. Style meanings you correct are remembered for that publisher.
+`test/corpus.ts` shows, for every sample book, how many decisions the tool was unsure of: the number to bring down.
+
 ## Looks like the print book (`src/engine/check/look.ts`)
 
 With the print PDF, each paragraph's alignment and indent in the e-book (from the stylesheet the reader

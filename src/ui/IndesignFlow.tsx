@@ -10,7 +10,9 @@ import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
-import { openSpec, applySpec, type Spec } from '../engine/spec/session.ts'
+import { openSpec, applySpec, setRule, type Spec } from '../engine/spec/session.ts'
+import { CheckFirst } from './CheckFirst.tsx'
+import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings } from '../engine/settings.ts'
 import { specHash } from '../engine/spec/layers.ts'
 import type { Decision } from '../engine/spec/store.ts'
@@ -109,6 +111,15 @@ export function IndesignFlow() {
     setStale(true)
   }
 
+  // a rule changed from the "Check these first" list: this book only, or every book of the publisher
+  const onRule = (id: string, level: 'book' | 'client', v: string | number | boolean | string[]) =>
+    run('Applying the rule…', async () => {
+      const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+      const next = await setRule(sp, level, id, v, actorName() || 'reviewer')
+      setSpec(next)
+      setStale(true)
+    })
+
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.alt.trim() && !i.decorative)
   const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
@@ -188,6 +199,15 @@ export function IndesignFlow() {
               Settings changed. <button onClick={() => rebuild()}>Update the preview</button>
             </p>
           )}
+          <CheckFirst
+            input={{ styles, sources: analysis.sources, meta: meta!, sections: result.sections, notes: result.review }}
+            setStyle={setStyle}
+            onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))}
+            onMeta={() => setStep(1)}
+            spec={spec}
+            onRule={onRule}
+            standard={(meta?.profile ?? 'accessible') === 'standard'}
+          />
           <Outline sections={result.sections} files={result.files} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
           <details className="advanced">
             <summary>Advanced: how the InDesign styles are read ({styles.filter((s) => s.unsure).length} guesses to confirm)</summary>

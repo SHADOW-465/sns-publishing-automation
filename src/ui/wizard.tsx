@@ -87,7 +87,7 @@ export function Status({ busy, error, notice }: { busy?: string; error?: string;
 // book outline: what the reader will get, in order
 // ---------------------------------------------------------------------------------------------
 
-const KIND: Record<string, string> = {
+export const KIND: Record<string, string> = {
   cover: 'Cover', halftitle: 'Half title', title: 'Title page', copyright: 'Copyright page', dedication: 'Dedication', epigraph: 'Epigraph',
   toc: 'Contents', list: 'List', introduction: 'Introduction', preface: 'Preface', foreword: 'Foreword', prologue: 'Prologue', part: 'Part',
   chapter: 'Chapter', conclusion: 'Conclusion', epilogue: 'Epilogue', afterword: 'Afterword', glossary: 'Glossary', appendix: 'Appendix',
@@ -99,7 +99,7 @@ export function Outline({ sections, files, base = 'OEBPS/', onType }: { sections
   const [open, setOpen] = useState(sections.find((s) => s.type === 'chapter')?.file ?? sections[0]?.file)
   const info = (s: Pick<Section, 'file'>) => {
     const html = text(files.get(base + s.file) ?? new Uint8Array())
-    const pages = [...html.matchAll(/id="page-([^"]+)"/g)].map((m) => m[1])
+    const pages = [...html.matchAll(/id="(?:page-|Page_)([^"]+)"/g)].map((m) => m[1])
     const words = html.replace(/<[^>]+>/g, ' ').split(/\s+/).filter((w) => /\p{L}/u.test(w)).length
     return { pages, words, notes: (html.match(/doc-noteref/g) ?? []).length, imgs: (html.match(/<img /g) ?? []).length }
   }

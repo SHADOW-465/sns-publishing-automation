@@ -5,7 +5,7 @@ import { labelsFor, type Labels, type SectionType } from './locale.ts'
 import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
-import { settings, htmlLangAttrs } from '../settings.ts'
+import { settings, htmlLangAttrs, STD_DEFAULTS, type StdOptions } from '../settings.ts'
 
 export interface BookMeta {
   title: string
@@ -27,48 +27,57 @@ export const isRtl = (lang: string) => /^(ar|he|iw|fa|ur|yi|ps|sd|ug|dv)(-|_|$)/
 
 /**
  * Standard EPUB (the client's "Standard vs Accessible tag differences" sheet): the same book in plain markup.
- * Headings are classed paragraphs, bold and italic are <b> and <i>, a figure is a <div> with a caption paragraph,
+ * Each transformation is a rule the client can switch (Settings / Spec step, STD-01…STD-12); the defaults are the sheet:
+ * headings are classed paragraphs, bold and italic are <b> and <i>, a figure is a <div> with a caption paragraph,
  * lists are paragraphs with their bullet or number typed in, quotes are <div class="top">, tables have bare rows,
  * notes carry no roles, page numbers are <a id="Page_1"/>, and the section / language wrappers and all ARIA go.
  */
-export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativeAlt'> = { imageAlt: 'image', decorativeAlt: 'decorative' }): string {
+export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativeAlt'> = { imageAlt: 'image', decorativeAlt: 'decorative' }, o: StdOptions = STD_DEFAULTS): string {
   let out = body
   // page markers
-  out = out.replace(/<(span|div)\b([^>]*?)(?:\/>|>\s*<\/\1>)/g, (m, _t, attrs: string) => {
-    if (!/epub:type="pagebreak"/.test(attrs)) return m
-    const id = attrs.match(/\bid="page-([^"]+)"/)?.[1]
-    return id ? `<a id="Page_${id}"/>` : ''
-  })
+  if (o.stdPageMarks !== 'keep')
+    out = out.replace(/<(span|div)\b([^>]*?)(?:\/>|>\s*<\/\1>)/g, (m, _t, attrs: string) => {
+      if (!/epub:type="pagebreak"/.test(attrs)) return m
+      const id = attrs.match(/\bid="page-([^"]+)"/)?.[1]
+      return id && o.stdPageMarks === 'anchor' ? `<a id="Page_${id}"/>` : ''
+    })
   // wrappers: sections, the language div, footnote boxes (the first paragraph keeps the box's id so note links still land)
-  out = out.replace(/<\/?section\b[^>]*>\n?/g, '')
-  out = out.replace(/<div\b[^>]*\bxml:lang="[^"]*"[^>]*>\n?([\s\S]*?)\n?<\/div>/g, '$1')
-  out = out.replace(/<div\b([^>]*epub:type="footnote"[^>]*)>\n?([\s\S]*?)\n?<\/div>/g, (_m, attrs: string, inner: string) => {
-    const id = attrs.match(/\bid="([^"]+)"/)?.[1]
-    return id ? inner.replace(/<p\b/, `<p id="${id}"`) : inner
-  })
-  // headings → paragraphs, quotes → div.top, figures → divs
-  out = out.replace(/<h([1-6])\b([^>]*)>/g, '<p$2>').replace(/<\/h[1-6]>/g, '</p>')
-  out = out.replace(/<blockquote\b[^>]*>/g, '<div class="top">').replace(/<\/blockquote>/g, '</div>')
-  out = out.replace(/<figure\b([^>]*)>/g, '<div$1>').replace(/<\/figure>/g, '</div>')
-  out = out.replace(/(<div class="fig_group">\s*)(<img\b[^>]*\/>)/g, '$1<p class="image_Container">$2</p>') // the picture sits in its own paragraph
-  out = out.replace(/<figcaption\b([^>]*)>/g, '<p$1>').replace(/<\/figcaption>/g, '</p>')
+  if (o.stdWrappers === 'none') {
+    out = out.replace(/<\/?section\b[^>]*>\n?/g, '')
+    out = out.replace(/<div\b[^>]*\bxml:lang="[^"]*"[^>]*>\n?([\s\S]*?)\n?<\/div>/g, '$1')
+  }
+  if (o.stdNotes === 'plain')
+    out = out.replace(/<div\b([^>]*epub:type="footnote"[^>]*)>\n?([\s\S]*?)\n?<\/div>/g, (_m, attrs: string, inner: string) => {
+      const id = attrs.match(/\bid="([^"]+)"/)?.[1]
+      return id ? inner.replace(/<p\b/, `<p id="${id}"`) : inner
+    })
+  if (o.stdHeadings === 'paragraph') out = out.replace(/<h([1-6])\b([^>]*)>/g, '<p$2>').replace(/<\/h[1-6]>/g, '</p>')
+  if (o.stdQuotes === 'div-top') out = out.replace(/<blockquote\b[^>]*>/g, '<div class="top">').replace(/<\/blockquote>/g, '</div>')
+  if (o.stdFigures === 'div') {
+    out = out.replace(/<figure\b([^>]*)>/g, '<div$1>').replace(/<\/figure>/g, '</div>')
+    out = out.replace(/(<div class="fig_group">\s*)(<img\b[^>]*\/>)/g, '$1<p class="image_Container">$2</p>') // the picture sits in its own paragraph
+    out = out.replace(/<figcaption\b([^>]*)>/g, '<p$1>').replace(/<\/figcaption>/g, '</p>')
+  }
   // tables: bare rows, header cells as plain cells (class tbl-h keeps them bold)
-  out = out.replace(/<\/?(?:thead|tbody|tfoot)\b[^>]*>\n?/g, '')
-  out = out.replace(/<th\b([^>]*)>/g, (_m, attrs: string) => {
-    attrs = attrs.replace(/\s+scope="[^"]*"/, '')
-    return /\bclass="/.test(attrs) ? `<td${attrs.replace(/class="([^"]*)"/, 'class="$1 tbl-h"')}>` : `<td class="tbl-h"${attrs}>`
-  }).replace(/<\/th>/g, '</td>')
+  if (o.stdTables === 'bare') {
+    out = out.replace(/<\/?(?:thead|tbody|tfoot)\b[^>]*>\n?/g, '')
+    out = out.replace(/<th\b([^>]*)>/g, (_m, attrs: string) => {
+      attrs = attrs.replace(/\s+scope="[^"]*"/, '')
+      return /\bclass="/.test(attrs) ? `<td${attrs.replace(/class="([^"]*)"/, 'class="$1 tbl-h"')}>` : `<td class="tbl-h"${attrs}>`
+    }).replace(/<\/th>/g, '</td>')
+  }
   // pictures: the default description, as the language sheet gives it
-  out = out.replace(/<img\b([^>]*?)\/>/g, (m, attrs: string) => {
-    if (/class="(?:cv|w1)"/.test(attrs)) return m
-    const alt = /\balt="([^"]*)"/.exec(attrs)
-    return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${alt[1] ? L.imageAlt : L.decorativeAlt}"`) : ` alt="${L.imageAlt}"${attrs}`}/>`
-  })
-  out = listsAsParagraphs(out)
-  out = bAndI(out)
-  // the accessibility layer: ARIA, roles, epub:type
-  const attr = /(<[a-z][^<>]*?)\s(?:role|aria-[a-z]+|epub:type)="[^"]*"/g
-  for (let prev = ''; prev !== out; ) (prev = out), (out = out.replace(attr, '$1')) // one attribute per pass and tag
+  if (o.stdAlt === 'generic')
+    out = out.replace(/<img\b([^>]*?)\/>/g, (m, attrs: string) => {
+      if (/class="(?:cv|w1)"/.test(attrs)) return m
+      const alt = /\balt="([^"]*)"/.exec(attrs)
+      return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${alt[1] ? L.imageAlt : L.decorativeAlt}"`) : ` alt="${L.imageAlt}"${attrs}`}/>`
+    })
+  if (o.stdLists === 'typed') out = listsAsParagraphs(out)
+  if (o.stdEmphasis === 'bi') out = bAndI(out)
+  // the accessibility layer: ARIA, roles, epub:type (notes keep theirs when the client wants note pop-ups)
+  const keepNote = (tag: string) => o.stdNotes === 'roles' && /epub:type="(?:noteref|footnote|backlink|endnotes?)"|role="doc-(?:noteref|footnote|backlink|endnotes?)"/.test(tag)
+  out = out.replace(/<[a-z][^<>]*>/g, (tag) => (keepNote(tag) || o.stdPageMarks === 'keep' && /epub:type="pagebreak"/.test(tag) ? tag : tag.replace(/\s(?:role|aria-[a-z]+|epub:type)="[^"]*"/g, '')))
   return out
 }
 
@@ -115,10 +124,12 @@ function listsAsParagraphs(html: string): string {
 }
 
 /** Standard EPUB stylesheet: headings are paragraphs now, so their rules select `p`; lists and header cells keep their look. */
-export function standardCss(css: string): string {
+export function standardCss(css: string, o: StdOptions = STD_DEFAULTS): string {
+  const lists = 'p.bull, p.num { margin: 0 0 0 1.5em; text-indent: -1em; }\np.bull2, p.num2 { margin: 0 0 0 3em; text-indent: -1em; }\np.bull3, p.num3 { margin: 0 0 0 4.5em; text-indent: -1em; }\n'
+  const cells = 'td.tbl-h { font-weight: bold; }\n'
   return (
-    css.replace(/(^|[,\s])h[1-6](?=\.)/gm, '$1p') +
-    `\n/* standard e-book: lists and header cells are plain paragraphs and cells */\np.bull, p.num { margin: 0 0 0 1.5em; text-indent: -1em; }\np.bull2, p.num2 { margin: 0 0 0 3em; text-indent: -1em; }\np.bull3, p.num3 { margin: 0 0 0 4.5em; text-indent: -1em; }\ntd.tbl-h { font-weight: bold; }\n`
+    (o.stdHeadings === 'paragraph' ? css.replace(/(^|[,\s])h[1-6](?=\.)/gm, '$1p') : css) +
+    '\n/* standard e-book: lists and header cells are plain paragraphs and cells */\n' + (o.stdLists === 'typed' ? lists : '') + (o.stdTables === 'bare' ? cells : '')
   )
 }
 
@@ -168,7 +179,7 @@ export function packageEpub(p: {
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
-  const sections = standard ? p.sections.map((x) => ({ ...x, body: toStandard(x.body, L) })) : p.sections
+  const sections = standard ? p.sections.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : p.sections
   const pageList = sections.flatMap((s) => [...s.body.matchAll(/id="(?:page-|Page_)([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
   const lang = meta.language
   const files: Files = new Map()
@@ -183,22 +194,22 @@ export function packageEpub(p: {
   if (meta.printIsbn && !isbn13Valid(meta.printIsbn)) review.push({ level: 'warn', msg: `Print ISBN "${meta.printIsbn}" is not a valid ISBN-13.` })
 
   // standard: no language on the page (it is in the package); the title of every page is the book's
-  const langAttrs = (standard ? '' : htmlLangAttrs(lang)) + (rtl ? ' dir="rtl"' : '')
-  const docTitle = (t: string) => (standard ? title : t)
+  const langAttrs = (standard && settings().stdPageLang === 'none' ? '' : htmlLangAttrs(lang)) + (rtl ? ' dir="rtl"' : '')
+  const docTitle = (t: string) => (standard && settings().stdTitle === 'book' ? title : t)
   const doc = (t: string, body: string) => xhtmlDoc(langAttrs, docTitle(t), 'css/style.css', body, standard)
   // ---- content documents ----
   const coverAlt = L.coverAlt({ title, authors: authors.join(', '), publisher: meta.publisher })
   // house style: the content of every page sits in <div xml:lang="…"> inside its section
   const langDiv = (body: string) =>
-    !settings().langWrapper || standard ? body :
+    !settings().langWrapper || (standard && settings().stdWrappers === 'none') ? body :
     /^<section[^>]*>/.test(body) && body.trimEnd().endsWith('</section>')
       ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
       : `<div xml:lang="${lang}">\n${body}\n</div>`
   const coverP = `<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg"${standard ? '' : ' role="doc-cover"'} src="${p.cover.path}"/></p>`
-  put('OEBPS/cover.xhtml', doc(L.cover, standard ? coverP : `<section epub:type="cover">\n${langDiv(coverP)}\n</section>`))
+  put('OEBPS/cover.xhtml', doc(L.cover, standard && settings().stdWrappers === 'none' ? coverP : `<section epub:type="cover">\n${langDiv(coverP)}\n</section>`))
   for (const s of sections) put(`OEBPS/${s.file}`, doc(s.title, langDiv(s.body)))
   const extra = settings().extraCss.trim()
-  put('OEBPS/css/style.css', (standard ? standardCss : (c: string) => c)(formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls))) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
+  put('OEBPS/css/style.css', (standard ? (c: string) => standardCss(c, settings()) : (c: string) => c)(formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls))) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
   files.set(`OEBPS/${p.cover.path}`, p.cover.data)
   for (const im of p.images) files.set(`OEBPS/${im.path}`, im.data)
 
@@ -352,6 +363,6 @@ ${sections.map((s) => `<itemref idref="${s.id}"/>`).join('\n')}
 </display_options>
 `)
 
-  review.push(...validateEpub(files))
+  review.push(...validateEpub(files).filter((x) => !(standard && x.msg === "Document has no heading."))) // a standard EPUB has paragraphs, not heading elements
   return { epub: zipEpub(files), files }
 }

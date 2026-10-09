@@ -45,7 +45,7 @@ export interface Rule {
 
 export const WAIVER_TEXT = 'Yes, I know this reduces accessibility, do it anyway.'
 
-export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Stylesheet', 'Copyright page', 'Quality check'] as const
+export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Stylesheet', 'Copyright page', 'Standard EPUB', 'Quality check'] as const
 
 const onOff: [string, string][] = [['true', 'Yes'], ['false', 'No']]
 
@@ -275,6 +275,28 @@ export const RULES: Rule[] = [
     keywords: ['missing words', 'palabras faltantes', 'missing text'],
     origin: 'Settings',
   },
+  // ---- Standard EPUB: one rule per row of the client's "Standard vs Accessible tag differences" sheet ----
+  ...(
+    [
+      ['STD-01', 'stdHeadings', 'Headings', 'Standard EPUB: how a heading is written.', [['paragraph', 'Classed paragraph'], ['headings', 'Heading element (h1–h6)']], (v: RuleValue) => (v === 'paragraph' ? '<p class="chapter" id="chap1">' : '<h1 class="chapter" id="chap1">'), ['standard heading', 'heading as paragraph', 'encabezado estándar']],
+      ['STD-02', 'stdEmphasis', 'Bold and italic', 'Standard EPUB: how bold and italic text is marked.', [['bi', '<b> and <i>'], ['span', 'Spans with a class']], (v: RuleValue) => (v === 'bi' ? '<b>…</b> <i>…</i>' : '<span class="bold">…</span> <span class="italic">…</span>'), ['standard bold', 'standard italic', 'negrita estándar']],
+      ['STD-03', 'stdFigures', 'Pictures and captions', 'Standard EPUB: a picture with its caption.', [['div', 'Div with the picture and a caption paragraph'], ['figure', 'figure and figcaption']], (v: RuleValue) => (v === 'div' ? '<div class="fig_group"><p class="image_Container"><img …/></p><p class="caption">…</p></div>' : '<figure class="fig_group"><img …/><figcaption>…</figcaption></figure>'), ['standard figure', 'standard image', 'figura estándar']],
+      ['STD-04', 'stdLists', 'Lists', 'Standard EPUB: how list items are written.', [['typed', 'Paragraphs with the bullet or number typed in'], ['lists', 'Real lists (ul, ol)']], (v: RuleValue) => (v === 'typed' ? '<p class="bull">• First item</p>\n<p class="num">1. First item</p>' : '<ul><li>First item</li></ul>'), ['standard list', 'lista estándar']],
+      ['STD-05', 'stdQuotes', 'Quotations', 'Standard EPUB: how a block quotation is wrapped.', [['div-top', '<div class="top">'], ['blockquote', '<blockquote>']], (v: RuleValue) => (v === 'div-top' ? '<div class="top"><p class="quote">…</p></div>' : '<blockquote><p class="quote">…</p></blockquote>'), ['standard quote', 'cita estándar']],
+      ['STD-06', 'stdTables', 'Tables', 'Standard EPUB: table structure.', [['bare', 'Rows only (header cells are plain cells)'], ['sections', 'thead / tbody / tfoot and th']], (v: RuleValue) => (v === 'bare' ? '<table>\n<tr>…</tr>\n</table>' : '<table>\n<thead><tr>…</tr></thead>\n<tbody>…</tbody>\n</table>'), ['standard table', 'tabla estándar']],
+      ['STD-07', 'stdNotes', 'Notes', 'Standard EPUB: footnote links. Keep the roles when readers should show notes as pop-ups.', [['plain', 'Plain links'], ['roles', 'Note roles (noteref, footnote, backlink)']], (v: RuleValue) => (v === 'plain' ? '<a href="#fn-1" id="fn_1">1</a>' : '<a epub:type="noteref" href="#fn-1" id="fn_1" role="doc-noteref">1</a>'), ['standard note', 'standard footnote', 'nota estándar']],
+      ['STD-08', 'stdPageMarks', 'Printed page numbers', 'Standard EPUB: where the print page changes.', [['anchor', 'Anchor: <a id="Page_1"/>'], ['none', 'No page markers'], ['keep', 'Accessible page marker']], (v: RuleValue) => (v === 'anchor' ? '<a id="Page_1"/>' : v === 'none' ? '(nothing)' : '<span epub:type="pagebreak" role="doc-pagebreak" aria-label="página 1" id="page-1"/>'), ['standard page break', 'salto de página estándar']],
+      ['STD-09', 'stdAlt', 'Picture descriptions', 'Standard EPUB: generic word ("imagen") or the description from the book. Keeping the real description is better for readers.', [['generic', 'The generic word for the language'], ['keep', 'Keep the real description']], (v: RuleValue) => (v === 'generic' ? '<img alt="imagen" …/>' : '<img alt="A woman reading under a tree" …/>'), ['standard alt', 'standard image description']],
+      ['STD-10', 'stdWrappers', 'Section and language wrappers', 'Standard EPUB: wrap each page in <section> and <div xml:lang>, or write the content directly.', [['none', 'No wrappers'], ['keep', 'Keep section and language div']], (v: RuleValue) => (v === 'none' ? '<body>\n<p class="…">' : '<body>\n<section epub:type="chapter">\n<div xml:lang="es-ES">'), ['standard wrapper', 'standard section']],
+      ['STD-11', 'stdPageLang', 'Language on each page', 'Standard EPUB: put the language on <html> or leave it to the package file.', [['none', 'None on the page'], ['xml:lang', 'xml:lang on <html>']], (v: RuleValue) => (v === 'none' ? '<html xmlns="…" xmlns:epub="…">' : '<html xml:lang="es-ES" xmlns="…">'), ['standard language', 'standard xml:lang']],
+      ['STD-12', 'stdTitle', 'Page title', 'Standard EPUB: the <title> of each page.', [['book', 'The book title on every page'], ['section', 'The name of the section']], (v: RuleValue) => (v === 'book' ? '<title>Cartografías del poder</title>' : '<title>Capítulo 1</title>'), ['standard title']],
+    ] as const
+  ).map(
+    ([id, key, title, help, choices, example, keywords]): Rule => ({
+      id, group: 'Standard EPUB', title, help, kind: 'free', type: 'choice', key, choices: choices as unknown as [string, string][], example: example as (v: RuleValue) => string,
+      keywords: [...keywords] as string[], origin: 'Client sheet: Standard vs Accessible tag differences (Oct 2026)',
+    }),
+  ),
 ]
 
 export const ruleById = new Map(RULES.map((r) => [r.id, r]))

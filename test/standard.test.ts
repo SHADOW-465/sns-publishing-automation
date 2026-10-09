@@ -3,6 +3,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { toStandard } from '../src/engine/epub/package.ts'
+import { STD_DEFAULTS } from '../src/engine/settings.ts'
+import { ruleById } from '../src/engine/spec/rules.ts'
+import { reviewList, rulesForTopic } from '../src/engine/review/confidence.ts'
 import { labelsFor } from '../src/engine/epub/locale.ts'
 import { unzip, text } from '../src/engine/zip.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
@@ -75,4 +78,42 @@ test('Cartografías del poder: chapters, details and both profiles', { skip: !ha
     if (profile === 'standard') assert.doesNotMatch(ch, /<html [^>]*lang=|<section|<h\d/)
     else assert.match(ch, /<html [^>]*xml:lang="es-ES"/)
   }
+})
+
+test('each Standard EPUB rule switches its own markup (STD-01…STD-12)', () => {
+  const acc = [
+    '<section epub:type="chapter" role="doc-chapter"><span aria-label="página 1" epub:type="pagebreak" id="page-1" role="doc-pagebreak" title="página 1"/>',
+    '<h1 class="c">T</h1><ul class="bull"><li>One</li></ul><span class="italic">i</span><blockquote><p>q</p></blockquote>',
+    '<figure class="fig_group"><img alt="real" src="a.jpg"/></figure><table><thead><tr><th>H</th></tr></thead></table>',
+    '<sup><a epub:type="noteref" href="#n" role="doc-noteref">1</a></sup></section>',
+  ].join('\n')
+  const base = toStandard(acc, L)
+  const keep = toStandard(acc, L, { ...STD_DEFAULTS, stdHeadings: 'headings', stdLists: 'lists', stdEmphasis: 'span', stdQuotes: 'blockquote', stdFigures: 'figure', stdTables: 'sections', stdAlt: 'keep', stdNotes: 'roles', stdPageMarks: 'none', stdWrappers: 'keep' })
+  assert.match(base, /<p class="c">T<\/p>/)
+  assert.match(keep, /<h1 class="c">T<\/h1>/)
+  assert.match(keep, /<ul class="bull"><li>One<\/li><\/ul>/)
+  assert.match(keep, /<span class="italic">i<\/span>/)
+  assert.match(keep, /<blockquote>/)
+  assert.match(keep, /<figure class="fig_group"><img alt="real"/)
+  assert.match(keep, /<thead>.*<th>/s)
+  assert.match(keep, /epub:type="noteref"[^>]*role="doc-noteref"/)
+  assert.doesNotMatch(keep, /pagebreak|Page_/)
+  assert.match(keep, /<section/)
+  assert.match(base, /<a id="Page_1"\/>/)
+})
+
+test('rules in the registry: the twelve STD rules exist and are settings', () => {
+  for (let i = 1; i <= 12; i++) assert.ok(ruleById.get(`STD-${String(i).padStart(2, '0')}`)?.key, `STD-${i}`)
+})
+
+test('check-these-first: unsure styles and unknown sections come first, clear ones are only counted', () => {
+  const styles = [
+    { key: 'a', count: 5, samples: ['x'], role: 'p', outClass: 'a', unsure: false, reason: 'body' },
+    { key: 'b', count: 2, samples: ['Dedicatoria'], role: 'imprint', outClass: 'b', unsure: true, reason: 'ISBN / © / legal lines' },
+  ] as never
+  const r = reviewList({ styles, sources: { title: 'title page' }, meta: { title: 'T', authors: '', publisher: 'P', eisbn: '' }, sections: [{ type: 'chapter', nav: 'One' }, { type: 'other', nav: '' }], notes: [{ level: 'warn', msg: 'Picture needs a description' }] })
+  assert.deepEqual(r.items.map((i) => i.id), ['style:b', 'meta:authors', 'section:1', 'note:3'])
+  assert.equal(r.items[0].confidence, 'low')
+  assert.equal(r.sure, 4)
+  assert.ok(rulesForTopic('table', true).some((x) => x.id === 'TBL-01'))
 })

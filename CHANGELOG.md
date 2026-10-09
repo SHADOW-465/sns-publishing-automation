@@ -3,6 +3,16 @@
 Newest first. Each entry says what changed for the people using the tool, and which client
 feedback it answers. Keep this file up to date with every change.
 
+## 2026-10-10 — Rules instead of edits: Standard EPUB rules, "Check these first", corpus run
+
+The aim: the client changes how a book comes out from the screen, never by asking for a code change.
+
+- **Standard EPUB rules STD-01…STD-12** (Settings, Spec step, Excel spec): one rule per row of his sheet (headings, bold/italic, pictures, lists, quotes, tables, notes, page markers, picture descriptions, wrappers, page language, page title). The defaults are the sheet; each can be switched for all books, a publisher, a series or one book, like every other rule.
+- **Check these first** (step 4 of *InDesign to EPUB*): every decision the tool was not sure of, least sure first (styles read by guess, unknown sections, missing or guessed book details, build warnings), with the control that fixes it beside it. Clear-cut decisions are only counted. A "House rules for this part" drop-down offers the rules that shape that part and applies a change to *this book only* or *every book of the publisher*.
+- **Corpus run** (`node --import ./test/setup.ts test/corpus.ts [standard|accessible]`): builds every sample book blind and prints how many things needed a person's look. Use it after any change, and add each new book.
+- **Validate any EPUB** (`test/validate-epub.ts book.epub`): EPUBCheck, then the tool's own check.
+- Standard EPUB no longer reports "Document has no heading".
+
 ## 2026-10-09 — Standard EPUB builder, language sheet, *Cartografías del poder*
 
 Answers the client's three new sheets (Standard vs Accessible tag differences, Standard specification, Accessible language specification) and the new test book.

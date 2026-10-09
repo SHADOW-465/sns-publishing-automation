@@ -339,3 +339,12 @@ table.req select { max-width: 240px; }
 .profile input { margin-top: 3px; }
 .profile span { display: grid; gap: 3px; font-size: 13px; }
 .profile small { color: var(--ink-3); font-size: 12px; line-height: 1.45; }
+
+/* Check these first */
+.check-first { border: 1px solid var(--line, #d8d4cc); border-radius: 10px; padding: 12px 16px; margin: 12px 0 18px; }
+.check-first ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.check-first li { border-top: 1px solid var(--line, #d8d4cc); padding-top: 10px; }
+.check-first li:first-child { border-top: 0; padding-top: 0; }
+.check-first .flag.low { background: var(--err-soft, #fbe3e0); color: var(--err, #a3271b); }
+.check-first .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.check-first details { margin-top: 6px; }
