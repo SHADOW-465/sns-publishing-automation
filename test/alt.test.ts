@@ -7,6 +7,7 @@ import { readXlsx } from '../src/engine/spec/office.ts'
 import { specWorkbook, readRequirements, pictureAltsFromWorkbook } from '../src/engine/spec/requirements.ts'
 import { resolve, emptyLayer } from '../src/engine/spec/layers.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
+import { checkEpub } from '../src/engine/check/epub.ts'
 import { synthExport, SYNTH_CSS } from './synth.ts'
 import {
   isPlaceholderAlt, classifyGivenAlt, repeatsCaption, resolveAlt, fitAlt, matchSpecPicture, yesNo,
@@ -218,7 +219,7 @@ test('analyze applies the layers and the build writes an empty alt for a decorat
 
   const r = build(a, {
     styles: a.styles, images: a.images,
-    meta: { ...a.meta, title: 'Feld', authors: 'B. Weigel', publisher: 'BeBra', eisbn: '9780306406157', language: 'de-DE' },
+    meta: { ...a.meta, title: 'Feld', authors: 'B. Weigel', publisher: 'BeBra', eisbn: '9780306406157', language: 'de-DE', certifiedBy: 'A reviewer', conformsTo: 'EPUB Accessibility 1.1' },
     cover: { name: 'cover.png', data: png(1600, 2560) },
   })
   const html = [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([, d]) => text(d)).join('\n')
@@ -229,4 +230,14 @@ test('analyze applies the layers and the build writes an empty alt for a decorat
   assert.match(html, /class="longdesc">Wege, Hallen und die Bahn\./)
   assert.match(html, /alt="Text stored in the file"/)
   assert.doesNotMatch(html, /alt="Bild"/)
+  assert.ok(r.source.pendingAi?.some((p) => p.includes('photo')))
+  assert.equal(r.source.pendingAi?.some((p) => p.includes('map')), false)
+  const packaged = text(r.files.get('OEBPS/content.opf')!)
+  assert.doesNotMatch(packaged, /a11y:certifiedBy/)
+  assert.doesNotMatch(packaged, /dcterms:conformsTo/)
+  assert.ok(r.review.some((n) => n.level === 'error' && /not marked as certified/.test(n.msg)))
+  const report = checkEpub(r.files, r.source)
+  const msgs = report.groups.flatMap((g) => g.findings.map((f) => `${f.level} ${f.msg}`)).join('\n')
+  assert.match(msgs, /warn Picture description for images\/photo\.png is an AI draft and needs approval/)
+  assert.doesNotMatch(msgs, /error Picture description for images\/photo/)
 })

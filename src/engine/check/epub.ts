@@ -45,6 +45,8 @@ export interface CheckSource {
   printPages?: string[]
   /** the print PDF's pages with line positions, for the visual comparison */
   printLayout?: PrintPage[]
+  /** output image paths whose description is an AI draft nobody has approved yet */
+  pendingAi?: string[]
 }
 
 const KNOWN_TYPES = new Set([
@@ -227,12 +229,17 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     if (!dl && !standardBook) a11y.push({ level: 'error', msg: 'No language on the page (lang / xml:lang): screen readers may use the wrong voice.', where: it.href })
     else if (dl && lang && dl.slice(0, 2).toLowerCase() !== lang.slice(0, 2).toLowerCase()) a11y.push({ level: 'warn', msg: `Page language "${dl}" differs from the book language "${lang}".`, where: it.href })
     if (!(d.querySelector('title')?.textContent ?? '').trim()) a11y.push({ level: 'warn', msg: 'Page has an empty <title>.', where: it.href })
+    const pendingAi = new Set(src.pendingAi ?? [])
+    const pendingBase = new Set((src.pendingAi ?? []).map((p) => p.split('/').pop() ?? p))
+    const draftPending = (ref: string) => pendingAi.has(ref) || pendingBase.has(ref.split('/').pop() ?? ref)
     for (const img of Array.from(d.querySelectorAll('img'))) {
       const alt = img.getAttribute('alt')
+      const ref = img.getAttribute('src') ?? ''
       const decorative = img.getAttribute('role') === 'presentation' || img.getAttribute('aria-hidden') === 'true'
-      if (alt === null) a11y.push({ level: 'error', msg: `Picture ${img.getAttribute('src')} has no alt attribute.`, where: it.href })
-      else if (!alt.trim() && !decorative) a11y.push({ level: settings().altRequired, msg: `Picture ${img.getAttribute('src')} has no description. Describe it, or mark it as decorative.`, where: it.href })
+      if (alt === null) a11y.push({ level: 'error', msg: `Picture ${ref} has no alt attribute.`, where: it.href })
+      else if (!alt.trim() && !decorative) a11y.push({ level: settings().altRequired, msg: `Picture ${ref} has no description. Describe it, or mark it as decorative.`, where: it.href })
       else if (isPlaceholderAlt(alt)) a11y.push({ level: altLevel(alt), msg: `Picture description "${alt.trim().slice(0, 80)}" is not a real description.`, where: it.href })
+      else if (draftPending(ref)) a11y.push({ level: 'warn', msg: `Picture description for ${ref} is an AI draft and needs approval.`, where: it.href })
     }
     const hs = Array.from(d.querySelectorAll('h1,h2,h3,h4,h5,h6'))
     if (hs.length) headingDocs++
@@ -378,6 +385,8 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   else if (missingMeta.length) a11y.push({ level: 'error', msg: `Accessibility metadata missing: ${missingMeta.join(', ')} (required by EPUB Accessibility 1.1).`, where: opfPath })
   if (!standard && !prop('dcterms:conformsTo').some(Boolean) && !Array.from(opf.getElementsByTagName('link')).some((l) => /conformsTo/.test(l.getAttribute('rel') ?? '')))
     a11y.push({ level: 'warn', msg: 'No accessibility conformance statement (dcterms:conformsTo).', where: opfPath })
+  if ((src.pendingAi?.length ?? 0) > 0 && (prop('a11y:certifiedBy').some(Boolean) || prop('dcterms:conformsTo').some(Boolean)))
+    a11y.push({ level: 'error', msg: `${src.pendingAi!.length} AI picture description(s) are not approved, so this book cannot be marked as certified.`, where: opfPath })
   if (stats.pages && !prop('pageBreakSource').some(Boolean) && !meta('dc:source').length) a11y.push({ level: 'warn', msg: 'Page markers are present but the print edition they come from is not named (dc:source / pageBreakSource).', where: opfPath })
 
   // ---- completeness against the source ----

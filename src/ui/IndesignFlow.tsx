@@ -4,7 +4,8 @@ import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
 import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import { unzip, text } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
-import { decorativeReason, isPlaceholderAlt, matchSpecPicture, settleAlt } from '../engine/epub/alt.ts'
+import { ALT_SOURCE_LABEL, decorativeReason, isPlaceholderAlt, matchSpecPicture, needsLongDescription, settleAlt } from '../engine/epub/alt.ts'
+import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
@@ -147,6 +148,29 @@ export function IndesignFlow() {
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
+  const pendingAi = inline.filter((i) => i.source === 'ai' && !i.approved)
+  const visionOn = !!visionConfig().apiKey.trim()
+  const draftImages = (targets: ImageChoice[]) =>
+    run(targets.length === 1 ? 'Drafting a description…' : 'Drafting picture descriptions…', async () => {
+      const drafted = await draftPictureAlts(
+        targets.map((im) => {
+          const bytes = analysis!.ex.images.get(im.src) ?? new Uint8Array()
+          return { id: im.src, bytes, mime: mimeOf(im.src, bytes), caption: im.caption, nearby: im.nearby }
+        }),
+        meta?.language || analysis?.meta.language || 'en',
+        visionConfig(),
+        (done, total) => setProgress({ done, total }),
+      )
+      const byId = new Map(drafted.map((d) => [d.id, d]))
+      setImages(images.map((im) => {
+        const d = byId.get(im.src)
+        if (!d?.alt) return im
+        return settleAlt({ ...im, userSet: false, approved: false, layers: { ...im.layers, aiAlt: d.alt } })
+      }))
+      setStale(true)
+      const failed = drafted.filter((d) => d.error)
+      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt).length} description(s). Each one needs approval.`)
+    })
   const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
@@ -190,7 +214,7 @@ export function IndesignFlow() {
 
       {step === 1 && analysis && meta && (
         <>
-          <BookDetails meta={meta} onChange={changed(setMeta)} sources={analysis.sources} note="Read from the book’s own title and copyright pages. Fields in red need a look. The e-book ISBN is never in the InDesign file — type it in." />
+          <BookDetails meta={meta} onChange={changed(setMeta)} sources={analysis.sources} certifyBlocked={images.some((i) => i.source === 'ai' && !i.approved)} note="Read from the book’s own title and copyright pages. Fields in red need a look. The e-book ISBN is never in the InDesign file — type it in." />
           <Help title="Where are these used?">
             Stores (Apple Books, Amazon, Google Play), library systems and reading apps show these details, and screen readers announce the title and language.
             The language decides the voice a screen reader uses. The print ISBN names the paper edition the page numbers come from.
@@ -265,16 +289,31 @@ export function IndesignFlow() {
         <section className="card">
           <h2>5. Describe the pictures</h2>
           <p className="muted">
-            People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows and why it matters, in a sentence or two. Tick
-            “decorative” only for ornaments that carry no information.
+            People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows, in about 140 characters, and do not repeat the caption.
+            Tick “decorative” only for ornaments that carry no information: those get an empty description so a screen reader skips them.
           </p>
+          {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
+          {pendingAi.length > 0 && (
+            <p className="note warnbox">
+              {pendingAi.length} AI draft{pendingAi.length === 1 ? '' : 's'} need approval before this book can be marked as certified. They are counted as items to check, not as missing descriptions.
+            </p>
+          )}
+          <div className="row">
+            <button onClick={() => draftImages(needAlt)} disabled={!!busy || !visionOn || needAlt.length === 0} title={visionOn ? 'Asks the vision model only for pictures that have no description' : 'Add an API key in Settings'}>
+              Draft the missing descriptions
+            </button>
+            {pendingAi.length > 0 && <button onClick={() => (setImages(images.map((im) => (im.source === 'ai' && !im.approved ? { ...im, approved: true } : im))), setStale(true))}>Approve all reviewed</button>}
+          </div>
           {images.length === 0 && <p className="muted">This book has no pictures besides the cover.</p>}
           <div className="images">
-            {images.map((im) => (
-              <div key={im.src} className={`img-row ${im.placement !== 'drop' && !im.alt.trim() && !im.decorative ? 'todo' : ''}`}>
+            {images.map((im) => {
+              const chart = needsLongDescription(im.src, im.caption, im.alt)
+              return (
+              <div key={im.src} className={`img-row ${im.placement !== 'drop' && !im.decorative && (!im.alt.trim() || isPlaceholderAlt(im.alt)) ? 'todo' : ''} ${im.source === 'ai' && !im.approved ? 'pending' : ''}`}>
                 <img src={thumbs.get(im.src)} alt="" />
                 <div>
                   <code>{im.src.split('/').pop()}</code> <span className="muted small">{im.width}×{im.height}</span>
+                  <span className={`src-badge ${im.source}${im.source === 'ai' && !im.approved ? ' pending' : ''}`}>{ALT_SOURCE_LABEL[im.source]}{im.source === 'ai' && !im.approved ? ' · needs approval' : ''}</span>
                   <select value={im.placement} onChange={(e) => setImage(im, { placement: e.target.value as ImageChoice['placement'] })}>
                     <option value="inline">Keep where it is in the text</option>
                     <option value="logo">Publisher logo on the title page</option>
@@ -282,13 +321,15 @@ export function IndesignFlow() {
                   </select>
                   {im.placement !== 'drop' && (
                     <>
+                      {im.caption && <p className="caption-note"><span className="muted">Caption: </span>{im.caption}</p>}
                       <label className="alt">
                         <span>Description</span>
                         <textarea rows={2} value={im.alt} disabled={im.decorative} placeholder="e.g. Black-and-white photo of … at …, 1968" onChange={(e) => setImage(im, { alt: e.target.value, userSet: true, source: 'typed', approved: true, decorative: false })} />
                       </label>
-                      <label className="alt">
-                        <span>Long description <span className="muted">for a chart or map</span></span>
-                        <textarea rows={2} value={im.longDesc} disabled={im.decorative} placeholder="Only when the short description is not enough" onChange={(e) => setImage(im, { longDesc: e.target.value, userSet: true, source: 'typed', approved: true })} />
+                      {!im.decorative && im.alt.trim().length > 180 && <p className="muted small">About 140 characters is easier to follow. This one is {im.alt.trim().length}.</p>}
+                      <label className={`alt ${chart ? 'needed' : ''}`}>
+                        <span>Long description {chart ? <strong>needed for this chart or map</strong> : <span className="muted">for a chart or map</span>}</span>
+                        <textarea rows={chart ? 4 : 2} value={im.longDesc} disabled={im.decorative} placeholder="Only when the short description is not enough" onChange={(e) => setImage(im, { longDesc: e.target.value, userSet: true, source: 'typed', approved: true })} />
                       </label>
                       <label className="small">
                         <input type="checkbox" checked={!!im.decorative} onChange={(e) => setImage(im, { decorative: e.target.checked, userSet: true, source: 'typed', approved: true, alt: e.target.checked ? '' : im.alt })} /> Decorative only (screen readers skip it)
@@ -296,11 +337,14 @@ export function IndesignFlow() {
                       {im.source === 'decorative' && (
                         <p className="muted small">{decorativeReason({ name: im.src, width: im.width, height: im.height }) ?? 'Suggested as decorative.'} Untick this if the picture carries information.</p>
                       )}
+                      {im.source === 'ai' && !im.approved && <button onClick={() => setImage(im, { approved: true })}>Approve</button>}
+                      {visionOn && !im.decorative && <button className="ghost" onClick={() => draftImages([im])} disabled={!!busy}>Draft again</button>}
                     </>
                   )}
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
           <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy}>
             {needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}

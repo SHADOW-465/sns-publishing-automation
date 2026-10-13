@@ -9,6 +9,7 @@ import { store, BrowserStore, type Decision } from '../engine/spec/store.ts'
 import { specWorkbook } from '../engine/spec/requirements.ts'
 import { resolveSpec } from '../engine/spec/session.ts'
 import { GROQ_MODELS, aiConfig, saveAiConfig } from '../engine/spec/ai.ts'
+import { GROQ_VISION_BASE, GROQ_VISION_MODEL, OPENROUTER_BASE, visionConfig, saveVisionConfig, type VisionConfig } from '../engine/epub/alt-ai.ts'
 import { RuleList } from './SpecEditor.tsx'
 import { download } from './shared.tsx'
 import { Help } from './wizard.tsx'
@@ -43,6 +44,7 @@ export function SettingsFlow() {
   const [saved, setSaved] = useState('')
   const [filter, setFilter] = useState('')
   const [ai, setAi] = useState(aiConfig())
+  const [vision, setVision] = useState<VisionConfig>(visionConfig())
   const [clients, setClients] = useState<Layer[]>([])
   const [log, setLog] = useState<Decision[]>([])
   useEffect(() => {
@@ -176,6 +178,44 @@ export function SettingsFlow() {
             </select>
           </label>
         </div>
+      </section>
+
+      <section className="card">
+        <h2>Picture descriptions</h2>
+        <p className="muted">
+          Optional. A vision model drafts a short description of each picture that does not have one yet. The picture and its caption are sent to the address below.
+          Groq is the default. OpenRouter, or any other OpenAI-compatible address, works too. The key stays in this browser and is never written into the book.
+        </p>
+        <div className="form">
+          <label>
+            <span>Provider</span>
+            <select
+              value={vision.baseUrl.includes('openrouter.ai') ? 'openrouter' : vision.baseUrl.includes('groq.com') ? 'groq' : 'custom'}
+              onChange={(e) => {
+                const next = e.target.value === 'openrouter' ? { ...vision, baseUrl: OPENROUTER_BASE } : e.target.value === 'groq' ? { ...vision, baseUrl: GROQ_VISION_BASE, model: GROQ_VISION_MODEL } : vision
+                setVision(next)
+                saveVisionConfig(next)
+              }}
+            >
+              <option value="groq">Groq</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="custom">Other</option>
+            </select>
+          </label>
+          <label>
+            <span>API base URL</span>
+            <input value={vision.baseUrl} onChange={(e) => (setVision({ ...vision, baseUrl: e.target.value }), saveVisionConfig({ ...vision, baseUrl: e.target.value }))} />
+          </label>
+          <label>
+            <span>Model</span>
+            <input value={vision.model} onChange={(e) => (setVision({ ...vision, model: e.target.value }), saveVisionConfig({ ...vision, model: e.target.value }))} />
+          </label>
+          <label>
+            <span>API key</span>
+            <input type="password" autoComplete="off" value={vision.apiKey} placeholder="Stored in this browser only" onChange={(e) => (setVision({ ...vision, apiKey: e.target.value }), saveVisionConfig({ ...vision, apiKey: e.target.value }))} />
+          </label>
+        </div>
+        {!vision.apiKey.trim() && <p className="muted">Picture descriptions from a vision model are off. Add an API key here to turn them on.</p>}
       </section>
 
       <section className="card">

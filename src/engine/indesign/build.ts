@@ -904,8 +904,16 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     review.push({ level: 'error', msg: 'No cover uploaded — used the cover image from the InDesign export. InDesign often exports a blank placeholder: check it.' })
   } else throw new Error('A cover image is required.')
 
+  const pendingAi = input.images
+    .filter((i) => i.placement !== 'drop' && i.source === 'ai' && !i.approved && !!i.alt.trim() && !isPlaceholderAlt(i.alt))
+    .map((i) => imgName(i.src))
+  let ship = meta
+  if (pendingAi.length && (meta.certifiedBy.trim() || meta.conformsTo.trim())) {
+    review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
+    ship = { ...meta, certifiedBy: '', conformsTo: '' }
+  }
   const { epub, files } = packageEpub({
-    meta, sections, cover, images: imgOut, usedClasses,
+    meta: ship, sections, cover, images: imgOut, usedClasses,
     bodyDecls,
     review,
   })
@@ -918,7 +926,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? Array.from(b.el.querySelectorAll('td, th')).map(textOf).join(' ') : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
-  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printIsbn: meta.printIsbn, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printIsbn: meta.printIsbn, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages, pendingAi }
   return { epub, files, sections, review, source }
 }
 

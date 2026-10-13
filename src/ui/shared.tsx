@@ -36,7 +36,7 @@ const META_FIELDS: [keyof BookMeta, string, string?][] = [
   ['conformsTo', 'Conforms to', 'Leave empty until a standard is confirmed'],
 ]
 
-export function BookDetails({ meta, onChange, note, sources = {} }: { meta: BookMeta; onChange: (m: BookMeta) => void; note: string; sources?: Partial<Record<keyof BookMeta, string>> }) {
+export function BookDetails({ meta, onChange, note, sources = {}, certifyBlocked = false }: { meta: BookMeta; onChange: (m: BookMeta) => void; note: string; sources?: Partial<Record<keyof BookMeta, string>>; certifyBlocked?: boolean }) {
   const ok = isbn13Valid(meta.eisbn)
   const caps = (s: string) => s === s.toUpperCase() && /\p{L}{3}/u.test(s)
   const suspicious = (k: keyof BookMeta) =>
@@ -52,9 +52,10 @@ export function BookDetails({ meta, onChange, note, sources = {} }: { meta: Book
         {META_FIELDS.map(([k, label, hint]) => (
           <label key={k} className={(k === 'eisbn' && !ok) || suspicious(k) ? 'bad' : ''}>
             <span>{label}</span>
-            <input value={meta[k]} placeholder={hint} onChange={(e) => onChange({ ...meta, [k]: e.target.value })} />
+            <input value={meta[k]} placeholder={hint} disabled={certifyBlocked && (k === 'certifiedBy' || k === 'conformsTo')} onChange={(e) => onChange({ ...meta, [k]: e.target.value })} />
             {k === 'eisbn' && !ok && <small className="err">Enter a valid 13-digit e-book ISBN. It is not in the source files.</small>}
-            {(k === 'certifiedBy' || k === 'conformsTo') && !String(meta[k]).trim() && <small className="src">Not filled in, so this book is not marked as certified.</small>}
+            {(k === 'certifiedBy' || k === 'conformsTo') && certifyBlocked && <small className="err">AI drafts still need approval, so this book cannot be marked as certified.</small>}
+            {(k === 'certifiedBy' || k === 'conformsTo') && !certifyBlocked && !String(meta[k]).trim() && <small className="src">Not filled in, so this book is not marked as certified.</small>}
             {sources[k] && <small className="src">from the {sources[k]}</small>}
           </label>
         ))}
