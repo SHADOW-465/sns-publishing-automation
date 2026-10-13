@@ -60,6 +60,50 @@ test('quality check catches the faults of the first test delivery', () => {
   assert.ok(r.errors >= 5)
 })
 
+/** An accessible book that looks finished but has the faults the checker used to call "passed". */
+function hollow(): Files {
+  const x = (body: string) => `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="de" xml:lang="de"><head><title>t</title></head><body>${body}</body></html>`
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 10, 0, 0, 0, 10])
+  const meta = [
+    '<meta property="schema:accessMode">textual</meta>',
+    '<meta property="schema:accessibilityFeature">alternativeText</meta>',
+    '<meta property="schema:accessibilityHazard">none</meta>',
+    '<meta property="schema:accessibilitySummary">Text</meta>',
+    '<meta property="schema:accessModeSufficient">textual</meta>',
+    '<meta property="dcterms:conformsTo">EPUB Accessibility 1.1</meta>',
+  ].join('')
+  const opf = `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:isbn:9780306406157</dc:identifier><dc:source>urn:isbn:</dc:source><dc:title>Das Tempelhofer Feld</dc:title><dc:language>de-DE</dc:language><dc:creator>Bjoern Weigel</dc:creator><dc:publisher>BeBra Verlag</dc:publisher><meta property="dcterms:modified">2026-10-13T12:00:00Z</meta>${meta}</metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/><item id="cv" href="images/cover.png" media-type="image/png" properties="cover-image"/><item id="a" href="images/a.png" media-type="image/png"/><item id="b" href="images/b.png" media-type="image/png"/><item id="c" href="images/c.png" media-type="image/png"/><item id="d" href="images/d.png" media-type="image/png"/><item id="lost" href="images/lost.png" media-type="image/png"/></manifest><spine><itemref idref="c1"/></spine></package>`
+  return new Map([
+    ['mimetype', bytes('application/epub+zip')],
+    ['META-INF/container.xml', bytes('<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')],
+    ['OEBPS/content.opf', bytes(opf)],
+    ['OEBPS/nav.xhtml', bytes(x('<nav epub:type="toc"><ol><li><a href="c1.xhtml">Inhalt</a></li><li><a href="c1.xhtml">Impressum</a></li></ol></nav>'))],
+    ['OEBPS/c1.xhtml', bytes(x('<p>Ein Absatz ohne Überschrift und mit genug Wörtern für den Text.</p><p><img src="images/a.png" alt="Bild"/><img src="images/b.png" alt="Beschreibung von KI generiert"/><img src="images/c.png" alt="[Fehler: kein Alternativtext]"/><img src="images/d.png"/></p>'))],
+    ['OEBPS/images/cover.png', png],
+    ['OEBPS/images/a.png', png],
+    ['OEBPS/images/b.png', png],
+    ['OEBPS/images/c.png', png],
+    ['OEBPS/images/d.png', png],
+    ['OEBPS/images/lost.png', png],
+  ])
+}
+
+test('quality check fails when headings, contents, ISBN or picture text are missing', () => {
+  const r = checkEpub(hollow(), { printIsbn: '978-3-8148-0356-2' })
+  const all = r.groups.flatMap((g) => g.findings.map((f) => `${f.level} ${f.msg}`)).join('\n')
+  assert.match(all, /error The book has no headings at all/)
+  assert.match(all, /error The table of contents does not list the chapters/)
+  assert.match(all, /error E-book ISBN\s+is not a valid ISBN-13/)
+  assert.match(all, /error Picture description "Bild" is not a real description/)
+  assert.match(all, /error Picture description "Beschreibung von KI generiert" is not a real description/)
+  assert.match(all, /error Picture description "\[Fehler: kein Alternativtext\]" is not a real description/)
+  assert.match(all, /error Picture images\/d\.png has no alt attribute/)
+  assert.match(all, /error Image lost\.png is in the package but never placed in the book/)
+  assert.match(all, /error Printed ISBN 978-3-8148-0356-2 is not recorded in the e-book/)
+  assert.doesNotMatch(all, /headings, picture descriptions, navigation/)
+  assert.ok(r.errors >= 9)
+})
+
 test('house settings: own print-only phrases and reader labels', async () => {
   const { setSettings, isHousePrintOnly, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
   const { labelsFor } = await import('../src/engine/epub/locale.ts')

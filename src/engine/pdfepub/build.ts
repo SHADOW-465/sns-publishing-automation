@@ -661,7 +661,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     .map((p) => p.lines.filter((l) => roleOf(l) !== 'dropcap').map((l) => (l.dropcap ?? '') + l.text).join('\n'))
     .join('\n')
     .replace(/(\p{L}+)[-­]\n(\p{Ll}+)/gu, (_, a: string, b: string) => (keepHyphen(a, b) ? `${a}-${b}` : a + b))
-  const source: CheckSource = { words: wordsOf(srcText), dropped, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String) }
+  const source: CheckSource = { words: wordsOf(srcText), dropped, printIsbn: book.meta.printIsbn, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String) }
   return { epub, files, sections: navSections, review, pictures, source }
 
   // ================================================================ helpers (need closure state)

@@ -696,7 +696,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     ...ex.blocks.map((b) => (b.t === 'p' ? b.text : b.t === 'table' ? Array.from(b.el.querySelectorAll('td, th')).map(textOf).join(' ') : '')),
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
-  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
+  const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printIsbn: meta.printIsbn, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages }
   return { epub, files, sections, review, source }
 }
 

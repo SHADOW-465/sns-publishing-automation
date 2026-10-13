@@ -1,7 +1,7 @@
 import { type Files, text, unzip } from '../zip.ts'
 import { parseXml, resolvePath, epubType } from '../xml.ts'
 import { extOf, imageSize } from '../epub/image.ts'
-import { isbn13Valid } from '../epub/package.ts'
+import { isbn13Valid, isbnDigits } from '../epub/package.ts'
 import { settings } from '../settings.ts'
 import { compareLook } from './look.ts'
 import type { PrintPage } from '../pdf/pages.ts'
@@ -38,6 +38,8 @@ export interface CheckSource {
   words?: string[]
   /** lines deliberately left out (print-only imprint lines…) */
   dropped?: string[]
+  /** print ISBN the source book carried; the e-book must still record it */
+  printIsbn?: string
   /** printed page numbers of the source book, for the page-marker check */
   printPages?: string[]
   /** the print PDF's pages with line positions, for the visual comparison */
@@ -229,7 +231,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       const decorative = img.getAttribute('role') === 'presentation' || img.getAttribute('aria-hidden') === 'true'
       if (alt === null) a11y.push({ level: 'error', msg: `Picture ${img.getAttribute('src')} has no alt attribute.`, where: it.href })
       else if (!alt.trim() && !decorative) a11y.push({ level: settings().altRequired, msg: `Picture ${img.getAttribute('src')} has no description. Describe it, or mark it as decorative.`, where: it.href })
-      else if (/\.(jpe?g|png|gif|svg)$|^(image|imagen|picture|foto|photo|img)\s*\d*$/i.test(alt.trim())) a11y.push({ level: 'warn', msg: `Picture description "${alt}" is not a real description.`, where: it.href })
+      else if (placeholderAlt(alt)) a11y.push({ level: altLevel(alt), msg: `Picture description "${alt.trim().slice(0, 80)}" is not a real description.`, where: it.href })
     }
     const hs = Array.from(d.querySelectorAll('h1,h2,h3,h4,h5,h6'))
     if (hs.length) headingDocs++
@@ -317,6 +319,13 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
     if (!toc || !toc.querySelector('a')) valid.push({ level: 'error', msg: 'The navigation document has no table of contents.', where: navPath })
     else {
       const labels = Array.from(toc.querySelectorAll('a')).map((a) => (a.textContent ?? '').trim())
+      // a contents menu of only "Inhalt" / "Impressum" does not list the chapters, even when those
+      // words link to a file that happens to contain a heading. A standard one-file book whose only
+      // entry is "Índice" is the contents page itself, not a missing chapter list.
+      const listsChapters = labels.some(chapterLabel)
+      const contentDocs = [...spineSet].filter((h) => h !== navPath)
+      if (!listsChapters && ((!standardBook && contentDocs.length > 0) || contentDocs.length > 1))
+        a11y.push({ level: 'error', msg: 'The table of contents does not list the chapters.', where: navPath })
       if (labels.some((l) => !l)) a11y.push({ level: 'error', msg: 'The navigation menu has an entry with no text.', where: navPath })
       const bare = labels.filter((l) => /^[\divxlc]+\.?$/i.test(l))
       if (bare.length) a11y.push({ level: 'warn', msg: `Navigation entries with only a number (${bare.slice(0, 4).join(', ')}): the chapter title is missing.`, where: navPath })
@@ -404,8 +413,39 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       details.push({ level: 'error', msg: `Author “${c}” looks like the title, not a person.` })
   }
   if (!metaText('dc:publisher').some(Boolean)) details.push({ level: 'warn', msg: 'No publisher (dc:publisher).' })
-  const isbn = (idEl?.textContent ?? '').replace(/^urn:isbn:/i, '')
-  if (/^urn:isbn:/i.test(idEl?.textContent ?? '') && !isbn13Valid(isbn)) details.push({ level: 'error', msg: `E-book ISBN ${isbn} is not a valid ISBN-13 (check digit).` })
+  const urnValues: string[] = []
+  for (const el of [...meta('dc:identifier'), ...meta('dc:source'), ...Array.from(opf.getElementsByTagName('meta'))]) {
+    const raw = (el.textContent ?? '').trim()
+    if (/^urn:isbn:/i.test(raw)) urnValues.push(raw.replace(/^urn:isbn:/i, ''))
+  }
+  const seenIsbn = new Set<string>()
+  for (const isbn of urnValues) {
+    const key = isbnDigits(isbn)
+    if (seenIsbn.has(key)) continue
+    seenIsbn.add(key)
+    if (!isbn13Valid(isbn)) details.push({ level: 'error', msg: `E-book ISBN ${isbn} is not a valid ISBN-13 (check digit).` })
+  }
+  const printDigits = isbnDigits(src.printIsbn ?? '')
+  if (printDigits.length >= 10) {
+    const hay = [...files].filter(([p]) => /\.(opf|xhtml)$/i.test(p)).map(([, d]) => text(d)).join('\n').replace(/[^\dXx]/g, '').toUpperCase()
+    if (!hay.includes(printDigits)) details.push({ level: 'error', msg: `Printed ISBN ${src.printIsbn} is not recorded in the e-book.` })
+  }
+  const placed = new Set<string>()
+  for (const [path, data] of files) {
+    if (!/\.(xhtml|css)$/i.test(path)) continue
+    const s = text(data)
+    const take = (ref: string) => {
+      if (!ref || ref.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(ref)) return
+      try { placed.add(resolvePath(path, ref)) } catch { /* a broken url is reported with the link */ }
+    }
+    for (const m of s.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/gi)) take(m[1])
+    for (const m of s.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)) take(m[1])
+  }
+  for (const it of items) {
+    if (!it.type.startsWith('image/') || !files.has(it.href)) continue
+    if (it.props.split(/\s+/).includes('cover-image')) continue
+    if (!placed.has(it.href)) valid.push({ level: 'error', msg: `Image ${it.href.split('/').pop()} is in the package but never placed in the book.`, where: opfPath })
+  }
   if (coverItem && files.has(coverItem.href)) {
     const { width, height } = imageSize(files.get(coverItem.href)!)
     const min = settings().minCoverPx
@@ -441,6 +481,28 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   }
   groups.push(group('details', details))
   return report(groups, stats)
+}
+
+/** A contents entry that names a chapter, not a front-matter page or a bare number. */
+function chapterLabel(label: string): boolean {
+  const t = label.replace(/\s+/g, ' ').trim()
+  if (!t || /^[\divxlc]+\.?$/i.test(t)) return false
+  return !/^(inhalt|inhaltsverzeichnis|impressum|índice(?: de contenido)?|indice(?: de contenido)?|index|contents?|table of contents|cover|title page|half title|title|copyright|toc|titelseite|schmutztitel|cubierta|portada|cr[eé]ditos|credits|colophon|umschlag|couverture|copertina|capa|omslag|okładka|dedicatoria|dedication|ep[ií]grafe|epigraph|preliminares|front matter|titelei|start reading|empezar a leer|lesen beginnen)$/i.test(t)
+}
+
+const GENERIC_ALT = /^(image|imagen|picture|foto|photo|img|bild)\s*\d*$/i
+const BAD_ALT = /\[Fehler\s*:|beschreibung von ki generiert|von ki generiert|ki[- ]generiert/i
+
+function placeholderAlt(alt: string): boolean {
+  const t = alt.trim()
+  return BAD_ALT.test(t) || GENERIC_ALT.test(t) || /\.(jpe?g|png|gif|svg|webp)$/i.test(t)
+}
+
+/** "Bild" and the machine-written German placeholders are problems to fix. "imagen" and a file name stay warnings: the language sheet and the standard profile use that word on purpose, and the sample books already ship it. */
+function altLevel(alt: string): 'error' | 'warn' {
+  const t = alt.trim()
+  if (BAD_ALT.test(t) || /^bild\s*\d*$/i.test(t)) return 'error'
+  return 'warn'
 }
 
 const coverDoc = (files: Files, spine: ({ href: string } | undefined)[]) => {
