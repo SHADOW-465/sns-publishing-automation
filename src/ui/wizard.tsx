@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import type { CheckReport, Finding } from '../engine/check/epub.ts'
+import { deliveryCounts, extraReview } from '../engine/check/counts.ts'
 import type { ReviewItem, Section } from '../engine/epub/package.ts'
 import { text, type Files } from '../engine/zip.ts'
 import { Preview } from './Preview.tsx'
@@ -262,11 +263,11 @@ const ICON: Record<Finding['level'], IconName> = { error: 'x', warn: 'alert', pa
 const WORD: Record<Finding['level'], string> = { error: 'Must fix', warn: 'Check', pass: 'OK' }
 
 export function CheckReportView({ report, review = [] }: { report: CheckReport; review?: ReviewItem[] }) {
-  const buildErr = review.filter((r) => r.level === 'error')
-  const buildWarn = review.filter((r) => r.level === 'warn')
+  const extras = extraReview(report, review)
+  const buildErr = extras.filter((r) => r.level === 'error')
+  const buildWarn = extras.filter((r) => r.level === 'warn')
   const done = review.filter((r) => r.level === 'info')
-  const errors = report.errors + buildErr.length
-  const warnings = report.warnings + buildWarn.length
+  const { errors, warnings } = deliveryCounts(report, review)
   return (
     <div className="report">
       <div className={`verdict ${errors ? 'bad' : warnings ? 'meh' : 'good'}`} role="status">

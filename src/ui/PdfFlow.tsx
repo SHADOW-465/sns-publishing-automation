@@ -9,6 +9,7 @@ import { PDF_ROLES, PDF_ROLE_HELP, type PdfBook, type PdfProfile, type PdfRole, 
 import type { PdfBuildResult } from '../engine/pdfepub/build.ts'
 import { rulesFor, type CopyrightRules } from '../engine/epub/imprint.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
+import { deliveryCounts } from '../engine/check/counts.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 
 // Print PDF (or Word, via its PDF) → EPUB 3, in five steps. The print PDF is the source: the Word
@@ -118,7 +119,7 @@ export function PdfFlow() {
     : 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
   const todo = result ? result.pictures.filter((p) => !alt[p.path] || alt[p.path] === p.caption) : []
-  const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
+  const errors = report ? deliveryCounts(report, result?.review ?? []).errors : 0
   const steps = [
     { title: 'Files', hint: 'print PDF and cover', enabled: true, done: !!book },
     { title: 'Book details', hint: 'title, ISBN, copyright', enabled: !!book, done: !!meta && isbn13Valid(meta.eisbn) },

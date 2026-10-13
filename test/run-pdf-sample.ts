@@ -27,5 +27,5 @@ for (const [p, d] of r.files) {
 }
 console.log(r.sections.map((s) => `${s.file.padEnd(18)} ${s.type.padEnd(15)} ${s.nav}`).join('\n'))
 for (const x of r.review) console.log(`${x.level.padEnd(5)} ${x.msg}${x.where ? `  [${x.where}]` : ''}`)
-printReport(checkEpubBytes(r.epub, r.source))
+printReport(checkEpubBytes(r.epub, r.source), r.review)
 console.log(`\n→ ${file}  (${((Date.now() - t) / 1000).toFixed(0)} s)`)

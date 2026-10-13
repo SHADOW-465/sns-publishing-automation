@@ -3,14 +3,22 @@
 import { resolve } from 'node:path'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { checkEpubBytes, type CheckReport } from '../src/engine/check/epub.ts'
+import { deliveryCounts, extraReview } from '../src/engine/check/counts.ts'
+import type { ReviewItem } from '../src/engine/epub/package.ts'
 import { readPrintPages } from '../src/engine/pdf/pages.ts'
 import { read } from './samples.ts'
 
-export function printReport(r: CheckReport) {
-  console.log(`\nCHECK: ${r.errors} to fix, ${r.warnings} to check · ${JSON.stringify(r.stats)}`)
+export function printReport(r: CheckReport, review: ReviewItem[] = []) {
+  const c = deliveryCounts(r, review)
+  console.log(`\nCHECK: ${c.errors} to fix, ${c.warnings} to check · ${JSON.stringify(r.stats)}`)
   for (const g of r.groups) {
     console.log(`  ${g.title}`)
     for (const f of g.findings) console.log(`    ${f.level === 'error' ? 'FIX ' : f.level === 'warn' ? 'CHK ' : 'ok  '} ${f.msg}${f.where ? `  [${f.where}]` : ''}`)
+  }
+  const extra = extraReview(r, review)
+  if (extra.length) {
+    console.log('  From the conversion')
+    for (const x of extra) console.log(`    ${x.level === 'error' ? 'FIX ' : 'CHK '} ${x.msg}${x.where ? `  [${x.where}]` : ''}`)
   }
 }
 

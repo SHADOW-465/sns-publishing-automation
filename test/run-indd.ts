@@ -8,6 +8,7 @@ import { unzip } from '../src/engine/zip.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
 import { readPrintPages } from '../src/engine/pdf/pages.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
+import { altTally } from '../src/engine/epub/alt.ts'
 import { printReport } from './check-epub.ts'
 import { read } from './samples.ts'
 
@@ -27,4 +28,5 @@ for (const [p, d] of r.files) {
 }
 console.log(r.sections.map((s) => `${s.file.padEnd(18)} ${s.type.padEnd(13)} ${s.nav}`).join('\n'))
 for (const x of r.review) console.log(`${x.level.padEnd(5)} ${x.msg}${x.where ? `  [${x.where}]` : ''}`)
-printReport(checkEpubBytes(r.epub, r.source))
+console.log('ALT', altTally(a.images))
+printReport(checkEpubBytes(r.epub, r.source), r.review)

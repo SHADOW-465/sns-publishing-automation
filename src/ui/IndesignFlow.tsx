@@ -8,6 +8,7 @@ import { ALT_SOURCE_LABEL, decorativeReason, isPlaceholderAlt, matchSpecPicture,
 import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
+import { deliveryCounts } from '../engine/check/counts.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
@@ -176,7 +177,7 @@ export function IndesignFlow() {
       const failed = drafted.filter((d) => d.error)
       setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt).length} description(s). Each one needs approval.`)
     })
-  const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
+  const errors = report ? deliveryCounts(report, result?.review ?? []).errors : 0
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
     { title: 'Book details', hint: 'title, author, ISBN', enabled: !!analysis, done: !!meta && isbn13Valid(meta.eisbn) },
