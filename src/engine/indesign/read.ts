@@ -206,9 +206,9 @@ const isTocPageSpan = (el: Element) => {
   let n: Node | null = el
   while (n && (n as Element).localName !== 'body') {
     for (let s = n.nextSibling; s; s = s.nextSibling) if ((s.textContent ?? '').trim()) return false
-    const p = n.parentNode
-    if (!p || /^(p|h[1-6]|body)$/.test((p as Element).localName ?? '')) break
-    n = p
+    const parent: Node | null = n.parentNode
+    if (!parent || /^(p|h[1-6]|body)$/.test((parent as Element).localName ?? '')) break
+    n = parent
   }
   return true
 }

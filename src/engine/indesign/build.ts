@@ -7,6 +7,10 @@ import { esc, classesOf, textOf, tag, pageBreakOf, epubType } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type Labels, type SectionType } from '../epub/locale.ts'
 import { packageEpub, type BookMeta, type Section, type ReviewItem, type ImageOut } from '../epub/package.ts'
 import { imageSize, withRealExt } from '../epub/image.ts'
+import {
+  settleAlt, classifyGivenAlt, readImageMetadata, decorativeReason, matchSpecPicture, isPlaceholderAlt,
+  type AltMemory, type AltSource, type SpecPicture,
+} from '../epub/alt.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
 import { settings, isHousePrintOnly, variantProps } from '../settings.ts'
@@ -24,8 +28,22 @@ export interface ImageChoice {
   src: string // path inside the export
   placement: 'inline' | 'logo' | 'drop'
   alt: string
+  /** longer text for a chart or map; linked from the picture with aria-describedby */
+  longDesc: string
   /** purely decorative: empty alt on purpose (screen readers skip it) */
-  decorative?: boolean
+  decorative: boolean
+  /** where the description came from */
+  source: AltSource
+  /** an AI draft is not finished until a person approves it */
+  approved: boolean
+  /** the reviewer typed or unticked this picture; their choice is kept */
+  userSet: boolean
+  /** the caption that follows the picture in the export */
+  caption: string
+  /** a little of the text beside the picture, for an AI draft */
+  nearby: string
+  layers: AltMemory
+  spec: SpecPicture | null
   width: number
   height: number
 }
@@ -68,7 +86,7 @@ type PBlock = Extract<Block, { t: 'p' }>
 // Step 1: analyse — everything the reviewer needs to confirm before the EPUB is generated
 // ---------------------------------------------------------------------------------------------
 
-export function analyze(files: Files, saved: Profile = {}): Analysis {
+export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture[] = []): Analysis {
   const ex = readExport(files)
   const styles = inferProfile(ex, saved)
   const role = new Map(styles.map((s) => [s.key, s.role]))
@@ -102,17 +120,66 @@ export function analyze(files: Files, saved: Profile = {}): Analysis {
     const { width, height } = imageSize(data)
     const at = ex.blocks.findIndex((b) => b.t === 'img' && b.src === src)
     const given = at < 0 ? '' : (ex.blocks[at] as { alt: string }).alt // alt text set in InDesign's object export options
-    const logo = width > 0 && width / Math.max(1, height) > 2.5 && width < 1200
+    const around = textAround(ex.blocks, at)
+    const fromFile = readImageMetadata(data)
+    const fromExport = classifyGivenAlt(given)
+    // a wide, short mark is the publisher logo — but not a hairline rule
+    const logo = width > 0 && height >= 24 && width / height > 2.5 && width < 1200
     const placement = logo ? 'logo' : at < 0 || at > lastText ? 'drop' : 'inline'
-    images.push({
-      src, width, height, placement,
-      alt: logo ? `${labelsFor(ex.lang).logoAlt}: ${publisher}` : /\.(jpe?g|png|gif|tiff?|psd|ai|eps)$/i.test(given) ? '' : given,
-    })
+    const fileAlt = logo
+      ? `${labelsFor(ex.lang).logoAlt}: ${publisher}`
+      : [fromFile?.alt, fromExport.kind === 'file' ? fromExport.text : ''].find((t) => !!t?.trim()) ?? ''
+    const choice: ImageChoice = {
+      src, width, height, placement, caption: around.caption, nearby: around.nearby,
+      alt: '', longDesc: fromFile?.longDesc ?? '', decorative: false, source: 'file', approved: true, userSet: false,
+      layers: {
+        fileAlt,
+        fileLong: fromFile?.longDesc ?? '',
+        decorativeHint: !logo && !!decorativeReason({ name: src, width, height }),
+        aiAlt: !logo && fromExport.kind === 'ai' ? fromExport.text : '',
+        aiLong: '',
+      },
+      spec: matchSpecPicture(src, pictures) ?? null,
+    }
+    images.push(settleAlt(choice))
   }
   if (!ex.footnotes.size && ex.blocks.some((b) => b.t === 'p' && b.el.querySelector('a[href*="footnote"]')))
     review.push({ level: 'warn', msg: 'Footnote references found but no footnote text — check the InDesign export options.' })
   const sources = { title: fm.source.title, subtitle: fm.source.subtitle, authors: fm.source.author, publisher: fm.source.publisher, printIsbn: fm.printIsbn ? 'copyright page' : '' }
   return { ex, styles, meta, sources, images, review }
+}
+
+/** The caption after a picture, and a little of the text before it. */
+function textAround(blocks: Block[], at: number): { caption: string; nearby: string } {
+  if (at < 0) return { caption: '', nearby: '' }
+  let caption = ''
+  for (let j = at + 1; j < blocks.length && j < at + 8; j++) {
+    const n = blocks[j]
+    if (n.t === 'pb') continue
+    if (n.t === 'img') break
+    if (n.t !== 'p' || !n.text.trim()) continue
+    if (n.text.length > 500) break
+    caption = n.text.replace(/\s+/g, ' ').trim()
+    break
+  }
+  let nearby = ''
+  for (let j = at - 1; j >= 0 && at - j < 8; j--) {
+    const n = blocks[j]
+    if (n.t === 'p' && n.text.trim()) {
+      nearby = n.text.replace(/\s+/g, ' ').trim().slice(0, 280)
+      break
+    }
+  }
+  return { caption, nearby }
+}
+
+/** Alt text written into the e-book. Decorative pictures are empty on purpose. A missing description stays empty: the word "Bild" is not a description. */
+function pictureHtml(c: ImageChoice, name: string, longId: string): string {
+  const described = longId ? ` aria-describedby="${longId}"` : ''
+  const long = longId ? `<p id="${longId}" class="longdesc">${esc(c.longDesc.trim())}</p>` : ''
+  if (c.decorative) return `<figure class="fig_group"><img alt="" role="presentation" src="${name}"/></figure>`
+  const alt = c.alt.trim() && !isPlaceholderAlt(c.alt) ? c.alt.trim() : ''
+  return `<figure class="fig_group"><img alt="${esc(alt)}"${described} src="${name}"/>${long}</figure>`
 }
 
 export const norm = (s: string) =>
@@ -440,6 +507,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const moveCap = new Set<PBlock>()
   const parked: { target: string; home: string; html: string; token: string }[] = []
   let parkNo = 0
+  let longNo = 0
 
   // InDesign often dumps pictures, with their captions, far from the page they illustrate.
   // A caption that sits between pictures (or just before a heading) and matches one printed
@@ -659,9 +727,11 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         if (!c || c.placement !== 'inline') continue
         const name = imgName(b.src)
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
-        if (!c.alt && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
-        // the client's language sheet: a picture with no description reads "imagen", a decorative one "decorativa"
-        const figure = `<figure class="fig_group"><img alt="${esc(c.decorative ? L.decorativeAlt : c.alt || L.imageAlt)}" src="${name}"/></figure>`
+        const filled = !!c.alt.trim() && !isPlaceholderAlt(c.alt)
+        if (!filled && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
+        const longId = filled && !c.decorative && c.longDesc.trim() ? `longdesc-${longNo++}` : ''
+        if (longId) use('p', 'longdesc', { 'font-size': '0.9em', 'margin-top': '0.4em', 'text-indent': '0' })
+        const figure = pictureHtml(c, name, longId)
         const target = moveImg.get(b)
         if (target) {
           releaseHold()

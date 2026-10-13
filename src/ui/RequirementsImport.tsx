@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RULES, ruleById, show, coerce, type RuleValue } from '../engine/spec/rules.ts'
 import { readRequirements, matchByKeywords, waiverNeeded, type Requirement, type Suggestion } from '../engine/spec/requirements.ts'
+import type { SpecPicture } from '../engine/epub/alt.ts'
 import { matchWithAi, aiConfig } from '../engine/spec/ai.ts'
 import { writeXlsx } from '../engine/spec/office.ts'
 import type { Level } from '../engine/spec/layers.ts'
@@ -13,7 +14,12 @@ import { Help } from './wizard.tsx'
 
 type Row = Suggestion & { apply: boolean }
 
-export function RequirementsImport({ levels, onApply }: { levels: { level: Level; label: string }[]; onApply: (level: Level, rows: { ruleId: string; value: RuleValue; req: Requirement; by: Suggestion['by']; file: string }[]) => Promise<void> }) {
+export function RequirementsImport({ levels, onApply, onPictures }: {
+  levels: { level: Level; label: string }[]
+  onApply: (level: Level, rows: { ruleId: string; value: RuleValue; req: Requirement; by: Suggestion['by']; file: string }[]) => Promise<void>
+  /** picture rows from the spec workbook, matched to images by file name */
+  onPictures?: (pictures: SpecPicture[]) => void
+}) {
   const [file, setFile] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [items, setItems] = useState<Requirement[]>([])
@@ -26,12 +32,14 @@ export function RequirementsImport({ levels, onApply }: { levels: { level: Level
     if (!f) return
     setMsg('')
     try {
-      const { template, items } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
+      const { template, items, pictures } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
       setFile(f.name)
       setItems(items)
       const s = template ?? matchByKeywords(items)
       setRows(s.map((x) => ({ ...x, apply: !!x.ruleId && x.value !== undefined && x.confidence >= 0.5 && !waiverNeeded(x) })))
-      setMsg(template ? `Read the spec workbook: ${s.length} rules.` : `Read ${items.length} requirements; ${s.filter((x) => x.ruleId).length} matched a rule by their words. Check each one.`)
+      if (pictures?.length) onPictures?.(pictures)
+      const pictureNote = pictures?.length ? ` ${pictures.length} picture description${pictures.length === 1 ? '' : 's'} matched by file name.` : ''
+      setMsg((template ? `Read the spec workbook: ${s.length} rules.` : `Read ${items.length} requirements; ${s.filter((x) => x.ruleId).length} matched a rule by their words. Check each one.`) + pictureNote)
     } catch (e) {
       setMsg((e as Error).message)
     }

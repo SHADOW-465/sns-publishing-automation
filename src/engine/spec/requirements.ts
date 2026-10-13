@@ -12,6 +12,7 @@ import { LEVEL_LABEL, type Resolved } from './layers.ts'
 import { readDocx, readXlsx, writeXlsx, type Sheet } from './office.ts'
 import { text } from '../zip.ts'
 import type { Decision } from './store.ts'
+import { yesNo, type SpecPicture } from '../epub/alt.ts'
 
 export interface Requirement {
   text: string
@@ -28,12 +29,14 @@ export interface Suggestion {
 }
 
 /** Split a client file into requirements: paragraphs, table rows, spreadsheet rows. */
-export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[] } {
+export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[]; pictures?: SpecPicture[] } {
   const ext = name.toLowerCase().split('.').pop()
   if (ext === 'xlsx') {
     const sheets = readXlsx(data)
+    const pictures = pictureAltsFromWorkbook(sheets)
     const template = fromSpecWorkbook(sheets)
-    if (template) return { template, items: template.map((s) => s.req) }
+    if (template) return { template, items: template.map((s) => s.req), pictures }
+    if (pictures.length) return { pictures, items: pictures.map((p) => ({ text: `${p.file}: ${p.alt}`, where: 'Picture descriptions' })) }
     return { items: sheets.flatMap((sh) => sh.rows.map((r, i) => ({ text: r.filter(Boolean).join(' | '), where: `${sh.name}, row ${i + 1}` })).filter((x) => x.text.trim())) }
   }
   if (ext === 'docx') return { items: readDocx(data).map((b) => ({ text: b.text, where: b.where })) }
@@ -98,7 +101,9 @@ export function valueFromText(r: Rule, t: string): RuleValue | undefined {
 
 const HEAD = ['Rule ID', 'Group', 'What it controls', 'Kind', 'Allowed values', 'House default', 'Value', 'Set by', 'Accessibility waiver', 'Example / notes']
 
-export function specWorkbook(p: { client: string; book: string; resolved: Resolved; decisions?: Decision[]; questions?: Requirement[] }): Uint8Array {
+const PICTURE_HEAD = ['Image file name', 'Alt text', 'Decorative', 'Long description']
+
+export function specWorkbook(p: { client: string; book: string; resolved: Resolved; decisions?: Decision[]; questions?: Requirement[]; pictures?: SpecPicture[] }): Uint8Array {
   const { resolved } = p
   const rows = RULES.map((r) => {
     const v = r.key ? (resolved.settings[r.key] as RuleValue) : undefined
@@ -112,9 +117,16 @@ export function specWorkbook(p: { client: string; book: string; resolved: Resolv
     ]
   })
   const lists = RULES.map((r, i) => ({ r, row: i + 2 })).filter(({ r }) => r.type === 'choice' || r.type === 'bool').map(({ r, row }) => ({ ref: `G${row}`, values: r.type === 'bool' ? ['Yes', 'No'] : r.choices!.map(([v]) => v) }))
+  const pictureRows = (p.pictures ?? []).map((pic) => [pic.file, pic.alt, pic.decorative ? 'Yes' : 'No', pic.longDesc])
   const sheets: Sheet[] = [
     { name: 'Spec', rows: [HEAD, ...rows], widths: [10, 18, 60, 10, 28, 16, 22, 30, 28, 50], lists },
-    { name: 'About', rows: [['Field', 'Value'], ['Client', p.client], ['Book', p.book], ['Exported', new Date().toISOString()], ['How to use', 'Change the Value column only (drop-downs show the allowed values), then load the file in the Spec step. Accessibility waivers are given in the app, not in this file.'], ['Kinds', 'locked = required for a valid EPUB, cannot change; advisory = accessibility, needs a waiver in the app; free = your choice']], widths: [16, 90] },
+    {
+      name: 'Picture descriptions',
+      rows: [PICTURE_HEAD, ...pictureRows],
+      widths: [36, 60, 14, 60],
+      lists: pictureRows.length ? [{ ref: `C2:C${pictureRows.length + 1}`, values: ['Yes', 'No'] }] : [{ ref: 'C2', values: ['Yes', 'No'] }],
+    },
+    { name: 'About', rows: [['Field', 'Value'], ['Client', p.client], ['Book', p.book], ['Exported', new Date().toISOString()], ['How to use', 'Change the Value column only (drop-downs show the allowed values), then load the file in the Spec step. Accessibility waivers are given in the app, not in this file. Picture descriptions are filled on the Picture descriptions sheet: image file name, alt text, decorative yes/no, and an optional long description for a chart or map.'], ['Kinds', 'locked = required for a valid EPUB, cannot change; advisory = accessibility, needs a waiver in the app; free = your choice'], ['Decorative', 'Yes means the picture carries no information. The e-book gets an empty alt so a screen reader skips it.']], widths: [16, 90] },
   ]
   if (p.decisions?.length) sheets.push({ name: 'Log', rows: [['When', 'Who', 'What', 'Rule', 'Detail', 'Spec'], ...p.decisions.map((d) => [d.at, d.actor, d.action, d.ruleId ?? '', d.detail, d.specHash])], widths: [22, 18, 12, 10, 70, 10] })
   if (p.questions?.length) sheets.push({ name: 'Open questions', rows: [['Requirement', 'Where', 'Answer (which rule, which value)'], ...p.questions.map((q) => [q.text, q.where, ''])], widths: [80, 20, 50] })
@@ -142,6 +154,30 @@ export function fromSpecWorkbook(sheets: Sheet[]): Suggestion[] | undefined {
     return out
   }
   return undefined
+}
+
+/** Picture rows from the spec workbook. Matched to images by file name. */
+export function pictureAltsFromWorkbook(sheets: Sheet[]): SpecPicture[] {
+  const out: SpecPicture[] = []
+  for (const sh of sheets) {
+    const head = sh.rows[0]?.map((h) => h.trim().toLowerCase()) ?? []
+    const fileCol = head.findIndex((h) => /image file name|file name|dateiname|bilddatei/.test(h))
+    const altCol = head.findIndex((h) => h === 'alt text' || h === 'alternativtext' || h === 'description' || h === 'alt')
+    if (fileCol < 0 || altCol < 0) continue
+    const decoCol = head.findIndex((h) => /decorative|dekorativ/.test(h))
+    const longCol = head.findIndex((h) => /long description|langbeschreibung|long desc/.test(h))
+    for (const row of sh.rows.slice(1)) {
+      const file = (row[fileCol] ?? '').trim()
+      if (!file) continue
+      out.push({
+        file,
+        alt: (row[altCol] ?? '').trim(),
+        decorative: decoCol >= 0 ? yesNo(row[decoCol] ?? '') : false,
+        longDesc: longCol >= 0 ? (row[longCol] ?? '').trim() : '',
+      })
+    }
+  }
+  return out
 }
 
 /** Suggestions that would change an accessibility rule: shown with the waiver wording. */

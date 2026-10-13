@@ -81,7 +81,7 @@ test('Excel: the spec workbook round-trips, with drop-downs', async () => {
   const spec = await openSpec({ client: 'Sirio', series: '', book: EISBN }, DEFAULT_SETTINGS)
   const wb = specWorkbook({ client: 'Sirio', book: EISBN, resolved: spec.resolved })
   const sheets = readXlsx(wb)
-  assert.deepEqual(sheets.map((s) => s.name), ['Spec', 'About'])
+  assert.deepEqual(sheets.map((s) => s.name), ['Spec', 'Picture descriptions', 'About'])
   assert.equal(sheets[0].rows.length, RULES.length + 1)
   assert.match(text(zipSync({}) && wb.slice(0, 2)), /PK/)
   // the client edits the Value column and sends it back

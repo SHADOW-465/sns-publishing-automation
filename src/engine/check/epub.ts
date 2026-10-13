@@ -1,6 +1,7 @@
 import { type Files, text, unzip } from '../zip.ts'
 import { parseXml, resolvePath, epubType } from '../xml.ts'
 import { extOf, imageSize } from '../epub/image.ts'
+import { isPlaceholderAlt } from '../epub/alt.ts'
 import { isbn13Valid, isbnDigits } from '../epub/package.ts'
 import { settings } from '../settings.ts'
 import { compareLook } from './look.ts'
@@ -231,7 +232,7 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
       const decorative = img.getAttribute('role') === 'presentation' || img.getAttribute('aria-hidden') === 'true'
       if (alt === null) a11y.push({ level: 'error', msg: `Picture ${img.getAttribute('src')} has no alt attribute.`, where: it.href })
       else if (!alt.trim() && !decorative) a11y.push({ level: settings().altRequired, msg: `Picture ${img.getAttribute('src')} has no description. Describe it, or mark it as decorative.`, where: it.href })
-      else if (placeholderAlt(alt)) a11y.push({ level: altLevel(alt), msg: `Picture description "${alt.trim().slice(0, 80)}" is not a real description.`, where: it.href })
+      else if (isPlaceholderAlt(alt)) a11y.push({ level: altLevel(alt), msg: `Picture description "${alt.trim().slice(0, 80)}" is not a real description.`, where: it.href })
     }
     const hs = Array.from(d.querySelectorAll('h1,h2,h3,h4,h5,h6'))
     if (hs.length) headingDocs++
@@ -490,13 +491,7 @@ function chapterLabel(label: string): boolean {
   return !/^(inhalt|inhaltsverzeichnis|impressum|índice(?: de contenido)?|indice(?: de contenido)?|index|contents?|table of contents|cover|title page|half title|title|copyright|toc|titelseite|schmutztitel|cubierta|portada|cr[eé]ditos|credits|colophon|umschlag|couverture|copertina|capa|omslag|okładka|dedicatoria|dedication|ep[ií]grafe|epigraph|preliminares|front matter|titelei|start reading|empezar a leer|lesen beginnen)$/i.test(t)
 }
 
-const GENERIC_ALT = /^(image|imagen|picture|foto|photo|img|bild)\s*\d*$/i
 const BAD_ALT = /\[Fehler\s*:|beschreibung von ki generiert|von ki generiert|ki[- ]generiert/i
-
-function placeholderAlt(alt: string): boolean {
-  const t = alt.trim()
-  return BAD_ALT.test(t) || GENERIC_ALT.test(t) || /\.(jpe?g|png|gif|svg|webp)$/i.test(t)
-}
 
 /** "Bild" and the machine-written German placeholders are problems to fix. "imagen" and a file name stay warnings: the language sheet and the standard profile use that word on purpose, and the sample books already ship it. */
 function altLevel(alt: string): 'error' | 'warn' {

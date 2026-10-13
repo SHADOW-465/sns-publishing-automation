@@ -4,6 +4,7 @@ import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
 import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import { unzip, text } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
+import { decorativeReason, isPlaceholderAlt, matchSpecPicture, settleAlt } from '../engine/epub/alt.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
@@ -119,6 +120,11 @@ export function IndesignFlow() {
 
   const setStyle = (key: string, patch: Partial<StyleInfo>) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, ...patch, unsure: false } : x))), setStale(true))
   const setImage = (im: ImageChoice, patch: Partial<ImageChoice>) => (setImages(images.map((x) => (x === im ? { ...x, ...patch } : x))), setStale(true))
+  const applyPictures = (pics: { file: string; alt: string; decorative: boolean; longDesc: string }[]) => {
+    setImages(images.map((im) => settleAlt({ ...im, spec: matchSpecPicture(im.src, pics) ?? im.spec })))
+    setNotice(`Filled picture descriptions from the spec where the file name matched.`)
+    setStale(true)
+  }
   const importProfile = async (f: Picked) => {
     const p = JSON.parse(new TextDecoder().decode(f.data)) as Profile
     setStyles((s) => s.map((x) => (p[x.key] ? { ...x, ...p[x.key], unsure: false, reason: 'from imported profile' } : x)))
@@ -140,7 +146,7 @@ export function IndesignFlow() {
     : 0
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
-  const needAlt = inline.filter((i) => !i.alt.trim() && !i.decorative)
+  const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
   const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
@@ -199,6 +205,8 @@ export function IndesignFlow() {
         <SpecStep
           ctx={{ client: meta.publisher, series: spec?.ctx.series ?? '', book: meta.eisbn || meta.title }}
           spec={spec}
+          pictures={images.map((im) => ({ file: im.src.split('/').pop()!, alt: im.decorative ? '' : im.alt, decorative: im.decorative, longDesc: im.longDesc }))}
+          onPictures={applyPictures}
           onSpec={(s) => (setSpec(s), setStale(true))}
           onDecided={(d) => (setDecision(d), rebuild(3))}
           onBack={() => setStep(1)}
@@ -276,11 +284,18 @@ export function IndesignFlow() {
                     <>
                       <label className="alt">
                         <span>Description</span>
-                        <textarea rows={2} value={im.alt} disabled={im.decorative} placeholder="e.g. Black-and-white photo of … at …, 1968" onChange={(e) => setImage(im, { alt: e.target.value })} />
+                        <textarea rows={2} value={im.alt} disabled={im.decorative} placeholder="e.g. Black-and-white photo of … at …, 1968" onChange={(e) => setImage(im, { alt: e.target.value, userSet: true, source: 'typed', approved: true, decorative: false })} />
+                      </label>
+                      <label className="alt">
+                        <span>Long description <span className="muted">for a chart or map</span></span>
+                        <textarea rows={2} value={im.longDesc} disabled={im.decorative} placeholder="Only when the short description is not enough" onChange={(e) => setImage(im, { longDesc: e.target.value, userSet: true, source: 'typed', approved: true })} />
                       </label>
                       <label className="small">
-                        <input type="checkbox" checked={!!im.decorative} onChange={(e) => setImage(im, { decorative: e.target.checked })} /> Decorative only (screen readers skip it)
+                        <input type="checkbox" checked={!!im.decorative} onChange={(e) => setImage(im, { decorative: e.target.checked, userSet: true, source: 'typed', approved: true, alt: e.target.checked ? '' : im.alt })} /> Decorative only (screen readers skip it)
                       </label>
+                      {im.source === 'decorative' && (
+                        <p className="muted small">{decorativeReason({ name: im.src, width: im.width, height: im.height }) ?? 'Suggested as decorative.'} Untick this if the picture carries information.</p>
+                      )}
                     </>
                   )}
                 </div>

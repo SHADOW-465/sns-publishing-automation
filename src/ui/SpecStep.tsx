@@ -6,6 +6,7 @@ import { download } from './shared.tsx'
 import { openSpec, setRule, giveWaiver, decide, type Spec, type SpecContext } from '../engine/spec/session.ts'
 import { LEVEL_LABEL, type Level } from '../engine/spec/layers.ts'
 import { specWorkbook } from '../engine/spec/requirements.ts'
+import type { SpecPicture } from '../engine/epub/alt.ts'
 import { store, type Decision } from '../engine/spec/store.ts'
 import { specHash } from '../engine/spec/layers.ts'
 
@@ -22,7 +23,16 @@ export const actorName = () => {
   }
 }
 
-export function SpecStep({ ctx, spec, onSpec, onDecided, onBack }: { ctx: SpecContext; spec?: Spec; onSpec: (s: Spec) => void; onDecided: (d: Decision) => void; onBack: () => void }) {
+export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPictures }: {
+  ctx: SpecContext
+  spec?: Spec
+  onSpec: (s: Spec) => void
+  onDecided: (d: Decision) => void
+  onBack: () => void
+  /** picture descriptions written into the spec workbook, and read back from it */
+  pictures?: SpecPicture[]
+  onPictures?: (pictures: SpecPicture[]) => void
+}) {
   const [actor, setActor] = useState(actorName())
   const [series, setSeries] = useState(ctx.series)
   const [level, setLevel] = useState<Level>('client')
@@ -128,7 +138,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack }: { ctx: SpecCo
           <button
             onClick={() =>
               download(
-                specWorkbook({ client: ctx.client, book: ctx.book, resolved: spec.resolved, decisions: log }),
+                specWorkbook({ client: ctx.client, book: ctx.book, resolved: spec.resolved, decisions: log, pictures }),
                 `spec-${(ctx.client || 'client').replace(/\W+/g, '-')}-${ctx.book.replace(/\W+/g, '-')}.xlsx`,
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
               )
@@ -146,6 +156,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack }: { ctx: SpecCo
 
       <RequirementsImport
         levels={levels}
+        onPictures={onPictures}
         onApply={async (lv, rows) => {
           let s = spec
           for (const r of rows) s = await setRule(s, lv, r.ruleId, r.value, actor, { file: r.file, where: r.req.where, text: r.req.text, by: r.by })
