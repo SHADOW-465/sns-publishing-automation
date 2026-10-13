@@ -142,9 +142,14 @@ export function IndesignFlow() {
     })
 
   const liveSections = (result?.sections ?? []).map((s, i) => ({ ...s, type: types[i] ?? s.type, nav: (navs[i] ?? '').trim() || s.nav }))
-  const structurePending = result && analysis && meta
-    ? reviewList({ styles, sources: analysis.sources, meta, sections: liveSections, notes: [] }).items.filter((it) => it.area !== 'note').length
-    : 0
+  const structureInput = result && analysis && meta
+    ? {
+        styles, sources: analysis.sources, meta, notes: result.review,
+        sections: liveSections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })),
+      }
+    : undefined
+  const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0 }
+  const structurePending = structureReview.items.length
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
@@ -250,8 +255,10 @@ export function IndesignFlow() {
               Settings changed. <button onClick={() => rebuild()}>Update the preview</button>
             </p>
           )}
+          {structureInput && (
           <CheckFirst
-            input={{ styles, sources: analysis.sources, meta: meta!, sections: liveSections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })), notes: result.review }}
+            input={structureInput}
+            review={structureReview}
             setStyle={setStyle}
             onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))}
             onMeta={() => setStep(1)}
@@ -259,6 +266,7 @@ export function IndesignFlow() {
             onRule={onRule}
             standard={(meta?.profile ?? 'accessible') === 'standard'}
           />
+          )}
           <Outline sections={result.sections.map((s, i) => ({ ...s, type: types[i] ?? s.type }))} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
           <details className="advanced">
             <summary>Advanced: how the InDesign styles are read ({styles.filter((s) => s.unsure).length} guesses to confirm)</summary>
@@ -278,7 +286,8 @@ export function IndesignFlow() {
           </details>
           {structureNext.asked && (
             <p className="note warnbox" role="status">
-              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look: a missing title, an unknown part, or a guess. Check the list, or continue anyway.
+              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look — the same number as “Check these first”.
+              {structureReview.auto > 0 ? ` ${structureReview.auto} other change${structureReview.auto === 1 ? ' was' : 's were'} made automatically and ${structureReview.auto === 1 ? 'is' : 'are'} not in that count.` : ''} Check the list, or continue anyway.
             </p>
           )}
           <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy} />

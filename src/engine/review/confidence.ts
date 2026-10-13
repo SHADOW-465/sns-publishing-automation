@@ -42,9 +42,10 @@ export interface ReviewInput {
   notes: ReviewItem[]
 }
 
-export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number } {
+export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number; auto: number } {
   const items: CheckItem[] = []
   let sure = 0
+  let auto = 0
   for (const s of a.styles) {
     if (!s.count) continue
     if (s.unsure) items.push({ id: `style:${s.key}`, area: 'style', confidence: 'low', title: `Style “${s.key}” (${s.count}×) is read as: ${s.role}`, why: `${s.reason}. Example: “${s.samples[0] ?? ''}”`, ref: s.key, topic: topicOfStyle(s) })
@@ -62,8 +63,13 @@ export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number }
     else if (!s.nav.trim()) items.push({ id: `nav:${i}`, area: 'section', confidence: 'low', title: 'A part has no title', why: 'It will be missing from the contents. Type a title in the structure list.', ref: i })
     else sure++
   })
-  for (const n of a.notes)
-    if (n.level !== 'info') items.push({ id: `note:${items.length}`, area: /ISBN|publisher|author|title/i.test(n.msg) && !/picture|section|style/i.test(n.msg) ? 'meta' : 'note', confidence: n.level === 'error' ? 'low' : 'medium', title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
+  for (const n of a.notes) {
+    if (n.level === 'info') {
+      auto++
+      continue
+    }
+    items.push({ id: `note:${items.length}`, area: /ISBN|publisher|author|title/i.test(n.msg) && !/picture|section|style/i.test(n.msg) ? 'meta' : 'note', confidence: n.level === 'error' ? 'low' : 'medium', title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
+  }
   items.sort((x, y) => (x.confidence === y.confidence ? 0 : x.confidence === 'low' ? -1 : 1))
-  return { items, sure }
+  return { items, sure, auto }
 }

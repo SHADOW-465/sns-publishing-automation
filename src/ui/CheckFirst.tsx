@@ -32,8 +32,10 @@ function RuleSelect({ rule, spec, onRule }: { rule: Rule; spec?: Spec; onRule: (
   )
 }
 
-export function CheckFirst({ input, setStyle, onType, onMeta, spec, onRule, standard }: {
+export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRule, standard }: {
   input: ReviewInput
+  /** same list the Next warning counts, so the two numbers cannot drift */
+  review?: { items: CheckItem[]; sure: number; auto: number }
   setStyle: (key: string, patch: Partial<StyleInfo>) => void
   onType: (index: number, type: string) => void
   onMeta: () => void
@@ -41,7 +43,7 @@ export function CheckFirst({ input, setStyle, onType, onMeta, spec, onRule, stan
   onRule: (id: string, level: 'book' | 'client', v: RuleValue) => void
   standard: boolean
 }) {
-  const { items, sure } = reviewList(input)
+  const { items, sure, auto } = review ?? reviewList(input)
   const style = (k: string) => input.styles.find((s) => s.key === k)
   const control = (it: CheckItem) => {
     if (it.area === 'style') {
@@ -67,6 +69,7 @@ export function CheckFirst({ input, setStyle, onType, onMeta, spec, onRule, stan
       <h3>Check these first</h3>
       <p className="muted small">
         {items.length ? `${items.length} thing${items.length === 1 ? '' : 's'} the tool was not sure about, least sure first.` : 'Nothing to check: the tool was sure of every decision.'} {sure} decision{sure === 1 ? '' : 's'} were clear-cut and are not listed.
+        {auto > 0 ? ` ${auto} change${auto === 1 ? '' : 's'} were made automatically and are not in this list.` : ''}
       </p>
       <ol>
         {items.map((it) => (
