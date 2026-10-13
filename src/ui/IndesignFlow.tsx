@@ -250,11 +250,10 @@ export function IndesignFlow() {
             part has the wrong label (a dedication marked as a chapter), change it in its drop-down and update the preview. Also look for missing titles or chapters
             that are far too short.
           </p>
-          {stale && (
-            <p className="note warnbox">
-              Settings changed. <button onClick={() => rebuild()}>Update the preview</button>
-            </p>
-          )}
+          <div className="row">
+            <button onClick={() => rebuild()} disabled={!!busy}>Update the preview</button>
+            <span className="muted small">{stale ? 'The preview is behind your changes.' : 'The preview matches the choices above.'}</span>
+          </div>
           {structureInput && (
           <CheckFirst
             input={structureInput}
