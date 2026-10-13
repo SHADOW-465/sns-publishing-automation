@@ -67,7 +67,8 @@ test('La cara oculta de Sheinbaum: front matter, metadata, contents, notes, page
 
   const report = checkEpubBytes(r.epub, r.source)
   const problems = report.groups.flatMap((g) => g.findings).filter((f) => f.level !== 'pass')
-  assert.deepEqual(problems, [], 'built-in check is clean')
+  // The book is not marked as certified until someone fills that in, so the checker names that gap.
+  assert.deepEqual(problems, [{ level: 'warn', msg: 'No accessibility conformance statement (dcterms:conformsTo).', where: 'OEBPS/content.opf' }], 'built-in check is clean apart from the unset certificate')
   assert.ok(report.stats.pages >= 190, `${report.stats.pages} page markers`)
   // visual comparison: the first Vercel delivery had body text right-aligned; it must be flagged
   const old = resolve(AUTOMATION, '../Outputs/La cara oculta de la presidenta_Grijalbo (1)-automated.epub')

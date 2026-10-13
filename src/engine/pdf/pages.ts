@@ -37,7 +37,7 @@ const shape = (s: string) => s.replace(/\d+/g, '').replace(/\s+/g, ' ').trim().t
 type Raw = { lines: PrintLine[]; segs: PrintLine[]; pdfPage: number; half?: 0 | 1 }
 
 /** Text lines of every printed page (spreads split in two), top to bottom. */
-async function pageLines(pdfjs: PdfJs, data: Uint8Array): Promise<Raw[]> {
+async function pageLines(pdfjs: PdfJs, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<Raw[]> {
   const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
   const out: Raw[] = []
   for (let i = 1; i <= doc.numPages; i++) {
@@ -90,12 +90,13 @@ async function pageLines(pdfjs: PdfJs, data: Uint8Array): Promise<Raw[]> {
           .filter((l) => l.text && !SLUG.test(l.text)),
       })
     }
+    onProgress?.(i, doc.numPages)
   }
   return out
 }
 
-export async function readPrintPages(pdfjs: PdfJs, data: Uint8Array): Promise<PrintPage[]> {
-  const raw = await pageLines(pdfjs, data)
+export async function readPrintPages(pdfjs: PdfJs, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<PrintPage[]> {
+  const raw = await pageLines(pdfjs, data, onProgress)
   const pages = raw.map((r) => r.lines.map((l) => l.text))
   // running heads repeat across pages (book title, chapter title) once the folio is removed
   const freq = new Map<string, number>()

@@ -6,4 +6,4 @@ import { readPrintPages } from '../engine/pdf/pages.ts'
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
 export { pdfjs }
-export const printPagesOf = (data: Uint8Array) => readPrintPages(pdfjs as never, data)
+export const printPagesOf = (data: Uint8Array, onProgress?: (done: number, total: number) => void) => readPrintPages(pdfjs as never, data, onProgress)

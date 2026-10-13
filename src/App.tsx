@@ -24,7 +24,7 @@ const WORKFLOWS = [
     label: 'PDF or Word to EPUB',
     start: 'I only have the print PDF or Word',
     what: 'Rebuilds the e-book from the final print PDF when there is no InDesign file.',
-    needs: 'Print PDF, cover image or cover PDF',
+    needs: 'Print PDF, cover image (JPG or PNG)',
     gives: 'EPUB 3 ready for the stores',
   },
   {

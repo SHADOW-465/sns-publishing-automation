@@ -351,8 +351,8 @@ export async function analyzePdf(
     eisbn: '',
     printIsbn,
     rights: author ? `Copyright © ${titleCase(author)} ${year}` : '',
-    certifiedBy: publisher,
-    conformsTo: 'EPUB Accessibility 1.1 - WCAG 2.0 Level AA',
+    certifiedBy: '',
+    conformsTo: '',
   }
 
   // brand colour: the most used strong fill colour (headings in the reference use it too)

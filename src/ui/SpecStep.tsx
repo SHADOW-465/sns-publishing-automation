@@ -99,13 +99,31 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack }: { ctx: SpecCo
             {pending.length} accessibility change(s) wait for the waiver box to be ticked: {pending.map((p) => p.ruleId).join(', ')}. Until then the accessible value is used.
           </p>
         )}
+        <h3>Key choices</h3>
+        <p className="muted small">
+          Alt text is the description of a picture. xml:lang is the mark that names the language of a page. Role and aria are extra labels a screen reader uses. EPUB is the e-book file. The rest of the rules are under Advanced.
+        </p>
         <RuleList
+          only={['DOC-00', 'PG-01', 'A11Y-01', 'TBL-01', 'DOC-01']}
+          plain
+          names={{ 'DOC-00': 'Kind of e-book', 'PG-01': 'Printed page numbers', 'A11Y-01': 'Picture descriptions', 'TBL-01': 'Headings in tables', 'DOC-01': 'Language of the pages' }}
           resolved={spec.resolved}
           layer={layer}
           filter={filter}
           onSet={(r, v) => guard(async () => onSpec(await setRule(spec, active, r.id, v, actor)))}
           onWaiver={(r) => guard(async () => onSpec(await giveWaiver(spec, pending.find((p) => p.ruleId === r.id)?.level ?? active, r.id, actor)))}
         />
+        <details className="advanced" {...(filter.trim() ? { open: true } : {})}>
+          <summary>Advanced: every rule</summary>
+          <p className="muted small">Each rule has an id such as DOC-01. A “fixed” rule cannot change. An “accessibility” rule changes only after you tick the waiver, and your name is stored with that choice.</p>
+          <RuleList
+            resolved={spec.resolved}
+            layer={layer}
+            filter={filter}
+            onSet={(r, v) => guard(async () => onSpec(await setRule(spec, active, r.id, v, actor)))}
+            onWaiver={(r) => guard(async () => onSpec(await giveWaiver(spec, pending.find((p) => p.ruleId === r.id)?.level ?? active, r.id, actor)))}
+          />
+        </details>
         <div className="row">
           <button
             onClick={() =>
@@ -155,7 +173,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack }: { ctx: SpecCo
             </button>
           </span>
         </div>
-        {!actor.trim() && <p className="err small">Type your name at the top: it is recorded with the decision.</p>}
+        {!actor.trim() && <p className="err small">Accept is off until you type your name above. The name is stored with this decision.</p>}
         {log.length > 0 && (
           <details className="advanced">
             <summary>Record of decisions for this book ({log.length})</summary>

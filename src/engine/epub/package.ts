@@ -299,7 +299,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
     '<meta property="schema:accessMode">visual</meta>',
     '<meta property="schema:accessModeSufficient">textual</meta>',
     '<meta property="schema:accessModeSufficient">textual,visual</meta>',
-    `<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>`,
+    meta.conformsTo ? `<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>` : '',
     meta.certifiedBy ? `<meta property="a11y:certifiedBy">${esc(meta.certifiedBy)}</meta>` : '',
   ].filter(Boolean).join('\n')
   const unique = new Map<string, ImageOut>()

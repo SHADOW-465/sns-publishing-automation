@@ -65,13 +65,16 @@ export function Help({ title = 'What is this?', children }: { title?: string; ch
   )
 }
 
-export function Status({ busy, error, notice }: { busy?: string; error?: string; notice?: string }) {
+export function Status({ busy, error, notice, progress }: { busy?: string; error?: string; notice?: string; progress?: { done: number; total: number } }) {
+  const pct = progress && progress.total > 0 ? Math.min(100, Math.round((100 * progress.done) / progress.total)) : undefined
   return (
     <>
       {busy && (
-        <p className="busy" role="status">
-          <span className="spinner" aria-hidden="true" /> {busy}
-        </p>
+        <div className="busy" role="status">
+          <span className="spinner" aria-hidden="true" />
+          <span>{busy}</span>
+          {pct !== undefined && <span className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={busy}><span style={{ width: `${pct}%` }} /></span>}
+        </div>
       )}
       {error && (
         <p className="err box" role="alert">
@@ -326,23 +329,33 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
 }
 const order = (f: Finding) => (f.level === 'error' ? 0 : f.level === 'warn' ? 1 : 2)
 
-/** Download with a safety catch: files with problems need a second, deliberate click. */
+/** Download with a safety catch: a file with problems needs a separate confirmation before it downloads. */
 export function DeliverButton({ data, name, type, errors, label }: { data: Uint8Array; name: string; type: string; errors: number; label: string }) {
   const [sure, setSure] = useState(false)
-  if (!errors || sure)
+  if (!errors)
     return (
       <button className="primary big" onClick={() => download(data, name, type)}>
         <Icon name="download" size={17} /> {label}
       </button>
     )
+  if (!sure)
+    return (
+      <span className="row" style={{ marginTop: 0 }}>
+        <button className="primary big" disabled>
+          <Icon name="download" size={17} /> {label}
+        </button>
+        <button className="link" onClick={() => setSure(true)}>
+          Download anyway for testing
+        </button>
+      </span>
+    )
   return (
-    <span className="row" style={{ marginTop: 0 }}>
-      <button className="primary big" disabled>
-        <Icon name="download" size={17} /> {label}
-      </button>
-      <button className="link" onClick={() => setSure(true)}>
-        Fix the problems first — or download anyway for testing
-      </button>
-    </span>
+    <div className="confirm">
+      <p className="err small">This file still has {errors} problem{errors === 1 ? '' : 's'}. It is not ready to publish. Download it only to test.</p>
+      <span className="row" style={{ marginTop: 0 }}>
+        <button className="primary" onClick={() => download(data, name, type)}>Yes, download anyway</button>
+        <button className="ghost" onClick={() => setSure(false)}>Cancel</button>
+      </span>
+    </div>
   )
 }

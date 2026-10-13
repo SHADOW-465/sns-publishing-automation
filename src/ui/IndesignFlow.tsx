@@ -28,6 +28,7 @@ export function IndesignFlow() {
   const [cover, setCover] = useState<Picked>()
   const [pdf, setPdf] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
+  const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
   const [analysis, setAnalysis] = useState<Analysis>()
@@ -47,6 +48,7 @@ export function IndesignFlow() {
 
   const run = async (label: string, fn: () => Promise<void> | void) => {
     setBusy(label)
+    setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30)) // let the status line paint
     try {
@@ -55,6 +57,7 @@ export function IndesignFlow() {
       setError((e as Error).message)
     } finally {
       setBusy(undefined)
+      setProgress(undefined)
     }
   }
 
@@ -78,23 +81,31 @@ export function IndesignFlow() {
       setDecision(undefined)
       setStale(true)
       if (pdf) {
-        setBusy('Reading the print PDF (page numbers)…')
+        setBusy('Reading the print PDF…')
         const { printPagesOf } = await import('./pdf.ts') // pdf.js is large: load it only when needed
-        setPrintPages(await printPagesOf(pdf.data))
+        setPrintPages(await printPagesOf(pdf.data, (done, total) => {
+          setBusy(`Reading the print PDF, page ${done} of ${total}…`)
+          setProgress({ done, total })
+        }))
       } else setPrintPages(undefined)
       setStep(1)
     })
 
   /** builds the EPUB (fast) and runs the quality check on it */
   const rebuild = (then?: number) =>
-    run('Building the e-book and checking it…', async () => {
+    run('Building the e-book…', async () => {
       // the rules the client set (or accepted) in the Spec step are the rules the build follows
       const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
       if (!spec) setSpec(sp)
       applySpec(sp)
       try {
+        setProgress({ done: 0, total: 2 })
+        await new Promise((r) => setTimeout(r, 30))
         const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types, sectionNav: navs })
         setResult(r)
+        setBusy('Checking the e-book…')
+        setProgress({ done: 1, total: 2 })
+        await new Promise((r) => setTimeout(r, 30))
         setReport(checkEpub(r.files, r.source))
       } finally {
         setSettings(houseSettings()) // other workflows keep building with the house settings
@@ -143,7 +154,7 @@ export function IndesignFlow() {
   return (
     <div className="flow">
       <Steps steps={steps} at={step} onGo={go} />
-      <Status busy={busy} error={error} notice={notice} />
+      <Status busy={busy} error={error} notice={notice} progress={progress} />
 
       {step === 0 && (
         <section className="card">

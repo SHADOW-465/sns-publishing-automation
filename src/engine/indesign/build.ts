@@ -84,8 +84,8 @@ export function analyze(files: Files, saved: Profile = {}): Analysis {
     eisbn: '',
     printIsbn: fm.printIsbn,
     rights: fm.rights,
-    certifiedBy: fm.publisher,
-    conformsTo: 'EPUB Accessibility 1.1 - WCAG 2.0 Level AA',
+    certifiedBy: '',
+    conformsTo: '',
   }
   const publisher = fm.publisher
   for (const [k, label] of [['title', 'Title'], ['author', 'Author'], ['publisher', 'Publisher']] as const) {

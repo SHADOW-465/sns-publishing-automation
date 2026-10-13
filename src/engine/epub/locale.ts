@@ -42,7 +42,7 @@ const es: Labels = {
   eisbn: 'I.S.B.N. digital',
   logoAlt: 'Logotipo del editor',
   coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logotipo del editor: ${publisher}` : ''),
-  a11ySummary: 'Esta publicación cumple las pautas WCAG 2.0 nivel AA.',
+  a11ySummary: 'La accesibilidad de esta publicación no ha sido certificada.',
   dedication: 'Dedicatoria',
   epigraph: 'Epígrafe',
   front: 'Preliminares',
@@ -62,7 +62,7 @@ const en: Labels = {
   eisbn: 'eISBN',
   logoAlt: 'Publisher logo',
   coverAlt: ({ title, authors, publisher }) => `Title: ${title}.` + (authors ? ` Author: ${authors}.` : '') + (publisher ? ` Publisher logo: ${publisher}` : ''),
-  a11ySummary: 'This publication conforms to WCAG 2.0 Level AA.',
+  a11ySummary: 'Accessibility has not been certified for this publication.',
   dedication: 'Dedication',
   epigraph: 'Epigraph',
   front: 'Front matter',
@@ -75,7 +75,7 @@ const de: Labels = {
   navTitle: 'Inhaltsverzeichnis', landmarks: 'Orientierungspunkte', pageList: 'Seitenliste',
   startReading: 'Lesen beginnen', page: 'Seite', eisbn: 'ISBN E-Book', logoAlt: 'Verlagslogo',
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Verlagslogo: ${publisher}` : ''),
-  a11ySummary: 'Diese Publikation entspricht WCAG 2.0 Level AA.',
+  a11ySummary: 'Die Barrierefreiheit dieser Publikation wurde nicht zertifiziert.',
   dedication: 'Widmung', epigraph: 'Motto', front: 'Titelei',
   chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', imageAlt: 'Bild', decorativeAlt: 'dekorativ',
 }
@@ -86,7 +86,7 @@ const fr: Labels = {
   navTitle: 'Table des matières', landmarks: 'Repères', pageList: 'Liste des pages',
   startReading: 'Commencer la lecture', page: 'page', eisbn: 'ISBN numérique', logoAlt: "Logo de l'éditeur",
   coverAlt: ({ title, authors, publisher }) => `Titre : ${title}.` + (authors ? ` Auteur : ${authors}.` : '') + (publisher ? ` Logo de l'éditeur : ${publisher}` : ''),
-  a11ySummary: 'Cette publication est conforme aux WCAG 2.0 niveau AA.',
+  a11ySummary: 'L’accessibilité de cette publication n’a pas été certifiée.',
   dedication: 'Dédicace', epigraph: 'Épigraphe', front: 'Pages liminaires',
   chapter: 'Chapitre', titleWord: 'Titre', authorWord: 'Auteur', publisherWord: 'Éditeur', imageAlt: 'image', decorativeAlt: 'décorative',
 }
@@ -97,7 +97,7 @@ const it: Labels = {
   navTitle: 'Indice', landmarks: 'Punti di riferimento', pageList: 'Elenco delle pagine',
   startReading: 'Inizia a leggere', page: 'pagina', eisbn: 'ISBN digitale', logoAlt: "Logo dell'editore",
   coverAlt: ({ title, authors, publisher }) => `Titolo: ${title}.` + (authors ? ` Autore: ${authors}.` : '') + (publisher ? ` Logo dell'editore: ${publisher}` : ''),
-  a11ySummary: 'Questa pubblicazione è conforme alle WCAG 2.0 livello AA.',
+  a11ySummary: 'L’accessibilità di questa pubblicazione non è stata certificata.',
   dedication: 'Dedica', epigraph: 'Epigrafe', front: 'Pagine iniziali',
   chapter: 'Capitolo', titleWord: 'Titolo', authorWord: 'Autore', publisherWord: 'Editore', imageAlt: 'immagine', decorativeAlt: 'decorativa',
 }
@@ -108,7 +108,7 @@ const pt: Labels = {
   navTitle: 'Índice', landmarks: 'Pontos de referência', pageList: 'Lista de páginas',
   startReading: 'Começar a ler', page: 'página', eisbn: 'ISBN digital', logoAlt: 'Logótipo da editora',
   coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logótipo da editora: ${publisher}` : ''),
-  a11ySummary: 'Esta publicação está em conformidade com as WCAG 2.0 nível AA.',
+  a11ySummary: 'A acessibilidade desta publicação não foi certificada.',
   dedication: 'Dedicatória', epigraph: 'Epígrafe', front: 'Pré-textuais',
   chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editora', imageAlt: 'imagem', decorativeAlt: 'decorativa',
 }
@@ -120,7 +120,7 @@ const nl: Labels = {
   navTitle: 'Inhoudsopgave', landmarks: 'Oriëntatiepunten', pageList: 'Paginalijst',
   startReading: 'Begin met lezen', page: 'pagina', eisbn: 'E-book ISBN', logoAlt: 'Logo van de uitgever',
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Auteur: ${authors}.` : '') + (publisher ? ` Logo van de uitgever: ${publisher}` : ''),
-  a11ySummary: 'Deze publicatie voldoet aan WCAG 2.0 niveau AA.',
+  a11ySummary: 'De toegankelijkheid van deze publicatie is niet gecertificeerd.',
   dedication: 'Opdracht', epigraph: 'Motto', front: 'Voorwerk',
 }
 
@@ -130,7 +130,7 @@ const pl: Labels = {
   navTitle: 'Spis treści', landmarks: 'Punkty orientacyjne', pageList: 'Lista stron',
   startReading: 'Zacznij czytać', page: 'strona', eisbn: 'ISBN e-booka', logoAlt: 'Logo wydawcy',
   coverAlt: ({ title, authors, publisher }) => `Tytuł: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logo wydawcy: ${publisher}` : ''),
-  a11ySummary: 'Ta publikacja jest zgodna z WCAG 2.0 na poziomie AA.',
+  a11ySummary: 'Dostępność tej publikacji nie została certyfikowana.',
   dedication: 'Dedykacja', epigraph: 'Motto', front: 'Strony wstępne',
 }
 
@@ -140,7 +140,7 @@ const sv: Labels = {
   navTitle: 'Innehållsförteckning', landmarks: 'Landmärken', pageList: 'Sidlista',
   startReading: 'Börja läsa', page: 'sida', eisbn: 'E-boks-ISBN', logoAlt: 'Förlagets logotyp',
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Författare: ${authors}.` : '') + (publisher ? ` Förlagets logotyp: ${publisher}` : ''),
-  a11ySummary: 'Denna publikation uppfyller WCAG 2.0 nivå AA.',
+  a11ySummary: 'Tillgängligheten för denna publikation har inte certifierats.',
   dedication: 'Dedikation', epigraph: 'Motto', front: 'Inledande sidor',
 }
 
@@ -150,7 +150,7 @@ const da: Labels = {
   navTitle: 'Indholdsfortegnelse', landmarks: 'Pejlemærker', pageList: 'Sideliste',
   startReading: 'Begynd at læse', page: 'side', eisbn: 'E-bogs-ISBN', logoAlt: 'Forlagets logo',
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Forfatter: ${authors}.` : '') + (publisher ? ` Forlagets logo: ${publisher}` : ''),
-  a11ySummary: 'Denne publikation overholder WCAG 2.0 niveau AA.',
+  a11ySummary: 'Tilgængeligheden af denne publikation er ikke certificeret.',
   dedication: 'Dedikation', epigraph: 'Motto', front: 'Indledende sider',
 }
 
@@ -160,7 +160,7 @@ const tr: Labels = {
   navTitle: 'İçindekiler', landmarks: 'Yer işaretleri', pageList: 'Sayfa listesi',
   startReading: 'Okumaya başla', page: 'sayfa', eisbn: 'E-kitap ISBN', logoAlt: 'Yayıncı logosu',
   coverAlt: ({ title, authors, publisher }) => `Başlık: ${title}.` + (authors ? ` Yazar: ${authors}.` : '') + (publisher ? ` Yayıncı logosu: ${publisher}` : ''),
-  a11ySummary: 'Bu yayın WCAG 2.0 AA düzeyine uygundur.',
+  a11ySummary: 'Bu yayının erişilebilirliği sertifikalandırılmamıştır.',
   dedication: 'İthaf', epigraph: 'Epigraf', front: 'Ön sayfalar',
 }
 
@@ -170,7 +170,7 @@ const ru: Labels = {
   navTitle: 'Оглавление', landmarks: 'Ориентиры', pageList: 'Список страниц',
   startReading: 'Начать чтение', page: 'страница', eisbn: 'ISBN электронной книги', logoAlt: 'Логотип издательства',
   coverAlt: ({ title, authors, publisher }) => `Название: ${title}.` + (authors ? ` Автор: ${authors}.` : '') + (publisher ? ` Логотип издательства: ${publisher}` : ''),
-  a11ySummary: 'Это издание соответствует WCAG 2.0 уровня AA.',
+  a11ySummary: 'Доступность этого издания не сертифицирована.',
   dedication: 'Посвящение', epigraph: 'Эпиграф', front: 'Предисловие',
 }
 
@@ -180,7 +180,7 @@ const el: Labels = {
   navTitle: 'Περιεχόμενα', landmarks: 'Σημεία αναφοράς', pageList: 'Λίστα σελίδων',
   startReading: 'Έναρξη ανάγνωσης', page: 'σελίδα', eisbn: 'ISBN ηλεκτρονικού βιβλίου', logoAlt: 'Λογότυπο εκδότη',
   coverAlt: ({ title, authors, publisher }) => `Τίτλος: ${title}.` + (authors ? ` Συγγραφέας: ${authors}.` : '') + (publisher ? ` Λογότυπο εκδότη: ${publisher}` : ''),
-  a11ySummary: 'Αυτή η έκδοση συμμορφώνεται με το WCAG 2.0 επίπεδο AA.',
+  a11ySummary: 'Η προσβασιμότητα αυτής της έκδοσης δεν έχει πιστοποιηθεί.',
   dedication: 'Αφιέρωση', epigraph: 'Επίγραμμα', front: 'Εισαγωγικές σελίδες',
 }
 
@@ -190,7 +190,7 @@ const ar: Labels = {
   navTitle: 'فهرس المحتويات', landmarks: 'معالم', pageList: 'قائمة الصفحات',
   startReading: 'ابدأ القراءة', page: 'صفحة', eisbn: 'الرقم الدولي للكتاب الإلكتروني', logoAlt: 'شعار الناشر',
   coverAlt: ({ title, authors, publisher }) => `العنوان: ${title}.` + (authors ? ` المؤلف: ${authors}.` : '') + (publisher ? ` شعار الناشر: ${publisher}` : ''),
-  a11ySummary: 'يتوافق هذا المنشور مع WCAG 2.0 المستوى AA.',
+  a11ySummary: 'لم تُعتمد إمكانية الوصول لهذا المنشور.',
   dedication: 'إهداء', epigraph: 'تصدير', front: 'الصفحات الأولى',
 }
 
@@ -200,7 +200,7 @@ const he: Labels = {
   navTitle: 'תוכן עניינים', landmarks: 'ציוני דרך', pageList: 'רשימת עמודים',
   startReading: 'התחל לקרוא', page: 'עמוד', eisbn: 'ISBN של הספר האלקטרוני', logoAlt: 'לוגו ההוצאה',
   coverAlt: ({ title, authors, publisher }) => `כותרת: ${title}.` + (authors ? ` מחבר: ${authors}.` : '') + (publisher ? ` לוגו ההוצאה: ${publisher}` : ''),
-  a11ySummary: 'פרסום זה עומד בתקן WCAG 2.0 ברמה AA.',
+  a11ySummary: 'נגישות פרסום זה לא אושרה.',
   dedication: 'הקדשה', epigraph: 'מוטו', front: 'עמודי פתיחה',
 }
 

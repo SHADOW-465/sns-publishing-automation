@@ -14,21 +14,26 @@ export function CheckFlow() {
   const [epub, setEpub] = useState<Picked>()
   const [pdf, setPdf] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
+  const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
   const [out, setOut] = useState<{ report: CheckReport; files: Files; base: string; sections: { file: string; type: SectionType; nav: string }[]; layout?: PrintPage[] }>()
 
   const onCheck = async () => {
     setBusy('Checking…')
+    setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
       let layout: PrintPage[] | undefined
       if (pdf) {
-        setBusy('Reading the print PDF (page numbers and layout)…')
         const { printPagesOf } = await import('./pdf.ts')
-        layout = await printPagesOf(pdf.data)
+        layout = await printPagesOf(pdf.data, (done, total) => {
+          setBusy(`Reading the print PDF, page ${done} of ${total}…`)
+          setProgress({ done, total })
+        })
       }
       setBusy('Checking the EPUB…')
+      setProgress(undefined)
       const report = checkEpubBytes(epub!.data, { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout })
       const files = unzip(epub!.data)
       setOut({ report, files, ...spineOf(files), layout })
@@ -36,6 +41,7 @@ export function CheckFlow() {
       setError((e as Error).message)
     } finally {
       setBusy(undefined)
+      setProgress(undefined)
     }
   }
 
@@ -66,7 +72,7 @@ export function CheckFlow() {
           </button>
         </div>
       </section>
-      <Status busy={busy} error={error} />
+      <Status busy={busy} error={error} progress={progress} />
       {out && (
         <section className="card">
           <h2>Report</h2>

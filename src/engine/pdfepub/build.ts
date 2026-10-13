@@ -645,7 +645,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   // ---------------------------------------------------------------- cover
   let cover: ImageOut
   if (input.cover) cover = { path: withRealExt('images/cover.jpg', input.cover.data), data: input.cover.data }
-  else throw new Error('A cover image is required (upload the front cover, or the cover PDF).')
+  else throw new Error('A cover image is required (JPG or PNG).')
 
   // ---------------------------------------------------------------- review notes
   const noAlt = pictures.filter((p) => !p.alt)

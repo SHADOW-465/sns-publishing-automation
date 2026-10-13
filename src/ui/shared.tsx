@@ -32,8 +32,8 @@ const META_FIELDS: [keyof BookMeta, string, string?][] = [
   ['eisbn', 'E-book ISBN', 'e.g. 979-13-88228-26-1'],
   ['printIsbn', 'Print ISBN', 'used as the page-number source'],
   ['rights', 'Rights'],
-  ['certifiedBy', 'Accessibility certified by'],
-  ['conformsTo', 'Conforms to'],
+  ['certifiedBy', 'Accessibility certified by', 'Leave empty until someone certifies this book'],
+  ['conformsTo', 'Conforms to', 'Leave empty until a standard is confirmed'],
 ]
 
 export function BookDetails({ meta, onChange, note, sources = {} }: { meta: BookMeta; onChange: (m: BookMeta) => void; note: string; sources?: Partial<Record<keyof BookMeta, string>> }) {
@@ -53,11 +53,12 @@ export function BookDetails({ meta, onChange, note, sources = {} }: { meta: Book
           <label key={k} className={(k === 'eisbn' && !ok) || suspicious(k) ? 'bad' : ''}>
             <span>{label}</span>
             <input value={meta[k]} placeholder={hint} onChange={(e) => onChange({ ...meta, [k]: e.target.value })} />
+            {k === 'eisbn' && !ok && <small className="err">Enter a valid 13-digit e-book ISBN. It is not in the source files.</small>}
+            {(k === 'certifiedBy' || k === 'conformsTo') && !String(meta[k]).trim() && <small className="src">Not filled in, so this book is not marked as certified.</small>}
             {sources[k] && <small className="src">from the {sources[k]}</small>}
           </label>
         ))}
       </div>
-      {!ok && <p className="err small">Enter a valid 13-digit e-book ISBN (it is never in the source files).</p>}
       <fieldset className="profiles">
         <legend>Kind of e-book</legend>
         {(

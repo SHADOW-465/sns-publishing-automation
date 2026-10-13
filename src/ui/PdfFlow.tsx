@@ -12,14 +12,14 @@ import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 
 // Print PDF (or Word, via its PDF) → EPUB 3, in five steps. The print PDF is the source: the Word
-// file in the sample was itself a partial conversion of it. The cover comes as an image or as the
-// print cover spread PDF.
+// file in the sample was itself a partial conversion of it. The cover is a JPG or PNG.
 
 export function PdfFlow() {
   const [step, setStep] = useState(0)
   const [pdf, setPdf] = useState<Picked>()
   const [cover, setCover] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
+  const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
   const [notice, setNotice] = useState<string>()
   const [book, setBook] = useState<PdfBook>()
@@ -35,6 +35,7 @@ export function PdfFlow() {
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label)
+    setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
@@ -43,6 +44,7 @@ export function PdfFlow() {
       setError((e as Error).message)
     } finally {
       setBusy(undefined)
+      setProgress(undefined)
     }
   }
 
@@ -50,7 +52,10 @@ export function PdfFlow() {
     run('Loading the PDF reader…', async () => {
       const { pdfjs } = await import('./pdf.ts')
       const { analyzePdf } = await import('../engine/pdfepub/analyze.ts')
-      const b = await analyzePdf(pdfjs, pdf!.data, browserRaster, {}, (done, total) => setBusy(`Reading page ${done} of ${total} (text, fonts and pictures)…`), { splitSpreads: true })
+      const b = await analyzePdf(pdfjs, pdf!.data, browserRaster, {}, (done, total) => {
+        setBusy(`Reading page ${done} of ${total} (text, fonts and pictures)…`)
+        setProgress({ done, total })
+      }, { splitSpreads: true })
       const saved = remember<PdfProfile>('pdfprofile', b.meta.publisher)
       const savedRules = remember<CopyrightRules>('copyright', b.meta.publisher)
       setStyles(b.styles.map((s) => (saved?.[s.key] ? { ...s, role: saved[s.key], unsure: false, reason: 'from saved publisher settings' } : s)))
@@ -67,7 +72,7 @@ export function PdfFlow() {
     })
 
   const rebuild = (then?: number) =>
-    run('Building the e-book (pictures, contents, index) and checking it…', async () => {
+    run('Building the e-book…', async () => {
       const { buildPdfEpub } = await import('../engine/pdfepub/build.ts')
       let coverImg = cover
       if (cover && /\.pdf$/i.test(cover.name)) {
@@ -76,16 +81,23 @@ export function PdfFlow() {
         const { coverFromSpread } = await import('../engine/pdfepub/cover.ts')
         coverImg = { name: 'cover.jpg', data: await coverFromSpread(pdfjs, cover.data, book!.pages[0], browserRaster, []) }
       }
-      setBusy('Building the e-book (pictures, contents, index) and checking it…')
+      setBusy('Building the e-book (pictures, contents, index)…')
+      setProgress({ done: 0, total: 2 })
+      await new Promise((r) => setTimeout(r, 30))
       const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt, sectionNav: navs }, browserRaster)
       setResult(r)
       setAlt(Object.fromEntries(r.pictures.map((p) => [p.path, p.alt])))
+      setProgress({ done: 1, total: 2 })
       let lay = layout
       if (!lay) {
-        setBusy('Comparing with the print book…')
         const { printPagesOf } = await import('./pdf.ts')
-        setLayout((lay = await printPagesOf(pdf!.data)))
+        setLayout((lay = await printPagesOf(pdf!.data, (done, total) => {
+          setBusy(`Reading the print PDF, page ${done} of ${total}…`)
+          setProgress({ done, total })
+        })))
       }
+      setBusy('Checking the e-book…')
+      setProgress({ done: 2, total: 2 })
       setReport(checkEpub(r.files, { ...r.source, printLayout: lay }))
       setStale(false)
       remember('pdfprofile', meta!.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
@@ -118,7 +130,7 @@ export function PdfFlow() {
   return (
     <div className="flow">
       <Steps steps={steps} at={step} onGo={go} />
-      <Status busy={busy} error={error} notice={notice} />
+      <Status busy={busy} error={error} notice={notice} progress={progress} />
 
       {step === 0 && (
         <section className="card">
@@ -129,7 +141,7 @@ export function PdfFlow() {
           </p>
           <div className="drops">
             <FileDrop label="Print PDF" hint="the final print PDF of the book" accept="application/pdf" value={pdf} onPick={setPdf} required />
-            <FileDrop label="Cover" hint="front cover image, or the print cover spread PDF" accept="image/jpeg,image/png,application/pdf" value={cover} onPick={(c) => (setCover(c), setStale(true))} required />
+            <FileDrop label="Cover image" hint="front cover, JPG or PNG" accept="image/jpeg,image/png" value={cover} onPick={(c) => (setCover(c), setStale(true))} required />
           </div>
           <Help title="Why the PDF and not the Word file?">
             Word files sent for conversion are often an earlier or partial version. The print PDF is what was actually published, so text, page numbers and pictures come

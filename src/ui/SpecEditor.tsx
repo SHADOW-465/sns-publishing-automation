@@ -19,21 +19,33 @@ export interface RuleListProps {
   /** only these groups (all when omitted) */
   groups?: readonly string[]
   filter?: string
+  /** show only these rules, in this order, without group headings */
+  only?: readonly string[]
+  /** plain labels for a first visit: no rule ids */
+  plain?: boolean
+  names?: Record<string, string>
 }
 
-export function RuleList({ resolved, layer, onSet, onWaiver, groups = GROUPS, filter = '' }: RuleListProps) {
+const PLAIN_KIND = { locked: 'always on', advisory: 'for screen readers', free: 'your choice' } as const
+
+export function RuleList({ resolved, layer, onSet, onWaiver, groups = GROUPS, filter = '', only, plain, names }: RuleListProps) {
   const q = filter.trim().toLowerCase()
+  const hit = (r: Rule) => !q || `${r.id} ${names?.[r.id] ?? ''} ${r.title} ${r.help} ${r.keywords.join(' ')}`.toLowerCase().includes(q)
+  const row = (r: Rule) => <RuleRow key={r.id} r={r} resolved={resolved} layer={layer} onSet={onSet} onWaiver={onWaiver} plain={plain} title={names?.[r.id]} />
+  if (only) {
+    const rules = only.map((id) => RULES.find((r) => r.id === id)).filter((r): r is Rule => !!r && hit(r))
+    if (!rules.length) return null
+    return <div className="rules">{rules.map(row)}</div>
+  }
   return (
     <div className="rules">
       {groups.map((g) => {
-        const rules = RULES.filter((r) => r.group === g && (!q || `${r.id} ${r.title} ${r.help} ${r.keywords.join(' ')}`.toLowerCase().includes(q)))
+        const rules = RULES.filter((r) => r.group === g && hit(r))
         if (!rules.length) return null
         return (
           <fieldset key={g} className="rule-group">
             <legend>{g}</legend>
-            {rules.map((r) => (
-              <RuleRow key={r.id} r={r} resolved={resolved} layer={layer} onSet={onSet} onWaiver={onWaiver} />
-            ))}
+            {rules.map(row)}
           </fieldset>
         )
       })}
@@ -41,7 +53,7 @@ export function RuleList({ resolved, layer, onSet, onWaiver, groups = GROUPS, fi
   )
 }
 
-function RuleRow({ r, resolved, layer, onSet, onWaiver }: { r: Rule } & Omit<RuleListProps, 'groups' | 'filter'>) {
+function RuleRow({ r, resolved, layer, onSet, onWaiver, plain, title }: { r: Rule; plain?: boolean; title?: string } & Omit<RuleListProps, 'groups' | 'filter' | 'only' | 'plain' | 'names'>) {
   const value = r.key ? (resolved.settings[r.key as keyof HouseSettings] as RuleValue) : undefined
   const own = layer && Object.prototype.hasOwnProperty.call(layer.values, r.id) ? layer.values[r.id] : undefined
   const pending = resolved.pendingWaivers.find((p) => p.ruleId === r.id && (!layer || p.level === layer.level))
@@ -53,13 +65,13 @@ function RuleRow({ r, resolved, layer, onSet, onWaiver }: { r: Rule } & Omit<Rul
   return (
     <div className={`rule ${pending ? 'needs' : ''} ${own !== undefined ? 'own' : ''}`}>
       <div className="rule-head">
-        <code className="rule-id">{r.id}</code>
-        <strong>{r.title}</strong>
-        <span className={`kind ${r.kind}`}>{KIND_LABEL[r.kind]}</span>
+        {!plain && <code className="rule-id">{r.id}</code>}
+        <strong>{title || r.title}</strong>
+        <span className={`kind ${r.kind}`}>{plain ? PLAIN_KIND[r.kind] : KIND_LABEL[r.kind]}</span>
       </div>
       <p className="muted small">{r.help}</p>
       {locked ? (
-        <p className="small">Always applied.</p>
+        <p className="small">{plain ? 'This is always done.' : 'Always applied.'}</p>
       ) : (
         <div className="rule-ctl">
           <Control r={r} value={shown} onChange={(v) => onSet(r, v)} />
@@ -69,9 +81,17 @@ function RuleRow({ r, resolved, layer, onSet, onWaiver }: { r: Rule } & Omit<Rul
             </button>
           )}
           <span className="src">
-            {pending ? `asked for by ${LEVEL_LABEL[pending.level]}, not applied until the box below is ticked` : `set by ${fromText}`}
-            {from?.source && ` — ${from.source.file}, ${from.source.where}`}
-            {from?.waiver && ` — waiver by ${from.waiver.by}, ${from.waiver.at.slice(0, 10)}`}
+            {plain
+              ? pending
+                ? 'Waiting for the confirmation below.'
+                : from?.level === 'default'
+                  ? 'House default.'
+                  : 'Saved for this publisher or this book.'
+              : <>
+                  {pending ? `asked for by ${LEVEL_LABEL[pending.level]}, not applied until the box below is ticked` : `set by ${fromText}`}
+                  {from?.source && ` — ${from.source.file}, ${from.source.where}`}
+                  {from?.waiver && ` — waiver by ${from.waiver.by}, ${from.waiver.at.slice(0, 10)}`}
+                </>}
           </span>
         </div>
       )}

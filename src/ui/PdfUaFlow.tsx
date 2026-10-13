@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { download, remember, useObjectUrls } from './shared.tsx'
-import { Help } from './wizard.tsx'
+import { Help, Status } from './wizard.tsx'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
 import type { UaAnalysis } from '../engine/pdfua/index.ts'
@@ -18,6 +18,7 @@ export function PdfUaFlow() {
   const [altDocx, setAltDocx] = useState<Picked>()
   const [extras, setExtras] = useState<Picked[]>([])
   const [busy, setBusy] = useState<string>()
+  const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
   const [a, setA] = useState<UaAnalysis>()
   const [styles, setStyles] = useState<UaStyle[]>([])
@@ -29,6 +30,7 @@ export function PdfUaFlow() {
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label)
+    setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
@@ -37,6 +39,7 @@ export function PdfUaFlow() {
       setError((e as Error).message)
     } finally {
       setBusy(undefined)
+      setProgress(undefined)
     }
   }
 
@@ -50,7 +53,10 @@ export function PdfUaFlow() {
         cover: cover ? { data: cover.data, png: /\.png$/i.test(cover.name) } : undefined,
         altDocx: altDocx?.data,
       }
-      const r = await analyzeUa(pdfjs, browserRaster, inputs, (done, total) => setBusy(`Reading page ${done} of ${total}…`))
+      const r = await analyzeUa(pdfjs, browserRaster, inputs, (done, total) => {
+        setBusy(`Reading page ${done} of ${total}…`)
+        setProgress({ done, total })
+      })
       const saved = remember<Record<string, UaRole>>('uaprofile', r.book.meta.publisher)
       setStyles(r.styles.map((s) => (saved?.[s.key] ? { ...s, role: saved[s.key], reason: 'from saved publisher profile' } : s)))
       setNotice(saved ? `Applied the saved settings for “${r.book.meta.publisher}”.` : undefined)
@@ -74,6 +80,7 @@ export function PdfUaFlow() {
 
   return (
     <div className="flow">
+      <Status busy={busy} error={error} notice={notice} progress={progress} />
       <section className="card">
         <h2>1. Files</h2>
         <p className="muted">
@@ -103,10 +110,6 @@ export function PdfUaFlow() {
           Analyse
         </button>
       </section>
-
-      {busy && <p className="busy" role="status">{busy}</p>}
-      {error && <p className="err" role="alert">{error}</p>}
-      {notice && <p className="note">{notice}</p>}
 
       {a && meta && (
         <>
