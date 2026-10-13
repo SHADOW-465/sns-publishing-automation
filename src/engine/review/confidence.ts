@@ -59,6 +59,7 @@ export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number }
   }
   a.sections.forEach((s, i) => {
     if (s.type === 'other') items.push({ id: `section:${i}`, area: 'section', confidence: 'low', title: `“${s.nav || '(no title)'}” is an unknown kind of section`, why: `The title is not a known front or back matter name. ${s.preview ? `It starts: “${s.preview}”. ` : ''}Choose what it is.`, ref: i })
+    else if (!s.nav.trim()) items.push({ id: `nav:${i}`, area: 'section', confidence: 'low', title: 'A part has no title', why: 'It will be missing from the contents. Type a title in the structure list.', ref: i })
     else sure++
   })
   for (const n of a.notes)

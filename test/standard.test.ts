@@ -115,5 +115,7 @@ test('check-these-first: unsure styles and unknown sections come first, clear on
   assert.deepEqual(r.items.map((i) => i.id), ['style:b', 'meta:authors', 'section:1', 'note:3'])
   assert.equal(r.items[0].confidence, 'low')
   assert.equal(r.sure, 4)
+  const untitled = reviewList({ styles: [], sources: {}, meta: { title: 'T', authors: 'A', publisher: 'P', eisbn: '' }, sections: [{ type: 'epigraph', nav: '' }, { type: 'chapter', nav: 'One' }], notes: [] })
+  assert.deepEqual(untitled.items.map((i) => i.id), ['nav:0'])
   assert.ok(rulesForTopic('table', true).some((x) => x.id === 'TBL-01'))
 })

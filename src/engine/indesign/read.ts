@@ -18,6 +18,8 @@ export interface Export {
   opfPath: string
   lang: string
   opfTitle: string
+  /** dc:creator values, when the export has them */
+  opfCreators: string[]
   css: StyleSheet
   blocks: Block[]
   footnotes: Map<string, Element>
@@ -135,7 +137,8 @@ export function readExport(files: Files): Export {
   }
 
   const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
-  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', css, blocks, footnotes, images, coverImage }
+  const creators = Array.from(opf.getElementsByTagName('dc:creator')).map((e) => (e.textContent ?? '').trim()).filter(Boolean)
+  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, images, coverImage }
 }
 
 /** Paragraph grouping key: the named paragraph style, or the override classes if it has none. */

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import { unzip, text } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
@@ -12,6 +12,7 @@ import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
 import { openSpec, applySpec, setRule, type Spec } from '../engine/spec/session.ts'
 import { CheckFirst } from './CheckFirst.tsx'
+import { reviewList } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings } from '../engine/settings.ts'
 import { specHash } from '../engine/spec/layers.ts'
@@ -38,6 +39,7 @@ export function IndesignFlow() {
   const [report, setReport] = useState<CheckReport>()
   const [stale, setStale] = useState(true)
   const [types, setTypes] = useState<Record<number, SectionType>>({})
+  const [navs, setNavs] = useState<Record<number, string>>({})
   const [spec, setSpec] = useState<Spec>()
   const [decision, setDecision] = useState<Decision>()
 
@@ -71,6 +73,7 @@ export function IndesignFlow() {
       setImages(a.images)
       setResult(undefined)
       setTypes({})
+      setNavs({})
       setSpec(undefined) // a new book: its spec is opened (and decided) again
       setDecision(undefined)
       setStale(true)
@@ -90,7 +93,7 @@ export function IndesignFlow() {
       if (!spec) setSpec(sp)
       applySpec(sp)
       try {
-        const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types })
+        const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types, sectionNav: navs })
         setResult(r)
         setReport(checkEpub(r.files, r.source))
       } finally {
@@ -120,6 +123,11 @@ export function IndesignFlow() {
       setStale(true)
     })
 
+  const liveSections = (result?.sections ?? []).map((s, i) => ({ ...s, type: types[i] ?? s.type, nav: (navs[i] ?? '').trim() || s.nav }))
+  const structurePending = result && analysis && meta
+    ? reviewList({ styles, sources: analysis.sources, meta, sections: liveSections, notes: [] }).items.filter((it) => it.area !== 'note').length
+    : 0
+  const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.alt.trim() && !i.decorative)
   const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
@@ -200,7 +208,7 @@ export function IndesignFlow() {
             </p>
           )}
           <CheckFirst
-            input={{ styles, sources: analysis.sources, meta: meta!, sections: result.sections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })), notes: result.review }}
+            input={{ styles, sources: analysis.sources, meta: meta!, sections: liveSections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })), notes: result.review }}
             setStyle={setStyle}
             onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))}
             onMeta={() => setStep(1)}
@@ -208,7 +216,7 @@ export function IndesignFlow() {
             onRule={onRule}
             standard={(meta?.profile ?? 'accessible') === 'standard'}
           />
-          <Outline sections={result.sections} files={result.files} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
+          <Outline sections={result.sections.map((s, i) => ({ ...s, type: types[i] ?? s.type }))} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
           <details className="advanced">
             <summary>Advanced: how the InDesign styles are read ({styles.filter((s) => s.unsure).length} guesses to confirm)</summary>
             <p className="muted small">
@@ -225,7 +233,12 @@ export function IndesignFlow() {
               <button onClick={() => rebuild()} disabled={!!busy}>Update the preview</button>
             </div>
           </details>
-          <StepNav onBack={() => setStep(2)} onNext={() => go(4)} nextDisabled={!!busy} />
+          {structureNext.asked && (
+            <p className="note warnbox" role="status">
+              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look: a missing title, an unknown part, or a guess. Check the list, or continue anyway.
+            </p>
+          )}
+          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy} />
         </section>
       )}
 

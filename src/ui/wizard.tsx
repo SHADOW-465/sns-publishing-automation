@@ -95,7 +95,32 @@ export const KIND: Record<string, string> = {
   other: 'Other',
 }
 
-export function Outline({ sections, files, base = 'OEBPS/', onType }: { sections: Pick<Section, 'file' | 'type' | 'nav'>[]; files: Files; base?: string; onType?: (index: number, type: string) => void }) {
+/** Second click goes ahead. The first click, while decisions are still open, only warns. */
+export function useConfirmNext(pending: number, go: () => void) {
+  const [asked, setAsked] = useState(false)
+  useEffect(() => setAsked(false), [pending])
+  return {
+    asked: asked && pending > 0,
+    next: asked && pending > 0 ? 'Continue anyway' : 'Next',
+    onNext: () => {
+      if (pending > 0 && !asked) {
+        setAsked(true)
+        return
+      }
+      go()
+    },
+  }
+}
+
+export function Outline({ sections, files, base = 'OEBPS/', onType, onTitle, titles }: {
+  sections: Pick<Section, 'file' | 'type' | 'nav'>[]
+  files: Files
+  base?: string
+  onType?: (index: number, type: string) => void
+  /** title for a part the book itself did not name */
+  onTitle?: (index: number, title: string) => void
+  titles?: Record<number, string>
+}) {
   const [open, setOpen] = useState(sections.find((s) => s.type === 'chapter')?.file ?? sections[0]?.file)
   const info = (s: Pick<Section, 'file'>) => {
     const html = text(files.get(base + s.file) ?? new Uint8Array())
@@ -110,17 +135,24 @@ export function Outline({ sections, files, base = 'OEBPS/', onType }: { sections
           {sections.map((s, idx) => {
             const i = info(s)
             const tiny = s.type === 'chapter' && i.words < 40
+            const title = (titles?.[idx] ?? '').trim() || s.nav
             return (
               <li key={s.file}>
                 {onType && (
-                  <select className="kindsel" aria-label={`Type of “${s.nav || s.file}”`} value={s.type} onChange={(e) => onType(idx, e.target.value)}>
+                  <select className="kindsel" aria-label={`Type of “${title || s.file}”`} value={s.type} onChange={(e) => onType(idx, e.target.value)}>
                     {Object.entries(KIND).filter(([k]) => k !== 'cover').map(([k, v]) => (
                       <option key={k} value={k}>{v}</option>
                     ))}
                   </select>
                 )}
+                {onTitle && !s.nav.trim() && (
+                  <label className="navtitle">
+                    <span>Title in the contents</span>
+                    <input aria-label={`Title for part ${idx + 1}`} placeholder="This part has no title" value={titles?.[idx] ?? ''} onChange={(e) => onTitle(idx, e.target.value)} />
+                  </label>
+                )}
                 <button className={open === s.file ? 'on' : ''} onClick={() => setOpen(s.file)}>
-                  {!onType && <span className={`kind k-${s.type}`}>{KIND[s.type] ?? s.type}</span>} {s.nav || <em className="muted">(no title)</em>}
+                  {!onType && <span className={`kind k-${s.type}`}>{KIND[s.type] ?? s.type}</span>} {title || <em className="muted">(no title)</em>}
                   <small>
                     {i.pages.length ? `p. ${i.pages[0]}${i.pages.length > 1 ? `–${i.pages[i.pages.length - 1]}` : ''} · ` : ''}
                     {i.words.toLocaleString()} words{i.imgs ? ` · ${i.imgs} picture${i.imgs > 1 ? 's' : ''}` : ''}{i.notes ? ` · ${i.notes} notes` : ''}

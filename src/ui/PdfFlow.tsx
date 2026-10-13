@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { reviewList } from '../engine/review/confidence.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { browserRaster } from './raster-browser.ts'
 import { PDF_ROLES, PDF_ROLE_HELP, type PdfBook, type PdfProfile, type PdfRole, type PdfStyleInfo } from '../engine/pdfepub/analyze.ts'
@@ -30,6 +31,7 @@ export function PdfFlow() {
   const [alt, setAlt] = useState<Record<string, string>>({})
   const [stale, setStale] = useState(true)
   const [layout, setLayout] = useState<PrintPage[]>()
+  const [navs, setNavs] = useState<Record<number, string>>({})
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label)
@@ -59,6 +61,7 @@ export function PdfFlow() {
       setResult(undefined)
       setLayout(undefined)
       setAlt({})
+      setNavs({})
       setStale(true)
       setStep(1)
     })
@@ -74,7 +77,7 @@ export function PdfFlow() {
         coverImg = { name: 'cover.jpg', data: await coverFromSpread(pdfjs, cover.data, book!.pages[0], browserRaster, []) }
       }
       setBusy('Building the e-book (pictures, contents, index) and checking it…')
-      const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt }, browserRaster)
+      const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt, sectionNav: navs }, browserRaster)
       setResult(r)
       setAlt(Object.fromEntries(r.pictures.map((p) => [p.path, p.alt])))
       let lay = layout
@@ -92,6 +95,16 @@ export function PdfFlow() {
   const go = (i: number) => (i >= 2 && (stale || !result) ? rebuild(i) : setStep(i))
   const setRole = (key: string, role: PdfRole) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, role, unsure: false } : x))), setStale(true))
 
+  const structurePending = result && meta
+    ? reviewList({
+        styles: styles.map((s) => ({ ...s, outClass: '', role: 'p' as const, unsure: s.unsure, reason: s.reason })),
+        sources: {},
+        meta,
+        sections: result.sections.map((s, i) => ({ type: s.type, nav: (navs[i] ?? '').trim() || s.nav })),
+        notes: [],
+      }).items.filter((it) => it.area !== 'note').length
+    : 0
+  const structureNext = useConfirmNext(structurePending, () => setStep(3))
   const todo = result ? result.pictures.filter((p) => !alt[p.path] || alt[p.path] === p.caption) : []
   const errors = (report?.errors ?? 0) + (result?.review.filter((r) => r.level === 'error').length ?? 0)
   const steps = [
@@ -168,7 +181,7 @@ export function PdfFlow() {
               Settings changed. <button onClick={() => rebuild()}>Rebuild</button>
             </p>
           )}
-          <Outline sections={result.sections} files={result.files} />
+          <Outline sections={result.sections} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} />
           <details className="advanced">
             <summary>Advanced: what each font and size is used for ({styles.filter((s) => s.unsure).length} guesses to confirm)</summary>
             <p className="muted small">
@@ -213,7 +226,12 @@ export function PdfFlow() {
               <button onClick={() => rebuild()} disabled={!!busy}>Rebuild with these settings</button>
             </div>
           </details>
-          <StepNav onBack={() => setStep(1)} onNext={() => setStep(3)} />
+          {structureNext.asked && (
+            <p className="note warnbox" role="status">
+              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look: a missing title, an unknown part, or a guess. Check the list, or continue anyway.
+            </p>
+          )}
+          <StepNav onBack={() => setStep(1)} onNext={structureNext.onNext} next={structureNext.next} />
         </section>
       )}
 

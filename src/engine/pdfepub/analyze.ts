@@ -3,6 +3,7 @@ import { isSlug } from '../pdf/slug.ts'
 import { readContents, readLists, matchHeadings, type Contents } from './contents.ts'
 import { fillNumbers } from '../pdf/numbers.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
+import { COMPANY, CREDIT, FILEISH } from '../indesign/front.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
 import type { Raster } from '../pdf/raster.ts'
@@ -330,12 +331,16 @@ export async function analyzePdf(
   }
   const h = big(half)
   const subtitle = titleCase(h.rest.map((l) => l.text.trim()).join(' '))
-  const author = titlePage && half ? (titlePage.lines.filter((l) => !half.lines.some((x) => shape(x.text) === shape(l.text))).map((l) => l.text.trim())[0] ?? '') : ''
+  // the first title-page line that is not on the half-title, skipping the publisher and credit lines
+  const notAuthor = (t: string) => COMPANY.test(t) || CREDIT.test(t) || FILEISH.test(t) || /©|\bisbn\b|copyright/i.test(t) || sectionTypeOf(t) === 'acknowledgments'
+  const rest = titlePage && half ? titlePage.lines.filter((l) => !half.lines.some((x) => shape(x.text) === shape(l.text))).map((l) => l.text.trim()).filter(Boolean) : []
   const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => l.text) : []
   const publisher = imprint.find((t) => /\b(press|publishing|publishers|books|verlag|editorial|ediciones|éditions)\b/i.test(t) && t.length < 60)?.trim() ?? ''
   const year = imprint.join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
   const printIsbn = imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
   const info = await doc.getMetadata().catch(() => null)
+  const fromFile = String(info?.info?.Author ?? '').trim()
+  const author = rest.find((t) => !notAuthor(t)) || (fromFile && !notAuthor(fromFile) ? fromFile : '')
   const language = (info?.info?.Language as string | undefined)?.replace('_', '-') || 'en'
   const meta: BookMeta = {
     title: h.title || titleCase(info?.info?.Title ?? ''),

@@ -245,6 +245,8 @@ table.styles select { max-width: 290px; }
 .kind { display: inline-block; font-size: 10.5px; font-weight: 600; color: var(--ink-3); background: var(--sunk); border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: 1px; }
 .k-chapter, .k-part { color: var(--accent); background: var(--accent-soft); }
 .kindsel { font-size: 12px; padding: 2px 4px; margin: 6px 10px 0; max-width: 150px; }
+.navtitle { display: grid; gap: 2px; margin: 4px 10px 0; font-size: 12px; color: var(--ink-3); }
+.navtitle input { font: inherit; font-size: 13px; color: var(--ink); padding: 4px 6px; }
 .preview { width: 100%; height: 600px; border: 1px solid var(--rule); border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
 @media (max-width: 760px) {
   .preview-grid { grid-template-columns: 1fr; }

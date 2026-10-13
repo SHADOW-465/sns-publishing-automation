@@ -19,6 +19,8 @@ test('page numbers: a stray number on a contents page does not shift the whole f
 test('names and titles from capitals', () => {
   assert.equal(nameCase('ELENA CHÁVEZ'), 'Elena Chávez')
   assert.equal(nameCase('ANA MARÍA DE LA FUENTE'), 'Ana María de la Fuente')
+  assert.equal(nameCase('RJ SPINA'), 'RJ Spina')
+  assert.equal(nameCase('J. R. R. TOLKIEN'), 'J. R. R. Tolkien')
   assert.equal(titleCaseFor('LA CARA OCULTA DE SHEINBAUM', 'es'), 'La cara oculta de sheinbaum')
   assert.equal(titleCaseFor('THE HIDDEN FACE OF THE CITY', 'en'), 'The Hidden Face of the City')
   assert.ok(FILEISH.test('La cara oculta de la presidenta_Grijalbo'))

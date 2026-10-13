@@ -49,6 +49,8 @@ export interface BuildInput {
   printPages?: PrintPage[]
   /** reviewer corrections: section index (reading order) → section type */
   sectionTypes?: Record<number, SectionType>
+  /** reviewer titles for parts that had none, same index as the outline */
+  sectionNav?: Record<number, string>
 }
 
 export interface BuildResult {
@@ -326,6 +328,10 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   setNav('halftitle', L.halftitle)
   setNav('title', L.title)
   setNav('copyright', L.copyright)
+  for (const [i, nav] of Object.entries(input.sectionNav ?? {})) {
+    const t = nav.trim()
+    if (t && all[Number(i)]) all[Number(i)].nav = t
+  }
 
   // ---- 2d. link table-of-contents style sections -------------------------------------------
   const headingIds = new Map<PBlock, string>()

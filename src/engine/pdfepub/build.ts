@@ -24,6 +24,8 @@ export interface PdfBuildInput {
   cover?: { name: string; data: Uint8Array }
   /** optional alt text per picture file name (images/pg-53-2.jpg → text) */
   alt?: Record<string, string>
+  /** reviewer titles for parts that had none, same index as the outline */
+  sectionNav?: Record<number, string>
 }
 
 export interface PdfBuildResult {
@@ -589,6 +591,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     if (s.type === 'part') lastPart = s
     else if (s.type === 'chapter' && lastPart) s.parent = `${lastPart.stem}.xhtml`
     else if (s.type !== 'chapter') lastPart = undefined
+  }
+  for (const [i, nav] of Object.entries(input.sectionNav ?? {})) {
+    const t = nav.trim()
+    if (t && all[Number(i)]) all[Number(i)].nav = t
   }
 
   // ---------------------------------------------------------------- render sections
