@@ -434,6 +434,82 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   let fnNo = 0
   const fnSeen = new Map<string, string>()
   const logos = input.images.filter((i) => i.placement === 'logo')
+  // Pictures dumped far from the page they illustrate. The caption is held out of the HTML
+  // until page markers exist, then inserted after that page's marker. `token` marks the old spot.
+  const moveImg = new Map<Block, string>()
+  const moveCap = new Set<PBlock>()
+  const parked: { target: string; home: string; html: string; token: string }[] = []
+  let parkNo = 0
+
+  // InDesign often dumps pictures, with their captions, far from the page they illustrate.
+  // A caption that sits between pictures (or just before a heading) and matches one printed
+  // page is moved there with its picture. A picture already on that page, or an uncertain
+  // match, stays where the export put it.
+  if (input.printPages?.length) {
+    const squash = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+    const printed = input.printPages.filter((p) => p.text && !p.blank).map((p) => ({ n: p.n, text: squash(p.text) }))
+    const reserved = new Set([meta.title, meta.subtitle, meta.authors, meta.publisher].map(squash).filter((s) => s.length >= 4))
+    for (const sec of all) {
+      if (sec.type === 'halftitle' || sec.type === 'title' || sec.type === 'copyright' || sec.type === 'toc') continue
+      for (let i = 0; i < sec.items.length; i++) {
+        const b = sec.items[i]
+        if (b.t !== 'img' || imgChoice.get(b.src)?.placement !== 'inline') continue
+        let cap = -1
+        for (let j = i + 1; j < sec.items.length; j++) {
+          const n = sec.items[j]
+          if (n.t === 'img') break
+          if (n.t === 'pb' || (n.t === 'p' && !n.text)) continue
+          if (n.t !== 'p') break
+          const r = roleOf(n)
+          if ((r !== 'p' && r !== 'bullet') || sectionTypeOf(n.text) || reserved.has(squash(n.text)) || n.text.length > 1800) break
+          cap = j
+          break
+        }
+        if (cap < 0) continue
+        const caption = sec.items[cap] as PBlock
+        let followedByFigure = false
+        let followedByHeading = false
+        for (let k = cap + 1; k < sec.items.length; k++) {
+          const n = sec.items[k]
+          if (n.t === 'pb' || (n.t === 'p' && !n.text)) continue
+          if (n.t === 'img') followedByFigure = true
+          else if (n.t === 'p' && ((roleOf(n) !== 'p' && roleOf(n) !== 'bullet') || sectionTypeOf(n.text))) followedByHeading = true
+          break
+        }
+        // the last picture of a dumped run has nothing after its caption; the one before it is a picture
+        let precededByFigure = false
+        for (let k = i - 1; k >= 0 && !precededByFigure; k--) {
+          const n = sec.items[k]
+          if (n.t === 'pb' || (n.t === 'p' && !n.text)) continue
+          if (n.t === 'img') precededByFigure = true
+          else if (n.t === 'p') {
+            for (let k2 = k - 1; k2 >= 0; k2--) {
+              const p = sec.items[k2]
+              if (p.t === 'pb' || (p.t === 'p' && !p.text)) continue
+              if (p.t === 'img') precededByFigure = true
+              break
+            }
+          }
+          break
+        }
+        if (!followedByFigure && !followedByHeading && !precededByFigure) continue
+        const key = squash(caption.text).slice(0, 60)
+        if (key.length < 24) continue
+        let hits = printed.filter((p) => p.text.includes(key))
+        if (hits.length > 1) {
+          const longer = squash(caption.text).slice(0, 120)
+          hits = printed.filter((p) => p.text.includes(longer))
+        }
+        if (hits.length !== 1) continue
+        const target = hits[0].n
+        const htmlPage = Number(b.page)
+        const printN = Number(target)
+        if (!Number.isFinite(htmlPage) || !Number.isFinite(printN) || Math.abs(printN - htmlPage) < 5) continue
+        moveImg.set(b, target)
+        moveCap.add(caption)
+      }
+    }
+  }
 
   // numbered heading series ("Hábito 1: …" … "Hábito 12: …") look alike: when part of a series is set
   // in small caps and the rest is not (a style mix-up in InDesign), the whole series gets small caps
@@ -567,6 +643,12 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
     let inNotes = false
     const verse = settings().verseLines ? verseLines(s.items) : new Map<PBlock, string>()
+    let hold: { target: string; figure: string } | undefined
+    const releaseHold = () => {
+      if (!hold) return
+      items.push({ kind: 'other', html: hold.figure })
+      hold = undefined
+    }
     for (const b of isFront || tocHtml.has(s) ? [] : s.items) {
       if (b.t === 'pb') {
         items.push({ kind: 'other', html: ctx.pageMarker(b.n) })
@@ -579,15 +661,25 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
         if (!c.alt && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
         // the client's language sheet: a picture with no description reads "imagen", a decorative one "decorativa"
-        items.push({ kind: 'other', html: `<figure class="fig_group"><img alt="${esc(c.decorative ? L.decorativeAlt : c.alt || L.imageAlt)}" src="${name}"/></figure>` })
+        const figure = `<figure class="fig_group"><img alt="${esc(c.decorative ? L.decorativeAlt : c.alt || L.imageAlt)}" src="${name}"/></figure>`
+        const target = moveImg.get(b)
+        if (target) {
+          releaseHold()
+          hold = { target, figure }
+        } else {
+          releaseHold()
+          items.push({ kind: 'other', html: figure })
+        }
         continue
       }
       if (b.t === 'table') {
+        releaseHold()
         items.push({ kind: 'other', html: renderTable(b.el, ctx, ex, cellClass) })
         continue
       }
       for (const el of Array.from(b.el.querySelectorAll('[id]'))) idFile.set(el.id, file)
       if (b.el.id) idFile.set(b.el.id, file)
+      if (b.text && !(hold && moveCap.has(b))) releaseHold()
       const r = roleOf(b)
       const cls = classOf(b)
       if (r === 'bullet' || b.list) {
@@ -609,9 +701,16 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         // a whole block set in from the margin (exercises, extracts) — not just a first-line indent
         const inset = px(d['margin-left']) > 0 && px(d['margin-left']) + px(d['text-indent']) > 0
         const note = inNotes ? b.text.match(/^(\d{1,3})(?!\d)/)?.[1] : undefined
-        items.push({ kind: inNotes ? 'note' : inset && !vc ? 'inset' : 'other', note, html: `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>` })
+        const html = `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>`
+        if (hold && moveCap.has(b)) {
+          const token = `figpark${parkNo++}`
+          parked.push({ target: hold.target, home: file, html: `${hold.figure}\n${html}`, token })
+          items.push({ kind: 'other', html: `<!--${token}-->` })
+          hold = undefined
+        } else items.push({ kind: inNotes ? 'note' : inset && !vc ? 'inset' : 'other', note, html })
       }
     }
+    releaseHold()
     linkedNotes += linkNotes(items, s.headId || s.stem)
     if (tocHtml.has(s)) {
       // the rebuilt linked entries in source order, each page marker where its printed page starts
@@ -653,7 +752,59 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const sectionHtml = `<section${lbl} epub:type="${etype}"${meta0.role ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`
     sections.push({ file, id: s.stem, type: s.type, nav: s.nav, parent: s.parent ? `${s.parent.stem}.xhtml` : undefined, body: sectionHtml, title: s.nav || name })
   }
+  const placedImages = new Set(imgOut.map((i) => i.path))
+  for (const c of input.images) {
+    if (c.placement === 'logo') continue
+    const name = imgName(c.src)
+    if (placedImages.has(name)) continue
+    placedImages.add(name)
+    review.push({ level: 'info', msg: `Left out picture ${name.replace('images/', '')}: it was not placed on a page.` })
+  }
 
+  const gaps = fillMissingPages(sections, input.printPages ?? [], (n) => pageSpan(n, L))
+  if (gaps.added.length) review.push({ level: 'info', msg: `Added page markers missing from the InDesign export, placed from the print PDF: ${gaps.added.join(', ')}.` })
+  if (gaps.removed.length) review.push({ level: 'info', msg: `Removed page markers of blank printed pages: ${gaps.removed.join(', ')}.` })
+  // captions were held out so they could not steal a page-start match; put each picture
+  // just after the marker of the printed page that contains its caption
+  if (parked.length) {
+    const byPage = new Map<string, typeof parked>()
+    for (const item of parked) {
+      const list = byPage.get(item.target) ?? []
+      list.push(item)
+      byPage.set(item.target, list)
+    }
+    let moved = 0
+    const leftPages: string[] = []
+    let left = 0
+    for (const [n, group] of byPage) {
+      const chunk = group.map((g) => g.html).join('\n')
+      const marker = `id="page-${n}"`
+      const dest = sections.find((s) => s.body.includes(marker))
+      const re = new RegExp(`(<span[^>]*${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^>]*/>)`)
+      if (dest && re.test(dest.body)) {
+        dest.body = dest.body.replace(re, (m) => `${m}\n${chunk}`)
+        for (const item of group) {
+          for (const m of item.html.matchAll(/\sid="([^"]+)"/g)) if (!m[1].startsWith('page-')) idFile.set(m[1], dest.file)
+          const home = sections.find((s) => s.file === item.home)
+          if (home) home.body = home.body.replace(`<!--${item.token}-->`, () => '')
+        }
+        moved += group.length
+      } else {
+        for (const item of group) {
+          const home = sections.find((s) => s.file === item.home)
+          if (!home) continue
+          if (home.body.includes(`<!--${item.token}-->`)) home.body = home.body.replace(`<!--${item.token}-->`, () => item.html)
+          else home.body = home.body.replace(/<\/section>\s*$/, () => `${item.html}\n</section>`)
+        }
+        left += group.length
+        leftPages.push(n)
+      }
+    }
+    if (moved) review.push({ level: 'info', msg: `Moved ${moved} picture(s) to the printed page that contains their caption.` })
+    if (left) review.push({ level: 'info', msg: `Left ${left} picture(s) where the export put them: printed page ${leftPages.join(', ')} has no page marker in reading order.` })
+  }
+  if (gaps.missing.length)
+    review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
   // cross references (InDesign hyperlinks to text anchors) → the file that now holds the anchor
   for (const sec of sections) {
     sec.body = sec.body.replace(/href="xref:([^"]*)"/g, (_, id: string) => {
@@ -662,11 +813,6 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       return `href="${f ?? sec.file}"`
     })
   }
-  const gaps = fillMissingPages(sections, input.printPages ?? [], (n) => pageSpan(n, L))
-  if (gaps.added.length) review.push({ level: 'info', msg: `Added page markers missing from the InDesign export, placed from the print PDF: ${gaps.added.join(', ')}.` })
-  if (gaps.removed.length) review.push({ level: 'info', msg: `Removed page markers of blank printed pages: ${gaps.removed.join(', ')}.` })
-  if (gaps.missing.length)
-    review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
   // self-check: a style must look the way most of its paragraphs look in the source
   for (const [key, t] of alignTally) {
     if (FIXED_CLASSES.has(key)) continue // the house stylesheet fixes these looks
