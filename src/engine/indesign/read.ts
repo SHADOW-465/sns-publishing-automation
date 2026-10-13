@@ -66,27 +66,44 @@ export function readExport(files: Files): Export {
     const doc = parseXml(text(files.get(it.href)!), it.href)
     // the cover page InDesign generates holds only the placeholder cover image
     if (it.href === resolvePath(opfPath, 'cover.xhtml') || /cover/i.test(doc.body?.id ?? '')) continue
-    const walk = (el: Element) => {
-      for (const c of Array.from(el.children)) {
-        const n = pageBreakOf(c)
-        if (n !== null) {
-          blocks.push({ t: 'pb', n })
-          page = n
-          continue
+    // a list whose items are all harvested notes: not body text (the bibliography beside it still is)
+    const pureNoteList = (el: Element) => {
+      const items = Array.from(el.children).filter((ch) => tag(ch) === 'li')
+      return items.length > 0 && items.every((li) => !!li.id && footnotes.has(li.id))
+    }
+    const visit = (c: Element) => {
+      const n = pageBreakOf(c)
+      if (n !== null) {
+        blocks.push({ t: 'pb', n })
+        page = n
+        return
+      }
+      const tg = tag(c)
+      const et = epubType(c)
+      if (/footnotes|endnotes/.test(et) || classesOf(c).includes('_idFootnotes') || et === 'footnote') {
+        for (const li of Array.from(c.querySelectorAll('li, aside'))) if (li.id) footnotes.set(li.id, li)
+        if (et === 'footnote' && c.id) footnotes.set(c.id, c)
+        // InDesign often marks a whole frame "endnotes" that also holds the bibliography and credits
+        if (et !== 'footnote') walk(c)
+        return
+      }
+      if ((tg === 'ol' || tg === 'ul') && pureNoteList(c)) {
+        // a printed page can start mid-note; keep that marker here, not at the note's reference
+        for (const el of Array.from(c.querySelectorAll('*'))) {
+          const pn = pageBreakOf(el)
+          if (pn !== null) {
+            blocks.push({ t: 'pb', n: pn })
+            page = pn
+          }
         }
-        const tg = tag(c)
-        const et = epubType(c)
-        if (/footnotes|endnotes/.test(et) || classesOf(c).includes('_idFootnotes') || et === 'footnote') {
-          for (const li of Array.from(c.querySelectorAll('li, aside'))) if (li.id) footnotes.set(li.id, li)
-          if (et === 'footnote' && c.id) footnotes.set(c.id, c)
-          continue
-        }
-        if (/^(p|h[1-6])$/.test(tg)) {
-          // inline page markers inside the paragraph still count for "page of this block"
-          blocks.push({ t: 'p', el: c, key: styleKey(c), classes: classesOf(c), text: textOf(c), page })
-          const inner = Array.from(c.querySelectorAll('*')).map(pageBreakOf).filter((x) => x !== null)
-          if (inner.length) page = inner[inner.length - 1]!
-        } else if (tg === 'ul' || tg === 'ol') {
+        return
+      }
+      if (/^(p|h[1-6])$/.test(tg)) {
+        // inline page markers inside the paragraph still count for "page of this block"
+        blocks.push({ t: 'p', el: c, key: styleKey(c), classes: classesOf(c), text: textOf(c), page })
+        const inner = Array.from(c.querySelectorAll('*')).map(pageBreakOf).filter((x) => x !== null)
+        if (inner.length) page = inner[inner.length - 1]!
+      } else if (tg === 'ul' || tg === 'ol') {
           // a real list: every item keeps its place (and depth) in it
           const list = (l: Element, depth: number) => {
             let first = true
@@ -110,7 +127,9 @@ export function readExport(files: Files): Export {
         } else if (tg !== 'hr' && tg !== 'script' && tg !== 'style') {
           walk(c)
         }
-      }
+    }
+    const walk = (el: Element) => {
+      for (const c of Array.from(el.children)) visit(c)
     }
     walk(doc.body ?? doc.documentElement)
   }
@@ -130,13 +149,14 @@ export function styleKey(el: Element): string {
 // ---------------------------------------------------------------------------------------------
 
 export const ROLES = [
-  'p', 'h3', 'h4', 'h5', 'chapter-label', 'chapter-title', 'part-label', 'part-title',
+  'p', 'h2', 'h3', 'h4', 'h5', 'chapter-label', 'chapter-title', 'part-label', 'part-title',
   'section-title', 'bullet', 'toc', 'imprint', 'drop',
 ] as const
 export type Role = (typeof ROLES)[number]
 
 export const ROLE_HELP: Record<Role, string> = {
   p: 'Paragraph (kept, with its own CSS class)',
+  h2: 'Subheading (h2)',
   h3: 'Subheading (h3)',
   h4: 'Sub-subheading (h4)',
   h5: 'Minor heading (h5)',
@@ -168,7 +188,52 @@ const CHAPTER_WORD = /^(cap[ií]tulo|chapter|kapitel|chapitre|capitolo|cap[ií]t
 const PART_WORD = /\b(parte|part|teil|partie|deel)\b/i
 const BULLET = /^[•●◦▪■·–—-]\s*\t|^[•●◦▪■]\s/
 const TOC_LINE = /\t\s*\d+\s*$/
-const IMPRINT = /i\.?s\.?b\.?n|©|copyright|dep[óo]sito legal|all rights reserved|todos los derechos|primera edici[óo]n|first published/i
+const IMPRINT = /i\.?s\.?b\.?n|©|copyright|dep[óo]sito legal|all rights reserved|todos los derechos|primera edici[óo]n|first published|alle rechte vorbehalten/i
+/** Style names InDesign and other exporters use for structure, in any language. Not a book list. */
+const TOC_NAME = /^(toc|ihv|inhalt|contents|indice|sumario|sommario|table[-_ ]?of[-_ ]?contents)([-_ ]?[0-9ivx]+|[a-z])?$/i
+const IMPRINT_NAME = /impressum|imprint|colophon|copyright|copy-?right|legal/i
+const PAGE_NUM_CLASS = /seitenzahl|pagenum(?:ber)?|page[-_ ]?number|toc[-_ ]?page/i
+
+/** A contents page-number span: a named page-number class, or a trailing optical span that is only the number.
+ *  A chapter number earlier in the line ("Capítulo 1") is not a page number. */
+const isTocPageSpan = (el: Element) => {
+  const cls = el.getAttribute('class') ?? ''
+  if (PAGE_NUM_CLASS.test(cls)) return true
+  if (!/optisch|toc|ihv/i.test(cls) || !/^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')) return false
+  let n: Node | null = el
+  while (n && (n as Element).localName !== 'body') {
+    for (let s = n.nextSibling; s; s = s.nextSibling) if ((s.textContent ?? '').trim()) return false
+    const p = n.parentNode
+    if (!p || /^(p|h[1-6]|body)$/.test((p as Element).localName ?? '')) break
+    n = p
+  }
+  return true
+}
+
+/** Contents entry with the printed page number taken off. A number that is part of the title ("Capítulo 3") stays. */
+export function tocEntryText(el: Element): string {
+  const clone = el.cloneNode(true) as Element
+  for (const s of Array.from(clone.querySelectorAll('[class]'))) if (isTocPageSpan(s)) s.remove()
+  // textOf turns the tab before a page number into a space, so remember the tab first
+  const hadTab = /\t\s*(\d+|[ivxlcdm]+)\s*$/i.test(clone.textContent ?? '')
+  const t = textOf(clone)
+  return (hadTab ? t.replace(/\s+(\d+|[ivxlcdm]+)\s*$/i, '') : t).trim()
+}
+
+const hasPageSpan = (el: Element) =>
+  Array.from(el.querySelectorAll('[class]')).some((s) => PAGE_NUM_CLASS.test(s.getAttribute('class') ?? '') && /\d/.test(s.textContent ?? ''))
+
+const headingRoleOfTag = (tg: string): Role | undefined =>
+  tg === 'h1' ? 'chapter-title' : tg === 'h2' ? 'h2' : tg === 'h3' ? 'h3' : tg === 'h4' ? 'h4' : tg === 'h5' || tg === 'h6' ? 'h5' : undefined
+
+/** Named paragraph styles that mean a heading level. h1 opens a chapter; h2–h6 stay inside it. */
+const NAMED_HEAD: [Role, RegExp][] = [
+  ['chapter-title', /^(h1|heading[-_ ]?1|chapter([-_ ]?(title|name|head(ing)?))?|kapitel([-_ ]?titel)?|titulo[-_ ]?capitulo)$/i],
+  ['h2', /^(h2|heading[-_ ]?2)$/i],
+  ['h3', /^(h3|heading[-_ ]?3)$/i],
+  ['h4', /^(h4|heading[-_ ]?4)$/i],
+  ['h5', /^(h5|h6|heading[-_ ]?[56])$/i],
+]
 
 export const cssClassName = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^(\d)/, 'c$1')
 
@@ -189,7 +254,9 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
 
   const decl = (k: string): Decls => {
     const b = byKey.get(k)!.blocks[0] ?? ps.find((p) => p.key === k)!
-    return ex.css.decls('p', b.classes)
+    // an <h1 class="h1"> is styled by `h1.h1`, not `p.h1`
+    const tg = tag(b.el)
+    return ex.css.decls(/^h[1-6]$/.test(tg) ? tg : 'p', b.classes)
   }
   const chars = (k: string) => byKey.get(k)!.blocks.reduce((n, b) => n + b.text.length, 0)
   const avgLen = (k: string) => chars(k) / Math.max(1, byKey.get(k)!.blocks.length)
@@ -213,6 +280,22 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
 
   const infos: StyleInfo[] = []
   const roles = new Map<string, [Role, string, boolean]>()
+  const mark = (k: string, role: Role, reason: string, unsure: boolean) => {
+    if (!roles.has(k)) roles.set(k, [role, reason, unsure])
+  }
+  const isTocLine = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '') || hasPageSpan(b.el) || (TOC_NAME.test(b.key) && /\d/.test(b.el.textContent ?? ''))
+  // the export already tagged the heading, or the style is named h1 / h2 / impressum / toc
+  for (const k of keys) {
+    const bl = byKey.get(k)!.blocks.filter((b) => b.text)
+    if (!bl.length || k === bodyKey) continue
+    const tg = tag(bl[0].el)
+    const fromTag = bl.every((b) => tag(b.el) === tg) ? headingRoleOfTag(tg) : undefined
+    if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false)
+    const named = NAMED_HEAD.find(([, re]) => re.test(k))
+    if (named && avgLen(k) < 180) mark(k, named[0], `style name “${k}” is a heading`, false)
+    if (TOC_NAME.test(k)) mark(k, 'toc', `style name “${k}” is a contents entry`, false)
+    if (IMPRINT_NAME.test(k)) mark(k, 'imprint', `style name “${k}” is the imprint`, false)
+  }
   // pass 1: label/title pairs
   for (const k of keys) {
     const f = follower(k)
@@ -223,11 +306,12 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       roles.set(f, [part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, false])
     }
   }
-  // pass 1b: no label/title pairs (a book whose chapter heads are one line, "I. Coordenadas…"): the contents page names every
-  // chapter, so the styles of the paragraphs that repeat those names are the chapter heads
-  if (!roles.size) {
+  // pass 1b: no chapter style yet (a book whose chapter heads are one line, "I. Coordenadas…").
+  // The contents page names every chapter: a title line, then its author/page line, or one line "Title <tab> page".
+  // A named contents style found earlier must not block this.
+  if (![...roles.values()].some(([r]) => r === 'chapter-title')) {
     const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, '')
-    const isToc = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '')
+    const isToc = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '') || hasPageSpan(b.el)
     const entries = new Set<string>()
     let last = -1
     nonEmpty.forEach((b, i) => {
@@ -235,7 +319,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       last = i
       const before = nonEmpty[i - 1]
       // a title line, then its author/page line; or one line "Title <tab> page"
-      const t = before && !isToc(before) && before.key !== b.key ? before.text : b.text.replace(/\s*\d+\s*$/, '')
+      const t = before && !isToc(before) && before.key !== b.key ? before.text : tocEntryText(b.el)
       if (norm(t).length > 3) entries.add(norm(t))
     })
     if (entries.size >= 3) {
@@ -243,7 +327,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       for (const b of nonEmpty.slice(last + 1)) if (!isToc(b) && entries.has(norm(b.text))) hits.set(b.key, (hits.get(b.key) ?? 0) + 1)
       for (const [k, n] of hits) {
         const total = byKey.get(k)!.blocks.length
-        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) roles.set(k, ['chapter-title', 'its lines are the chapters named in the contents', false])
+        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false)
       }
     }
   }
@@ -254,10 +338,11 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     const indent = px(d['text-indent'])
     const left = px(d['margin-left'])
     let r: [Role, string, boolean]
+    const tocLines = bl.filter((b) => b.text && isTocLine(b)).length
     if (!bl.length) r = ['drop', 'only ever empty', false]
-    else if (share(k, TOC_LINE, 'raw') >= 0.6) r = ['toc', 'lines end with a tab and a page number', false]
+    else if (tocLines / Math.max(1, bl.filter((b) => b.text).length) >= 0.6) r = ['toc', 'lines end with a page number', false]
     else if (share(k, BULLET, 'raw') >= 0.6) r = ['bullet', 'lines start with a bullet character', false]
-    else if (k !== bodyKey && (/imprint|copyright|legal|credit/i.test(k) || share(k, IMPRINT) >= 0.5)) r = ['imprint', 'ISBN / © / legal lines', !/imprint|copyright|legal|credit/i.test(k)]
+    else if (k !== bodyKey && (IMPRINT_NAME.test(k) || share(k, IMPRINT) >= 0.5)) r = ['imprint', 'ISBN / © / legal lines', !IMPRINT_NAME.test(k)]
     else if (display(k)) r = ['section-title', 'large centred heading not paired with a label', false]
     else if (k !== bodyKey && isHeading(ex, k, d, bl, bodySans, avgLen(k))) r = ['h3', 'short, bold/small-caps/sans line with space around it', bl.length < 3]
     else if (CHAPTER_WORD.test(bl[0]?.text ?? '') && centered(k) && bl.length < 3) r = ['p', 'centred short line', true]
@@ -313,7 +398,7 @@ function fullyBold(ex: Export, p: Element) {
 
 function outClassFor(ex: Export, k: string, role: Role, d: Decls): string {
   if (!isOverride(k.split(' ')[0]) && k !== '(no style)' && k !== 'li') return cssClassName(k)
-  if (role === 'h3' || role === 'h4' || role === 'h5') return 'sec1'
+  if (role === 'h2' || role === 'h3' || role === 'h4' || role === 'h5') return 'sec1'
   const indent = px(d['text-indent'])
   const left = px(d['margin-left'])
   // a hanging indent starts its first line at the margin (bibliographies); an indented block whose

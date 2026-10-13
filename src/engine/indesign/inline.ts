@@ -33,6 +33,13 @@ type Seg =
   | { k: 'br' }
   | { k: 'raw'; html: string }
 
+/** A contents page-number span ("ihv-seitenzahl", or an optical-alignment span that is only the number). */
+const isTocPageSpan = (el: Element) => {
+  const cls = el.getAttribute('class') ?? ''
+  if (/seitenzahl|pagenum(?:ber)?|page[-_ ]?number|toc[-_ ]?page/i.test(cls)) return true
+  return /optisch|toc|ihv/i.test(cls) && /^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')
+}
+
 export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): string {
   const base = opts.base ?? ctx.css.paragraphFace(classesOf(p))
   const segs: Seg[] = []
@@ -55,6 +62,7 @@ export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): s
       else if (tg === 'a' && isNoteRef(c)) segs.push({ k: 'raw', html: ctx.noteRef((c.getAttribute('href') ?? '').split('#')[1] ?? '') })
       else if (tg === 'a') walk(c, face, normalizeHref(c.getAttribute('href') ?? '', c.textContent ?? ''))
       else if (tg === 'img') continue
+      else if (opts.stripPageNumber && isTocPageSpan(c)) continue
       else walk(c, ctx.css.spanFace(classesOf(c), face), href)
     }
   }

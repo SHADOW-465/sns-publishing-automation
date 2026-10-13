@@ -9,7 +9,7 @@ import { sectionTypeOf } from '../epub/locale.ts'
 // =============================================================================================
 
 type PBlock = Extract<Block, { t: 'p' }>
-export type FrontKind = 'halftitle' | 'title' | 'copyright' | 'dedication' | 'epigraph' | 'other'
+export type FrontKind = 'halftitle' | 'title' | 'copyright' | 'dedication' | 'epigraph' | 'toc' | 'other'
 export interface FrontPage {
   kind: FrontKind
   blocks: Block[]
@@ -82,7 +82,12 @@ export function splitPages(blocks: Block[]): Block[][] {
 const linesOf = (g: Block[]) => g.filter((b): b is PBlock => b.t === 'p' && !!b.text)
 export const isImprintPage = (g: Block[], roleOf: (b: PBlock) => Role) => {
   const ls = linesOf(g)
-  return ls.some((b) => roleOf(b) === 'imprint') || ls.filter((b) => IMPRINT_ANY.test(b.text)).length >= 2
+  // a style actually named as the imprint is the copyright page, however long the legal text is
+  if (ls.some((b) => roleOf(b) === 'imprint')) return true
+  // a chapter page that mentions a website or a GmbH is not a copyright page
+  if (ls.some((b) => /^(chapter|part)-(title|label)$/.test(roleOf(b)) || /^h[2-5]$/.test(roleOf(b)))) return false
+  if (ls.filter((b) => b.text.length > 200).length >= 4) return false
+  return ls.filter((b) => IMPRINT_ANY.test(b.text)).length >= 2
 }
 const displayPage = (g: Block[]) => {
   const ls = linesOf(g)
@@ -110,8 +115,18 @@ export function classifyFront(pages: Block[][], roleOf: (b: PBlock) => Role, tit
   const titleIdx = pages.map((g, i) => [g, i] as const).filter(([g]) => displayPage(g) && hasTitle(g) && !isImprintPage(g, roleOf)).map(([, i]) => i)
   // the title page is the richest display page carrying the title; one before it with only the title is the half-title
   const tp = titleIdx.sort((a, b) => linesOf(pages[b]).length - linesOf(pages[a]).length || a - b)[0]
+  const tocShare = (g: Block[]) => {
+    const ls = linesOf(g)
+    if (ls.length < 3) return 0
+    return ls.filter((b) => roleOf(b) === 'toc').length / ls.length
+  }
   pages.forEach((g, i) => {
     const ls = linesOf(g)
+    // the printed contents, before any dedication/epigraph guess (those pages are short too)
+    if (tocShare(g) >= 0.5) {
+      out.push({ kind: 'toc', blocks: g })
+      return
+    }
     if (isImprintPage(g, roleOf)) out.push({ kind: 'copyright', blocks: g })
     else if (i === tp) out.push({ kind: 'title', blocks: g })
     else if (tp !== undefined && i < tp && hasTitle(g) && displayPage(g)) out.push({ kind: 'halftitle', blocks: g })

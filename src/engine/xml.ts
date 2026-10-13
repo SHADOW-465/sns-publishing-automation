@@ -40,11 +40,17 @@ export function textOf(el: Element | null | undefined): string {
 export const epubType = (el: Element) =>
   el.getAttributeNS(OPS_NS, 'type') ?? el.getAttribute('epub:type') ?? ''
 
-/** Page-break marker (InDesign writes these as empty div/span with epub:type="pagebreak"). */
-export const pageBreakOf = (el: Element): string | null =>
-  epubType(el) === 'pagebreak' || el.getAttribute('role') === 'doc-pagebreak'
-    ? (el.getAttribute('aria-label') ?? el.getAttribute('title') ?? el.id.replace(/^page-?/, ''))
-    : null
+/** Page-break marker (InDesign writes these as empty div/span with epub:type="pagebreak").
+ *  The id is the printed page (`page89`). aria-label usually repeats it, but some exports restart
+ *  the label at 1 inside a chapter while the id keeps the real page. The contents uses the real page. */
+export const pageBreakOf = (el: Element): string | null => {
+  if (epubType(el) !== 'pagebreak' && el.getAttribute('role') !== 'doc-pagebreak') return null
+  const id = el.id.replace(/^page-?/i, '')
+  const label = (el.getAttribute('aria-label') ?? el.getAttribute('title') ?? '').trim()
+  const labelNum = label.replace(/^\D+/, '').replace(/\D+$/, '')
+  if (/^\d+$/.test(id) && /^\d+$/.test(labelNum) && id !== labelNum) return id
+  return label || id || null
+}
 
 /** Resolve a relative href against the directory of `base` (zip paths, no leading slash). */
 export function resolvePath(base: string, href: string): string {

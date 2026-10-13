@@ -1,4 +1,4 @@
-import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName } from './read.ts'
+import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName, tocEntryText } from './read.ts'
 import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
 import { px, em, isOverride, type Decls } from './css.ts'
 import { houseDecls, cellDecls, ruleOf, FIXED_CLASSES } from '../epub/css.ts'
@@ -143,7 +143,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const prof = new Map(input.styles.map((s) => [s.key, s]))
   const roleOf = (b: PBlock): Role => prof.get(b.key)?.role ?? 'p'
   const classOf = (b: PBlock) => prof.get(b.key)?.outClass ?? 'noindent'
-  const declsOf = (b: PBlock): Decls => ex.css.decls('p', b.classes)
+  const kindOf = (b: PBlock) => (/^h[1-6]$/.test(tag(b.el)) ? tag(b.el) : 'p')
+  const declsOf = (b: PBlock): Decls => ex.css.decls(kindOf(b), b.classes)
   // a style's own definition, without the one-off overrides of a particular paragraph: the epigraph's
   // "align right" must not become the alignment of every paragraph in that style
   const styleDeclsOf = (b: PBlock): Decls => {
@@ -165,6 +166,16 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const blocks = ex.blocks.filter((b, i) => i <= lastText || b.t !== 'pb')
   // everything before the first chapter / known section is front matter, sorted by content in 2b
   const start = bodyStart(blocks, roleOf)
+  // a short subheading opens its own section only when the contents lists it (back matter).
+  // An in-chapter "Notes" heading is not a contents entry and stays with its chapter, so its notes stay linked.
+  const tocNames = new Set(blocks.flatMap((b) => (b.t === 'p' && b.text && roleOf(b) === 'toc' ? [norm(tocEntryText(b.el))] : [])))
+  // the contents may shorten a heading ("Autor" for "Der Autor")
+  const listed = (text: string) => {
+    const x = norm(text)
+    if (!x || tocNames.has(x)) return tocNames.has(x)
+    for (const n of tocNames) if (n.length >= 4 && x.endsWith(n) && x.length - n.length <= 6) return true
+    return false
+  }
   for (const b of blocks.slice(0, start)) {
     if (b.t === 'p' && !b.text) {
       for (const el of Array.from(b.el.querySelectorAll('*'))) {
@@ -235,7 +246,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       s.title.push(b)
       takeFollowing('chapter-title', s.title)
       seenChapter = true
-    } else if (r === 'section-title') {
+    } else if (r === 'section-title' || ((r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') && sectionTypeOf(b.text) && b.text.length <= 80 && listed(b.text))) {
+      // a subheading style is also used for "Notes", "Bibliography", "The author": those open their own section
       const s = newSec(sectionTypeOf(b.text) ?? 'other')
       s.title.push(b)
       if (s.type === 'other') review.push({ level: 'warn', msg: `Section "${b.text}" has an unknown type — exported as generic ${seenChapter ? 'back' : 'front'} matter.`, where: b.text })
@@ -253,11 +265,12 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   }
   // headings of known kinds that sat among the front pages keep their own section
   for (const f of front) {
-    if (f.type !== 'other') continue
-    const h = f.items.find((x): x is PBlock => x.t === 'p' && !!x.text && roleOf(x) === 'section-title')
+    if (f.type !== 'other' && f.type !== 'toc') continue
+    const h = f.items.find((x): x is PBlock => x.t === 'p' && !!x.text && (roleOf(x) === 'section-title' || (f.type === 'toc' && sectionTypeOf(x.text) === 'toc')))
     if (h) {
       f.title.push(h)
       f.items = f.items.filter((x) => x !== h)
+      if (f.type === 'other') f.type = sectionTypeOf(h.text) ?? 'other'
     }
   }
   // imprint lines printed elsewhere in the book (often on the last page) join the copyright page
@@ -320,23 +333,34 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const tocHtml = new Map<Sec, { html: string; src: PBlock }[]>()
   let secNo = 0
   const repaired: string[] = []
-  const headings = all.flatMap((s) =>
-    s.items.filter((b): b is PBlock => b.t === 'p' && /^h[345]$/.test(roleOf(b))).map((b) => ({ b, s })),
+  // h2 is an exact match only. A fuzzy "same page" match on h2 turned exercise lines into chapter entries.
+  const subheads = all.flatMap((s) =>
+    s.items.filter((b): b is PBlock => b.t === 'p' && /^h[2-5]$/.test(roleOf(b))).map((b) => ({ b, s })),
   )
+  const headings = subheads.filter((x) => /^h[345]$/.test(roleOf(x.b)))
   for (const s of all) {
     const entries = s.items.filter((b): b is PBlock => b.t === 'p')
-    const tocLike = s.type === 'toc' || s.type === 'list' || (entries.length > 2 && entries.filter((b) => roleOf(b) === 'toc').length / entries.length >= 0.5)
+    const tocLines = entries.filter((b) => b.text && roleOf(b) === 'toc')
+    const tocShare = tocLines.length / Math.max(1, entries.filter((b) => b.text).length)
+    // a list of credits is not a contents page; a list whose lines are contents entries (an exercise list) is
+    const tocLike = s.type === 'toc' || (s.type === 'list' && tocShare >= 0.5) || (entries.length > 2 && tocShare >= 0.5)
     if (!tocLike) continue
     const out: { html: string; src: PBlock }[] = []
     let lastTarget: Sec | undefined
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
-      const raw = e.el.textContent ?? ''
-      const page = raw.match(/\t\s*(\d+|[ivxlcdm]+)\s*$/i)?.[1]
-      const n = norm(raw.replace(/\t\s*(\d+|[ivxlcdm]+)\s*$/i, ''))
+      const raw = tocEntryText(e.el)
+      const pageSpan = Array.from(e.el.querySelectorAll('[class]')).find((s) => /seitenzahl|pagenum|page-number|toc-page|^optisch$/i.test((s.getAttribute('class') ?? '').split(/\s+/).pop() ?? '') && /^\s*(\d+|[ivxlcdm]+)\s*$/i.test(s.textContent ?? ''))
+      const page = (e.el.textContent ?? '').match(/\t\s*(\d+|[ivxlcdm]+)\s*$/i)?.[1] ?? pageSpan?.textContent?.match(/(\d+|[ivxlcdm]+)/i)?.[1]
+      const n = norm(raw)
       const ctx = inlineCtx(ex, meta.language, L, () => '', () => '')
       const html = inlineHtml(e.el, ctx, { heading: true, stripPageNumber: true })
-      const target = all.find((x) => x !== s && n && (norm(x.labelText + x.titleText) === n || norm(x.titleText) === n || norm(x.nav) === n))
+      // "Autor" in the contents is the section "Der Autor": the same words, with a short article in front
+      const sameTitle = (t: string) => {
+        const x = norm(t)
+        return !!x && (x === n || (n.length >= 4 && x.endsWith(n) && x.length - n.length <= 6))
+      }
+      const target = all.find((x) => x !== s && n && (norm(x.labelText + x.titleText) === n || norm(x.titleText) === n || norm(x.nav) === n || sameTitle(x.nav) || sameTitle(x.titleText)))
       const labelOnly = !target && all.find((x) => x !== s && x.labelText && norm(x.labelText) === n)
       if (labelOnly && labelOnly.type === 'part') {
         // "Primera parte" + next entry "Identifica tu…" → one linked entry
@@ -367,7 +391,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         } else out.push({ html: `<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`, src: e })
         continue
       }
-      const h = headings.find((x) => norm(x.b.text) === n) ?? headings.find((x) => page && x.b.page === page && (norm(x.b.text).includes(n) || n.includes(norm(x.b.text))))
+      const h = subheads.find((x) => norm(x.b.text) === n || sameTitle(x.b.text)) ?? headings.find((x) => page && x.b.page === page && (norm(x.b.text).includes(n) || n.includes(norm(x.b.text))))
       if (h) {
         if (!headingIds.has(h.b)) headingIds.set(h.b, `sec${++secNo}`)
         out.push({ html: `<p class="toc_1a"><a href="${h.s.stem}.xhtml#${headingIds.get(h.b)}">${html}</a></p>`, src: e })
@@ -411,7 +435,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   {
     const series = new Map<string, PBlock[]>()
     for (const s of all) for (const b of s.items) {
-      if (b.t !== 'p' || !/^h[345]$/.test(roleOf(b))) continue
+      if (b.t !== 'p' || !/^h[2-5]$/.test(roleOf(b))) continue
       const k = b.text.match(/^(\p{L}+)\s+\d+\s*[:.]/u)?.[1]?.toLocaleLowerCase()
       if (k) series.set(k, [...(series.get(k) ?? []), b])
     }
@@ -436,7 +460,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   }
   const majority = (key: string): Decls | undefined => [...(lookTally.get(key)?.values() ?? [])].sort((x, y) => y.n - x.n)[0]?.d
   const paraLook = (tg: string, d: Decls) => ruleOf('x', houseDecls(tg, d, bodyDecls))
-  const tagOf = (r: Role) => (r === 'h3' || r === 'h4' || r === 'h5' ? r : 'p')
+  const tagOf = (r: Role) => (r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5' ? r : 'p')
   const cellsOfTable = (t: Element) => Array.from(t.querySelectorAll('tr')).flatMap((tr) => Array.from(tr.children).filter((c) => /^t[dh]$/.test(tag(c))))
   const cellInfo = (c: Element) => {
     const named = classesOf(c).filter((x) => !isOverride(x))
@@ -452,7 +476,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       }
       if (b.t !== 'p' || !b.text) continue
       const r = roleOf(b)
-      if (r !== 'p' && r !== 'h3' && r !== 'h4' && r !== 'h5') continue
+      if (r !== 'p' && r !== 'h2' && r !== 'h3' && r !== 'h4' && r !== 'h5') continue
       tallyLook(`${tagOf(r)}.${classOf(b)}`, declsOf(b), paraLook(tagOf(r), declsOf(b)))
     }
   }
@@ -563,7 +587,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       if (r === 'bullet' || b.list) {
         use('li', 'bull', {})
         items.push({ kind: 'li', list: b.list ?? { ordered: false, depth: 0 }, html: inlineHtml(b.el, ctx, { stripBullet: !b.list }) })
-      } else if (r === 'h3' || r === 'h4' || r === 'h5') {
+      } else if (r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') {
         const hang = /^\d{1,3}\s*[:.)]\s/.test(b.text) && !px(declsOf(b)['margin-left']) // "1: Deseas tener tiempo…": the number hangs in the margin
         const ca = hang ? hangClass(r, b, cls) : classAttr(r, b, cls)
         const id = headingIds.get(b)
@@ -703,7 +727,9 @@ function renderHeading(
   use: (tg: string, cls: string, d: Decls) => void, bodyDecls: Decls,
 ): string {
   if (!s.label.length && !s.title.length) return ''
-  const h = s.type === 'part' ? 'h1' : 'h2'
+  // a chapter the export already marked <h1> stays h1; a chapter typed as a paragraph stays h2 (house style)
+  const srcTag = tag((s.title[0] ?? s.label[0]).el)
+  const h = s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
   if (s.label.length && s.title.length) {
     const lc = classOf(s.label[0])
@@ -822,7 +848,8 @@ function footnoteMarker(li: Element): string {
 }
 
 function renderFootnote(li: Element, num: string, marker: string, ex: Export, lang: string, L: Labels): string {
-  const ctx = inlineCtx(ex, lang, L, (n) => pageSpan(n, L), () => '')
+  // page markers inside a note stay where the note list sits, not beside the reference
+  const ctx = inlineCtx(ex, lang, L, () => '', () => '')
   const ps = Array.from(li.querySelectorAll('p')).length ? Array.from(li.querySelectorAll('p')) : [li]
   const paras = ps.map((p, i) => {
     const clone = p.cloneNode(true) as Element
