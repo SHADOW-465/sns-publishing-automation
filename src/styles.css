@@ -242,6 +242,9 @@ table.styles select { max-width: 290px; }
 .src-badge.pending { background: var(--warn-soft); color: var(--warn); }
 .caption-note { margin: 8px 0 0; font-size: 13.5px; line-height: 1.4; }
 
+.panel { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 8px; }
+.panel > summary { cursor: pointer; font-weight: 600; font-size: 16.5px; padding: 6px 0; }
+
 /* ---- outline and preview -------------------------------------------------------------------- */
 .preview-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 14px; margin-top: 10px; }
 .preview-grid nav { border: 1px solid var(--rule); border-radius: 12px; background: var(--paper); padding: 6px; }

@@ -386,16 +386,18 @@ export function IndesignFlow() {
             validator — and look through the book in a reader such as Apple Books or Thorium.
           </Help>
           {pdf && printPages ? (
-            <>
-              <h3>Compare with the print book</h3>
+            <details className="panel" open>
+              <summary>Compare with the print book</summary>
               <p className="muted small">The printed page next to the same page of the e-book. Pages the check flagged come first.</p>
               <ComparePrint files={result.files} pages={printPages} pdf={pdf.data} flagged={flaggedPages(report)} />
-            </>
+            </details>
           ) : (
             <p className="muted small">Add the print PDF in step 1 to compare every page with the print book.</p>
           )}
-          <h3>Preview</h3>
-          <Outline sections={result.sections} files={result.files} />
+          <details className="panel" open>
+            <summary>Preview</summary>
+            <Outline sections={result.sections} files={result.files} />
+          </details>
         </section>
       )}
     </div>
