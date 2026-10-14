@@ -87,7 +87,9 @@ export function PdfFlow() {
       await new Promise((r) => setTimeout(r, 30))
       const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt, sectionNav: navs }, browserRaster)
       setResult(r)
-      setAlt(Object.fromEntries(r.pictures.map((p) => [p.path, p.alt])))
+      // keep only real descriptions as the reviewer's text; a decorative or empty picture must stay
+      // unset so the layered alt re-resolves it (seeding '' would turn a decorative image into a gap)
+      setAlt(Object.fromEntries(r.pictures.filter((p) => p.alt && !p.decorative).map((p) => [p.path, p.alt])))
       setProgress({ done: 1, total: 2 })
       let lay = layout
       if (!lay) {
@@ -118,7 +120,7 @@ export function PdfFlow() {
       }).items.filter((it) => it.area !== 'note').length
     : 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
-  const todo = result ? result.pictures.filter((p) => !alt[p.path] || alt[p.path] === p.caption) : []
+  const todo = result ? result.pictures.filter((p) => !p.decorative && (!alt[p.path] || alt[p.path] === p.caption)) : []
   const errors = report ? deliveryCounts(report, result?.review ?? []).errors : 0
   const steps = [
     { title: 'Files', hint: 'print PDF and cover', enabled: true, done: !!book },
@@ -284,7 +286,8 @@ export function PdfFlow() {
 function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo }: { result: PdfBuildResult; alt: Record<string, string>; setAlt: (a: Record<string, string>) => void; onBack: () => void; onNext: () => void; busy: boolean; todo: number }) {
   const [filter, setFilter] = useState<'todo' | 'all'>(todo ? 'todo' : 'all')
   const urls = useObjectUrls(useMemo(() => result.pictures.map((p) => [p.path, result.files.get(`OEBPS/${p.path}`)!] as [string, Uint8Array]), [result]), 'image/jpeg')
-  const shown = filter === 'todo' ? result.pictures.filter((p) => !alt[p.path] || alt[p.path] === p.caption) : result.pictures
+  const shown = filter === 'todo' ? result.pictures.filter((p) => !p.decorative && (!alt[p.path] || alt[p.path] === p.caption)) : result.pictures
+  const SOURCE: Record<string, string> = { spec: 'from the spec', file: 'from the image file', ai: 'AI draft — approve it', typed: 'typed', decorative: 'decorative', caption: '' }
   return (
     <section className="card">
       <h2>4. Describe the pictures</h2>
@@ -306,10 +309,14 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo }: { result:
             <img src={urls.get(p.path)} alt="" loading="lazy" />
             <div>
               <code>{p.path.replace('images/', '')}</code>
+              {(p.decorative || (p.alt && SOURCE[p.source])) && <span className="note small"> {p.decorative ? 'decorative — no description needed' : SOURCE[p.source]}</span>}
               {p.caption && <div className="why">Caption: {p.caption}</div>}
+              {p.decorative ? (
+                <div className="why">A screen reader skips this picture. Type a description below to treat it as content instead.</div>
+              ) : null}
               <label className="alt">
                 <span>Description</span>
-                <textarea rows={2} value={alt[p.path] ?? ''} onChange={(e) => setAlt({ ...alt, [p.path]: e.target.value })} />
+                <textarea rows={2} value={alt[p.path] ?? ''} placeholder={p.decorative ? '(decorative — leave empty)' : ''} onChange={(e) => setAlt({ ...alt, [p.path]: e.target.value })} />
               </label>
             </div>
           </div>

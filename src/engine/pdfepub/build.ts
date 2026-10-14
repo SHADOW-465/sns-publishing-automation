@@ -10,6 +10,7 @@ import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
+import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, type SpecPicture, type AltSource } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 
 // =============================================================================================
@@ -22,8 +23,10 @@ export interface PdfBuildInput {
   meta: BookMeta
   rules: CopyrightRules
   cover?: { name: string; data: Uint8Array }
-  /** optional alt text per picture file name (images/pg-53-2.jpg → text) */
+  /** optional alt text per picture file name (images/pg-53-2.jpg → text): the reviewer's typed text, which wins */
   alt?: Record<string, string>
+  /** spec-workbook picture rows, matched to pictures by file name (same layered alt system as InDesign) */
+  pictures?: SpecPicture[]
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
 }
@@ -33,7 +36,7 @@ export interface PdfBuildResult {
   files: Map<string, Uint8Array>
   sections: Section[]
   review: ReviewItem[]
-  pictures: { path: string; alt: string; caption: string }[]
+  pictures: { path: string; alt: string; caption: string; decorative: boolean; longDesc: string; source: AltSource; approved: boolean }[]
   /** what the quality check compares the EPUB against */
   source: CheckSource
 }
@@ -339,12 +342,28 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         capSegs.push(...segs)
       }
       const caption = g ? segHtml(capSegs) : ''
-      const alt = input.alt?.[name] ?? (g ? plain(capSegs) : '')
-      pictures.push({ path: name, alt, caption: g ? plain(capSegs) : '' })
+      const capText = g ? plain(capSegs) : ''
+      // same layered alt as the InDesign flow: the reviewer's text wins, then a spec-workbook row,
+      // then the picture's own file metadata, then a decorative rule — and a caption is never reused
+      // as the description (a screen reader already reads the figcaption)
+      const typed = input.alt?.[name]
+      const meta = im.jpeg ? readImageMetadata(im.jpeg) : undefined
+      const choice = resolveAlt({
+        typed: typed === undefined ? null : { alt: typed },
+        spec: matchSpecPicture(name, input.pictures ?? []) ?? null,
+        file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
+        decorative: !!decorativeReason({ name, width: Math.round(im.x1 - im.x0), height: Math.round(im.y1 - im.y0) }),
+        caption: capText,
+      })
+      pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
+      const ldId = choice.longDesc ? `ld-${name.replace(/[^\w]+/g, '-')}` : ''
+      const img = choice.decorative
+        ? `<img alt="" role="presentation" src="${name}"/>`
+        : `<img alt="${esc(choice.alt)}"${ldId ? ` aria-describedby="${ldId}"` : ''} src="${name}"/>`
       floats.push({
         page: page.index,
         opener: !page.lines.some((l) => roleOf(l) !== 'caption'),
-        html: `<figure class="img_cont">\n<p class="image_Container">${k === 0 ? pageMarker : ''}<img alt="${esc(alt)}" src="${name}"/></p>${caption ? `\n<figcaption class="caption1">${caption}</figcaption>` : ''}\n</figure>`,
+        html: `<figure class="img_cont">\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n<figcaption class="caption1">${caption}</figcaption>` : ''}${ldId ? `\n<p class="longdesc" id="${ldId}">${esc(choice.longDesc)}</p>` : ''}\n</figure>`,
       })
     })
     if (pics.length) pageMarker = ''
@@ -517,8 +536,17 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (!im) continue
       const path = `images/pg-${printNo(idx)}.jpg`
       images.push({ path, data: im.jpeg! })
-      pictures.push({ path, alt: input.alt?.[path] ?? '', caption: '' })
-      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<figure class="img_cont">\n<p class="image_Container">${mk}<img alt="${esc(input.alt?.[path] ?? '')}" class="cv" src="${path}"/></p>\n</figure>` }], raw: [], nav: '' })
+      const typed = input.alt?.[path]
+      const meta = readImageMetadata(im.jpeg!)
+      const choice = resolveAlt({
+        typed: typed === undefined ? null : { alt: typed },
+        spec: matchSpecPicture(path, input.pictures ?? []) ?? null,
+        file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
+        decorative: !!decorativeReason({ name: path, width: Math.round(im.x1 - im.x0), height: Math.round(im.y1 - im.y0) }),
+      })
+      pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
+      const cimg = choice.decorative ? `<img alt="" role="presentation" class="cv" src="${path}"/>` : `<img alt="${esc(choice.alt)}" class="cv" src="${path}"/>`
+      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<figure class="img_cont">\n<p class="image_Container">${mk}${cimg}</p>\n</figure>` }], raw: [], nav: '' })
     }
   }
 
@@ -648,9 +676,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   else throw new Error('A cover image is required (JPG or PNG).')
 
   // ---------------------------------------------------------------- review notes
-  const noAlt = pictures.filter((p) => !p.alt)
-  const capAlt = pictures.filter((p) => p.alt && p.alt === p.caption)
-  if (capAlt.length) review.push({ level: 'warn', msg: `${capAlt.length} picture(s) use their caption as alt text. Replace with a description where the caption doesn't describe the image.` })
+  // a decorative picture is complete with an empty alt; an unapproved AI draft still needs a person
+  const noAlt = pictures.filter((p) => !p.alt && !p.decorative)
+  const draft = pictures.filter((p) => p.alt && p.source === 'ai' && !p.approved)
+  if (draft.length) review.push({ level: 'warn', msg: `${draft.length} picture(s) have an AI-drafted description to approve before the book is certified.` })
   if (noAlt.length) review.push({ level: 'error', msg: `${noAlt.length} picture(s) need a description (alt text): ${noAlt.slice(0, 8).map((p) => p.path.replace('images/', '')).join(', ')}${noAlt.length > 8 ? '…' : ''}` })
   const failed = book.pages.flatMap((p) => p.images.filter((i) => !i.jpeg).map(() => printNo(p.index)))
   if (failed.length) review.push({ level: 'warn', msg: `Could not extract ${failed.length} picture(s) (pages ${[...new Set(failed)].join(', ')}): check against the PDF.` })
