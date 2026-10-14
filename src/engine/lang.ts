@@ -25,18 +25,45 @@ const SCRIPTS: [string, RegExp][] = [
   ['hi', /\p{Script=Devanagari}/gu], ['th', /\p{Script=Thai}/gu],
 ]
 
-export function detectLanguage(text: string): string {
+function scriptOf(text: string): string | undefined {
   const sample = text.slice(0, 40000)
   const letters = (sample.match(/\p{L}/gu) ?? []).length
-  if (letters) for (const [code, re] of SCRIPTS) if ((sample.match(re) ?? []).length / letters > 0.3) return code
+  if (!letters) return undefined
+  for (const [code, re] of SCRIPTS) if ((sample.match(re) ?? []).length / letters > 0.3) return code
+  return undefined
+}
+
+function stopScores(text: string): { lang: string; score: number }[] {
   const words = text.toLowerCase().match(/\p{L}+/gu) ?? []
   const count = new Map<string, number>()
   for (const w of words.slice(0, 20000)) count.set(w, (count.get(w) ?? 0) + 1)
-  return Object.entries(STOP).map(([lang, ws]) => [lang, ws.reduce((n, w) => n + (count.get(w) ?? 0), 0)] as const).sort((a, b) => b[1] - a[1])[0][0]
+  return Object.entries(STOP)
+    .map(([lang, ws]) => ({ lang, score: ws.reduce((n, w) => n + (count.get(w) ?? 0), 0) }))
+    .sort((a, b) => b.score - a.score)
+}
+
+export function detectLanguage(text: string): string {
+  return scriptOf(text) ?? stopScores(text)[0].lang
 }
 
 /** Of the language codes a file declares, the one matching its text ("en-GB, en-US, es-ES" + Spanish text → es-ES). */
 export function pickLanguage(declared: string[], text: string): string {
   const found = detectLanguage(text)
   return declared.find((d) => d.slice(0, 2).toLowerCase() === found) ?? declared.find(Boolean) ?? found
+}
+
+/**
+ * Language of a print PDF. The text decides when it is clearly a language, so a file that still
+ * says "en" does not hide a German book. A declared tag is kept when it agrees ("de-DE" over "de")
+ * or when the text is too short to overrule it. No letters at all keeps the declaration, or "en".
+ */
+export function languageFromBook(declared: string | undefined, text: string): string {
+  const tag = (declared ?? '').trim().replace(/_/g, '-')
+  if (!/\p{L}/u.test(text)) return tag || 'en'
+  const script = scriptOf(text)
+  if (script) return tag.slice(0, 2).toLowerCase() === script ? tag : script
+  const [top, second] = stopScores(text)
+  const confident = top.score >= 4 && top.score >= (second?.score ?? 0) + 3
+  if (tag && (tag.slice(0, 2).toLowerCase() === top.lang || !confident)) return tag
+  return top.lang
 }

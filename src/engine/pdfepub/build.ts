@@ -10,7 +10,7 @@ import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
-import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, type SpecPicture, type AltSource } from '../epub/alt.ts'
+import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 
 // =============================================================================================
@@ -99,6 +99,42 @@ function autolink(escaped: string) {
 
 const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => ({ t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
+
+/**
+ * Picture description for one PDF image, in the same order as the InDesign flow:
+ * typed text, then a spec-workbook row, then text stored in the image file, then a decorative rule.
+ * A blank typed value is "not typed" (clearing the box restores the layers). A caption is never
+ * the description. Width and height are the picture's size on the page, in PDF points.
+ */
+export function pdfPictureAlt(o: {
+  name: string
+  typed?: string
+  pictures?: SpecPicture[]
+  jpeg?: Uint8Array | null
+  width: number
+  height: number
+  caption?: string
+}): AltChoice {
+  const meta = o.jpeg ? readImageMetadata(o.jpeg) : undefined
+  return resolveAlt({
+    typed: o.typed?.trim() ? { alt: o.typed } : null,
+    spec: matchSpecPicture(o.name, o.pictures ?? []) ?? null,
+    file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
+    decorative: !!decorativeReason({ name: o.name, width: Math.abs(Math.round(o.width)), height: Math.abs(Math.round(o.height)) }),
+    caption: o.caption,
+  })
+}
+
+/** The <img> for a resolved picture, plus a long-description paragraph when the spec gave one. */
+export function pdfImgHtml(name: string, choice: AltChoice, className = ''): { img: string; extra: string } {
+  const cls = className ? ` class="${className}"` : ''
+  const ldId = choice.longDesc ? `ld-${name.replace(/[^\w]+/g, '-')}` : ''
+  const img = choice.decorative
+    ? `<img alt="" role="presentation"${cls} src="${name}"/>`
+    : `<img alt="${esc(choice.alt)}"${ldId ? ` aria-describedby="${ldId}"` : ''}${cls} src="${name}"/>`
+  const extra = ldId ? `\n<p class="longdesc" id="${ldId}">${esc(choice.longDesc)}</p>` : ''
+  return { img, extra }
+}
 
 export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: Raster): Promise<PdfBuildResult> {
   const { meta } = input
@@ -343,27 +379,15 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       }
       const caption = g ? segHtml(capSegs) : ''
       const capText = g ? plain(capSegs) : ''
-      // same layered alt as the InDesign flow: the reviewer's text wins, then a spec-workbook row,
-      // then the picture's own file metadata, then a decorative rule — and a caption is never reused
-      // as the description (a screen reader already reads the figcaption)
-      const typed = input.alt?.[name]
-      const meta = im.jpeg ? readImageMetadata(im.jpeg) : undefined
-      const choice = resolveAlt({
-        typed: typed === undefined ? null : { alt: typed },
-        spec: matchSpecPicture(name, input.pictures ?? []) ?? null,
-        file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
-        decorative: !!decorativeReason({ name, width: Math.round(im.x1 - im.x0), height: Math.round(im.y1 - im.y0) }),
-        caption: capText,
+      const choice = pdfPictureAlt({
+        name, typed: input.alt?.[name], pictures: input.pictures, jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capText,
       })
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
-      const ldId = choice.longDesc ? `ld-${name.replace(/[^\w]+/g, '-')}` : ''
-      const img = choice.decorative
-        ? `<img alt="" role="presentation" src="${name}"/>`
-        : `<img alt="${esc(choice.alt)}"${ldId ? ` aria-describedby="${ldId}"` : ''} src="${name}"/>`
+      const { img, extra } = pdfImgHtml(name, choice)
       floats.push({
         page: page.index,
         opener: !page.lines.some((l) => roleOf(l) !== 'caption'),
-        html: `<figure class="img_cont">\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n<figcaption class="caption1">${caption}</figcaption>` : ''}${ldId ? `\n<p class="longdesc" id="${ldId}">${esc(choice.longDesc)}</p>` : ''}\n</figure>`,
+        html: `<figure class="img_cont">\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n<figcaption class="caption1">${caption}</figcaption>` : ''}${extra}\n</figure>`,
       })
     })
     if (pics.length) pageMarker = ''
@@ -536,17 +560,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (!im) continue
       const path = `images/pg-${printNo(idx)}.jpg`
       images.push({ path, data: im.jpeg! })
-      const typed = input.alt?.[path]
-      const meta = readImageMetadata(im.jpeg!)
-      const choice = resolveAlt({
-        typed: typed === undefined ? null : { alt: typed },
-        spec: matchSpecPicture(path, input.pictures ?? []) ?? null,
-        file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
-        decorative: !!decorativeReason({ name: path, width: Math.round(im.x1 - im.x0), height: Math.round(im.y1 - im.y0) }),
+      const choice = pdfPictureAlt({
+        name: path, typed: input.alt?.[path], pictures: input.pictures, jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0,
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
-      const cimg = choice.decorative ? `<img alt="" role="presentation" class="cv" src="${path}"/>` : `<img alt="${esc(choice.alt)}" class="cv" src="${path}"/>`
-      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<figure class="img_cont">\n<p class="image_Container">${mk}${cimg}</p>\n</figure>` }], raw: [], nav: '' })
+      const { img, extra } = pdfImgHtml(path, choice, 'cv')
+      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<figure class="img_cont">\n<p class="image_Container">${mk}${img}</p>${extra}\n</figure>` }], raw: [], nav: '' })
     }
   }
 

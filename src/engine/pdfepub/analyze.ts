@@ -3,7 +3,7 @@ import { isSlug } from '../pdf/slug.ts'
 import { readContents, readLists, matchHeadings, type Contents } from './contents.ts'
 import { fillNumbers } from '../pdf/numbers.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
-import { pickLanguage } from '../lang.ts'
+import { languageFromBook } from '../lang.ts'
 import { COMPANY, CREDIT, FILEISH } from '../indesign/front.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
@@ -342,11 +342,11 @@ export async function analyzePdf(
   const info = await doc.getMetadata().catch(() => null)
   const fromFile = String(info?.info?.Author ?? '').trim()
   const author = rest.find((t) => !notAuthor(t)) || (fromFile && !notAuthor(fromFile) ? fromFile : '')
-  // the book's own text decides the language (the German Weigel print PDF declares nothing); a region
-  // tag in the PDF metadata is kept when it agrees ("de-DE" over a detected "de")
-  const declared = (info?.info?.Language as string | undefined)?.replace('_', '-').trim()
+  // the book's own text decides when the Info language is wrong or missing; a region tag is kept
+  // when it agrees (the Weigel print PDF says de-DE and the text is German, so the book stays de-DE)
+  const declared = (info?.info?.Language as string | undefined)?.replace(/_/g, '-').trim()
   const bodyText = pages.flatMap((p) => p.lines.map((l) => l.text)).join(' ')
-  const language = /\p{L}/u.test(bodyText) ? pickLanguage(declared ? [declared] : [], bodyText) : declared || 'en'
+  const language = languageFromBook(declared, bodyText)
   const meta: BookMeta = {
     title: h.title || titleCase(info?.info?.Title ?? ''),
     subtitle,

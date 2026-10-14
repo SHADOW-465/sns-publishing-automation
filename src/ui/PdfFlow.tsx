@@ -87,9 +87,8 @@ export function PdfFlow() {
       await new Promise((r) => setTimeout(r, 30))
       const r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt, sectionNav: navs }, browserRaster)
       setResult(r)
-      // keep only real descriptions as the reviewer's text; a decorative or empty picture must stay
-      // unset so the layered alt re-resolves it (seeding '' would turn a decorative image into a gap)
-      setAlt(Object.fromEntries(r.pictures.filter((p) => p.alt && !p.decorative).map((p) => [p.path, p.alt])))
+      // `alt` stays the reviewer's own text. Copying the resolved description in here would make the
+      // next build treat a spec row or image-file text as something the reviewer typed.
       setProgress({ done: 1, total: 2 })
       let lay = layout
       if (!lay) {
@@ -120,7 +119,7 @@ export function PdfFlow() {
       }).items.filter((it) => it.area !== 'note').length
     : 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
-  const todo = result ? result.pictures.filter((p) => !p.decorative && (!alt[p.path] || alt[p.path] === p.caption)) : []
+  const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
   const errors = report ? deliveryCounts(report, result?.review ?? []).errors : 0
   const steps = [
     { title: 'Files', hint: 'print PDF and cover', enabled: true, done: !!book },
@@ -283,16 +282,30 @@ export function PdfFlow() {
   )
 }
 
+/** What the description box shows: the reviewer's text when they have typed, otherwise the resolved one. */
+function shownDescription(p: { path: string; alt: string; decorative: boolean }, alt: Record<string, string>): string {
+  return Object.prototype.hasOwnProperty.call(alt, p.path) ? alt[p.path] : p.decorative ? '' : p.alt
+}
+
+/** A decorative picture is finished. Anything else still needs words that are not just its caption. */
+function needsPictureDescription(p: { path: string; alt: string; decorative: boolean; caption: string }, alt: Record<string, string>): boolean {
+  const typed = (alt[p.path] ?? '').trim()
+  if (typed) return typed === p.caption.trim()
+  if (p.decorative) return false
+  const text = p.alt.trim()
+  return !text || text === p.caption.trim()
+}
+
 function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo }: { result: PdfBuildResult; alt: Record<string, string>; setAlt: (a: Record<string, string>) => void; onBack: () => void; onNext: () => void; busy: boolean; todo: number }) {
   const [filter, setFilter] = useState<'todo' | 'all'>(todo ? 'todo' : 'all')
   const urls = useObjectUrls(useMemo(() => result.pictures.map((p) => [p.path, result.files.get(`OEBPS/${p.path}`)!] as [string, Uint8Array]), [result]), 'image/jpeg')
-  const shown = filter === 'todo' ? result.pictures.filter((p) => !p.decorative && (!alt[p.path] || alt[p.path] === p.caption)) : result.pictures
+  const shown = filter === 'todo' ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : result.pictures
   const SOURCE: Record<string, string> = { spec: 'from the spec', file: 'from the image file', ai: 'AI draft — approve it', typed: 'typed', decorative: 'decorative', caption: '' }
   return (
     <section className="card">
       <h2>4. Describe the pictures</h2>
       <p className="muted">
-        People who cannot see the pictures hear this description instead (“alt text”). Captions were used as a starting point; {todo} of {result.pictures.length} still
+        People who cannot see the pictures hear this description instead (“alt text”). The caption is shown beside the picture and is not reused as the description. {todo} of {result.pictures.length} still
         need a real description — what the picture shows, in a sentence or two.
       </p>
       <div className="row">
@@ -309,14 +322,18 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo }: { result:
             <img src={urls.get(p.path)} alt="" loading="lazy" />
             <div>
               <code>{p.path.replace('images/', '')}</code>
-              {(p.decorative || (p.alt && SOURCE[p.source])) && <span className="note small"> {p.decorative ? 'decorative — no description needed' : SOURCE[p.source]}</span>}
+              {(() => {
+                const edited = (alt[p.path] ?? '').trim() !== '' && alt[p.path] !== p.alt
+                const note = edited ? 'typed' : p.decorative ? 'decorative — no description needed' : p.alt ? SOURCE[p.source] : ''
+                return note ? <span className="note small"> {note}</span> : null
+              })()}
               {p.caption && <div className="why">Caption: {p.caption}</div>}
-              {p.decorative ? (
+              {p.decorative && !(alt[p.path] ?? '').trim() ? (
                 <div className="why">A screen reader skips this picture. Type a description below to treat it as content instead.</div>
               ) : null}
               <label className="alt">
                 <span>Description</span>
-                <textarea rows={2} value={alt[p.path] ?? ''} placeholder={p.decorative ? '(decorative — leave empty)' : ''} onChange={(e) => setAlt({ ...alt, [p.path]: e.target.value })} />
+                <textarea rows={2} value={shownDescription(p, alt)} placeholder={p.decorative ? '(decorative — leave empty)' : ''} onChange={(e) => setAlt({ ...alt, [p.path]: e.target.value })} />
               </label>
             </div>
           </div>
