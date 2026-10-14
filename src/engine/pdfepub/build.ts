@@ -10,7 +10,7 @@ import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss } from './css.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
-import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
+import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 
 // =============================================================================================
@@ -27,6 +27,8 @@ export interface PdfBuildInput {
   alt?: Record<string, string>
   /** spec-workbook picture rows, matched to pictures by file name (same layered alt system as InDesign) */
   pictures?: SpecPicture[]
+  /** vision-model drafts keyed by picture path. Not typed text: a typed description still wins. */
+  ai?: Record<string, { alt: string; approved?: boolean }>
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
 }
@@ -114,15 +116,21 @@ export function pdfPictureAlt(o: {
   width: number
   height: number
   caption?: string
+  /** vision-model draft; `approved` sticks only while this exact draft is the one in use */
+  ai?: { alt: string; approved?: boolean } | null
 }): AltChoice {
   const meta = o.jpeg ? readImageMetadata(o.jpeg) : undefined
-  return resolveAlt({
+  const choice = resolveAlt({
     typed: o.typed?.trim() ? { alt: o.typed } : null,
     spec: matchSpecPicture(o.name, o.pictures ?? []) ?? null,
     file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
     decorative: !!decorativeReason({ name: o.name, width: Math.abs(Math.round(o.width)), height: Math.abs(Math.round(o.height)) }),
+    ai: o.ai?.alt?.trim() ? { alt: o.ai.alt } : null,
     caption: o.caption,
   })
+  // resolveAlt always marks an AI draft unapproved. The reviewer approves it; a new draft clears the flag.
+  if (choice.source === 'ai' && o.ai?.approved) return { ...choice, approved: true }
+  return choice
 }
 
 /** The <img> for a resolved picture, plus a long-description paragraph when the spec gave one. */
@@ -380,7 +388,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const caption = g ? segHtml(capSegs) : ''
       const capText = g ? plain(capSegs) : ''
       const choice = pdfPictureAlt({
-        name, typed: input.alt?.[name], pictures: input.pictures, jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capText,
+        name, typed: input.alt?.[name], pictures: input.pictures, ai: input.ai?.[name], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capText,
       })
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(name, choice)
@@ -561,7 +569,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const path = `images/pg-${printNo(idx)}.jpg`
       images.push({ path, data: im.jpeg! })
       const choice = pdfPictureAlt({
-        name: path, typed: input.alt?.[path], pictures: input.pictures, jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0,
+        name: path, typed: input.alt?.[path], pictures: input.pictures, ai: input.ai?.[path], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0,
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(path, choice, 'cv')
@@ -703,8 +711,16 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const failed = book.pages.flatMap((p) => p.images.filter((i) => !i.jpeg).map(() => printNo(p.index)))
   if (failed.length) review.push({ level: 'warn', msg: `Could not extract ${failed.length} picture(s) (pages ${[...new Set(failed)].join(', ')}): check against the PDF.` })
 
+  const pendingAi = pictures
+    .filter((p) => p.source === 'ai' && !p.approved && !!p.alt.trim() && !isPlaceholderAlt(p.alt))
+    .map((p) => p.path)
+  let ship = meta
+  if (pendingAi.length && (meta.certifiedBy.trim() || meta.conformsTo.trim())) {
+    review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
+    ship = { ...meta, certifiedBy: '', conformsTo: '' }
+  }
   const { epub, files } = packageEpub({
-    meta, sections: navSections, cover, images, review,
+    meta: ship, sections: navSections, cover, images, review,
     usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book)),
   })
   // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
@@ -715,7 +731,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     .map((p) => p.lines.filter((l) => roleOf(l) !== 'dropcap').map((l) => (l.dropcap ?? '') + l.text).join('\n'))
     .join('\n')
     .replace(/(\p{L}+)[-­]\n(\p{Ll}+)/gu, (_, a: string, b: string) => (keepHyphen(a, b) ? `${a}-${b}` : a + b))
-  const source: CheckSource = { words: wordsOf(srcText), dropped, printIsbn: book.meta.printIsbn, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String) }
+  const source: CheckSource = { words: wordsOf(srcText), dropped, printIsbn: book.meta.printIsbn, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String), pendingAi }
   return { epub, files, sections: navSections, review, pictures, source }
 
   // ================================================================ helpers (need closure state)

@@ -68,3 +68,34 @@ test('PDF picture alt uses the layered order and never copies the caption', () =
   assert.equal(skip.img, '<img alt="" role="presentation" class="cv" src="images/pg-4-rule.jpg"/>')
   assert.equal(skip.extra, '')
 })
+
+test('PDF picture alt keeps an AI draft unapproved until the reviewer accepts it, and a spec row beats it', () => {
+  const caption = 'The airfield at Tempelhofer Feld in 1938'
+  const draft = 'A crowd on the tarmac beside the hangars'
+  const open = pdfPictureAlt({ name: 'images/pg-12.jpg', ai: { alt: draft }, width: 180, height: 120, caption })
+  assert.equal(open.source, 'ai')
+  assert.equal(open.alt, draft)
+  assert.equal(open.approved, false)
+
+  const accepted = pdfPictureAlt({ name: 'images/pg-12.jpg', ai: { alt: draft, approved: true }, width: 180, height: 120, caption })
+  assert.equal(accepted.source, 'ai')
+  assert.equal(accepted.approved, true)
+
+  const repeated = pdfPictureAlt({ name: 'images/pg-12.jpg', ai: { alt: caption, approved: true }, width: 180, height: 120, caption })
+  assert.equal(repeated.alt, '')
+  assert.notEqual(repeated.source, 'ai', 'a draft that only repeats the caption is not used')
+
+  const spec = pdfPictureAlt({
+    name: 'images/pg-12.jpg',
+    pictures: [{ file: 'pg-12.jpg', alt: 'From the spec sheet', decorative: false, longDesc: '' }],
+    ai: { alt: draft },
+    width: 180,
+    height: 120,
+  })
+  assert.equal(spec.source, 'spec')
+  assert.equal(spec.approved, true)
+
+  const typed = pdfPictureAlt({ name: 'images/pg-12.jpg', typed: 'What the reviewer wrote', ai: { alt: draft, approved: true }, width: 180, height: 120 })
+  assert.equal(typed.source, 'typed')
+  assert.equal(typed.alt, 'What the reviewer wrote')
+})

@@ -23,8 +23,8 @@ const WORKFLOWS = [
     icon: 'pdf',
     label: 'PDF or Word to EPUB',
     start: 'I only have the print PDF or Word',
-    what: 'Rebuilds the e-book from the final print PDF when there is no InDesign file.',
-    needs: 'Print PDF, cover image (JPG or PNG)',
+    what: 'Rebuilds the e-book from a Word manuscript’s heading styles, or from the print PDF when there is no Word file.',
+    needs: 'Word manuscript (.docx) or print PDF, cover image (JPG or PNG)',
     gives: 'EPUB 3 ready for the stores',
   },
   {
@@ -51,7 +51,7 @@ type Tab = 'home' | 'settings' | (typeof WORKFLOWS)[number]['id']
 const TITLES: Record<Tab, [string, string]> = {
   home: ['Start', ''],
   indd: ['InDesign to EPUB', 'Turn InDesign’s EPUB export into a finished, accessible e-book.'],
-  word: ['PDF or Word to EPUB', 'Rebuild the e-book from the final print PDF.'],
+  word: ['PDF or Word to EPUB', 'Rebuild the e-book from a Word manuscript or the print PDF.'],
   pdfua: ['Accessible PDF', 'Tag the print PDF so screen readers can follow it (PDF/UA).'],
   check: ['Check an EPUB', 'A quality report for any e-book, before it goes out.'],
   settings: ['Settings', 'House rules applied to every book built on this computer.'],
