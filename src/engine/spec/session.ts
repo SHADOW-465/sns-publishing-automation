@@ -56,6 +56,20 @@ export async function setRule(spec: Spec, level: Level, ruleId: string, value: R
   return out
 }
 
+/** Apply reader-facing label overrides (from the client's language workbook) to one layer, recorded in the log. */
+export async function applyLabels(spec: Spec, level: Level, labels: Record<string, Record<string, string>>, actor: string, file?: string): Promise<Spec> {
+  const layer = spec.layers.find((l) => l.level === level)
+  if (!layer) throw new Error(`There is no ${LEVEL_LABEL[level].toLowerCase()} layer for this book (name it first).`)
+  const merged: Record<string, Record<string, string>> = { ...layer.labels }
+  for (const [code, m] of Object.entries(labels)) merged[code] = { ...(merged[code] ?? {}), ...m }
+  const next: Layer = { ...layer, labels: merged }
+  await store().saveLayer(next)
+  const out = withLayer(spec, next)
+  const n = Object.values(labels).reduce((s, m) => s + Object.keys(m).length, 0)
+  await log(out, actor, 'import', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: ${n} language label(s) for ${Object.keys(labels).join(', ')}${file ? ` — from ${file}` : ''}`)
+  return out
+}
+
 /** The click on "Yes, I know this reduces accessibility, do it anyway." — recorded with who and when. */
 export async function giveWaiver(spec: Spec, level: Level, ruleId: string, actor: string): Promise<Spec> {
   if (!actor.trim()) throw new Error('Type your name first: a waiver records who agreed to it.')

@@ -18,6 +18,8 @@ export interface Requirement {
   text: string
   where: string
 }
+/** 2-letter language code → reader-facing label overrides (locale.ts keys) */
+export type LabelOverrides = Record<string, Record<string, string>>
 export interface Suggestion {
   req: Requirement
   ruleId?: string
@@ -29,14 +31,16 @@ export interface Suggestion {
 }
 
 /** Split a client file into requirements: paragraphs, table rows, spreadsheet rows. */
-export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[]; pictures?: SpecPicture[] } {
+export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[]; pictures?: SpecPicture[]; labels?: LabelOverrides } {
   const ext = name.toLowerCase().split('.').pop()
   if (ext === 'xlsx') {
     const sheets = readXlsx(data)
+    const labels = labelsFromWorkbook(sheets)
     const pictures = pictureAltsFromWorkbook(sheets)
     const template = fromSpecWorkbook(sheets)
-    if (template) return { template, items: template.map((s) => s.req), pictures }
-    if (pictures.length) return { pictures, items: pictures.map((p) => ({ text: `${p.file}: ${p.alt}`, where: 'Picture descriptions' })) }
+    if (template) return { template, items: template.map((s) => s.req), pictures, labels }
+    if (labels && !pictures.length) return { labels, items: Object.entries(labels).flatMap(([code, m]) => Object.entries(m).map(([k, v]) => ({ text: `${code} ${k} = ${v}`, where: 'Language sheet' }))) }
+    if (pictures.length) return { pictures, items: pictures.map((p) => ({ text: `${p.file}: ${p.alt}`, where: 'Picture descriptions' })), labels }
     return { items: sheets.flatMap((sh) => sh.rows.map((r, i) => ({ text: r.filter(Boolean).join(' | '), where: `${sh.name}, row ${i + 1}` })).filter((x) => x.text.trim())) }
   }
   if (ext === 'docx') return { items: readDocx(data).map((b) => ({ text: b.text, where: b.where })) }
@@ -179,6 +183,61 @@ export function pictureAltsFromWorkbook(sheets: Sheet[]): SpecPicture[] {
   }
   return out
 }
+
+// The client's "Accessible EPUB language" workbook: a concept × language matrix. The first column
+// is the English concept word; each other column is one language (its 2-letter code read from a
+// "Language code" row, e.g. "de-DE" → de). We map the English concept to the locale.ts label key so
+// a publisher can reword the e-book's own labels (page, chapter, cover…) per language — without code.
+const CONCEPT_TO_KEY: Record<string, string> = {
+  page: 'page',
+  chapter: 'chapter',
+  'table of contents': 'navTitle',
+  'reference points': 'landmarks',
+  landmarks: 'landmarks',
+  cover: 'cover',
+  'title page': 'title',
+  'start reading': 'startReading',
+  title: 'titleWord',
+  author: 'authorWord',
+  publisher: 'publisherWord',
+  image: 'imageAlt',
+  decorative: 'decorativeAlt',
+}
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+const code2 = (s: string) => norm(s).slice(0, 2).toLowerCase()
+
+/** Label overrides from the client's language workbook, or undefined if no language matrix is present. */
+export function labelsFromWorkbook(sheets: Sheet[]): LabelOverrides | undefined {
+  for (const sh of sheets) {
+    const head = sh.rows.find((r) => r.some((c) => /^english$/i.test(norm(c))))
+    if (!head) continue
+    // columns B… hold one language each; find each column's 2-letter code from the "Language code" row (fallback: the header word)
+    const codeRow = sh.rows.find((r) => /language code/i.test(norm(r[0] ?? '')))
+    const langCol: { col: number; code: string }[] = []
+    const seen = new Set<string>()
+    head.forEach((h, c) => {
+      if (c === 0 || !norm(h)) return
+      const raw = norm(codeRow?.[c] ?? '') || LANG_NAME[norm(h).toLowerCase()] || norm(h)
+      const code = code2(raw)
+      // labelsFor keys by 2-letter code, so the first column of each code wins (es-ES over es-MX; es-MX's cover/title are already built in)
+      if (code && !seen.has(code)) (seen.add(code), langCol.push({ col: c, code }))
+    })
+    if (!langCol.length) continue
+    const out: LabelOverrides = {}
+    for (const row of sh.rows) {
+      const key = CONCEPT_TO_KEY[norm(row[0] ?? '').toLowerCase()]
+      if (!key) continue
+      for (const { col, code } of langCol) {
+        const v = norm(row[col] ?? '')
+        if (!v) continue
+        ;(out[code] ??= {})[key] = v
+      }
+    }
+    if (Object.keys(out).length) return out
+  }
+  return undefined
+}
+const LANG_NAME: Record<string, string> = { english: 'en', german: 'de', french: 'fr', spanish: 'es', italian: 'it', portuguese: 'pt', 'portugal – portuguese': 'pt', 'mexico – spanish': 'es' }
 
 /** Suggestions that would change an accessibility rule: shown with the waiver wording. */
 export const waiverNeeded = (s: Suggestion) => {

@@ -3,7 +3,7 @@ import { RuleList } from './SpecEditor.tsx'
 import { RequirementsImport } from './RequirementsImport.tsx'
 import { Help } from './wizard.tsx'
 import { download } from './shared.tsx'
-import { openSpec, setRule, giveWaiver, decide, type Spec, type SpecContext } from '../engine/spec/session.ts'
+import { openSpec, setRule, giveWaiver, decide, applyLabels, type Spec, type SpecContext } from '../engine/spec/session.ts'
 import { LEVEL_LABEL, type Level } from '../engine/spec/layers.ts'
 import { specWorkbook } from '../engine/spec/requirements.ts'
 import type { SpecPicture } from '../engine/epub/alt.ts'
@@ -162,6 +162,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
           for (const r of rows) s = await setRule(s, lv, r.ruleId, r.value, actor, { file: r.file, where: r.req.where, text: r.req.text, by: r.by })
           onSpec(s)
         }}
+        onLabels={async (lv, labels, file) => onSpec(await applyLabels(spec, lv, labels, actor, file))}
       />
 
       <section className="card">

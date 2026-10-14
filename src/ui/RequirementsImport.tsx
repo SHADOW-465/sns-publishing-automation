@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RULES, ruleById, show, coerce, type RuleValue } from '../engine/spec/rules.ts'
-import { readRequirements, matchByKeywords, waiverNeeded, type Requirement, type Suggestion } from '../engine/spec/requirements.ts'
+import { readRequirements, matchByKeywords, waiverNeeded, type Requirement, type Suggestion, type LabelOverrides } from '../engine/spec/requirements.ts'
 import type { SpecPicture } from '../engine/epub/alt.ts'
 import { matchWithAi, aiConfig } from '../engine/spec/ai.ts'
 import { writeXlsx } from '../engine/spec/office.ts'
@@ -14,15 +14,18 @@ import { Help } from './wizard.tsx'
 
 type Row = Suggestion & { apply: boolean }
 
-export function RequirementsImport({ levels, onApply, onPictures }: {
+export function RequirementsImport({ levels, onApply, onPictures, onLabels }: {
   levels: { level: Level; label: string }[]
   onApply: (level: Level, rows: { ruleId: string; value: RuleValue; req: Requirement; by: Suggestion['by']; file: string }[]) => Promise<void>
   /** picture rows from the spec workbook, matched to images by file name */
   onPictures?: (pictures: SpecPicture[]) => void
+  /** reader-facing label overrides from the client's language workbook */
+  onLabels?: (level: Level, labels: LabelOverrides, file: string) => Promise<void>
 }) {
   const [file, setFile] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [items, setItems] = useState<Requirement[]>([])
+  const [labels, setLabels] = useState<LabelOverrides | undefined>()
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [level, setLevel] = useState<Level>(levels[levels.length - 1]?.level ?? 'book')
@@ -32,14 +35,16 @@ export function RequirementsImport({ levels, onApply, onPictures }: {
     if (!f) return
     setMsg('')
     try {
-      const { template, items, pictures } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
+      const { template, items, pictures, labels } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
       setFile(f.name)
       setItems(items)
+      setLabels(onLabels && labels && Object.keys(labels).length ? labels : undefined)
       const s = template ?? matchByKeywords(items)
       setRows(s.map((x) => ({ ...x, apply: !!x.ruleId && x.value !== undefined && x.confidence >= 0.5 && !waiverNeeded(x) })))
       if (pictures?.length) onPictures?.(pictures)
       const pictureNote = pictures?.length ? ` ${pictures.length} picture description${pictures.length === 1 ? '' : 's'} matched by file name.` : ''
-      setMsg((template ? `Read the spec workbook: ${s.length} rules.` : `Read ${items.length} requirements; ${s.filter((x) => x.ruleId).length} matched a rule by their words. Check each one.`) + pictureNote)
+      const labelNote = labels && Object.keys(labels).length ? ` Language labels for ${Object.keys(labels).join(', ')} found.` : ''
+      setMsg((template ? `Read the spec workbook: ${s.length} rules.` : rows.length || s.length ? `Read ${items.length} requirements; ${s.filter((x) => x.ruleId).length} matched a rule by their words. Check each one.` : 'Read the file.') + pictureNote + labelNote)
     } catch (e) {
       setMsg((e as Error).message)
     }
@@ -80,6 +85,30 @@ export function RequirementsImport({ levels, onApply, onPictures }: {
         {msg && <span className="note small">{msg}</span>}
       </div>
       {!ai.apiKey && items.length > 0 && <p className="muted small">AI matching is off: add a free Groq API key in Settings → AI to use it.</p>}
+      {labels && (
+        <div className="row">
+          <span className="note small">
+            Reader-facing labels for {Object.entries(labels).map(([c, m]) => `${c} (${Object.keys(m).length})`).join(', ')} — e.g.{' '}
+            {Object.values(labels).flatMap((m) => Object.values(m)).slice(0, 4).join(', ')}…
+          </span>
+          <label className="small">
+            Apply labels to{' '}
+            <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>
+              {levels.map((l) => (<option key={l.level} value={l.level}>{l.label}</option>))}
+            </select>
+          </label>
+          <button
+            disabled={!!busy}
+            onClick={async () => {
+              await onLabels!(level, labels, file)
+              setLabels(undefined)
+              setMsg('Applied the language labels.')
+            }}
+          >
+            Apply language labels
+          </button>
+        </div>
+      )}
       {rows.length > 0 && (
         <>
           <div className="table-wrap">

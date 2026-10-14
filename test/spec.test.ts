@@ -8,9 +8,10 @@ import { text } from '../src/engine/zip.ts'
 import { RULES, ruleById, coerce, WAIVER_TEXT } from '../src/engine/spec/rules.ts'
 import { resolve, emptyLayer, specHash } from '../src/engine/spec/layers.ts'
 import { MemoryStore, setStore, store } from '../src/engine/spec/store.ts'
-import { openSpec, setRule, giveWaiver, decide, applySpec } from '../src/engine/spec/session.ts'
+import { openSpec, setRule, giveWaiver, decide, applySpec, applyLabels } from '../src/engine/spec/session.ts'
 import { readXlsx, writeXlsx, readDocx } from '../src/engine/spec/office.ts'
-import { specWorkbook, readRequirements, matchByKeywords } from '../src/engine/spec/requirements.ts'
+import { specWorkbook, readRequirements, matchByKeywords, labelsFromWorkbook } from '../src/engine/spec/requirements.ts'
+import { labelsFor } from '../src/engine/epub/locale.ts'
 import { matchWithAi } from '../src/engine/spec/ai.ts'
 import { DEFAULT_SETTINGS, setSettings, settings, type HouseSettings } from '../src/engine/settings.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
@@ -74,6 +75,40 @@ test('session: changes, waiver and acceptance are recorded, append-only, with th
   assert.equal((await store().listDecisions())[1].action, 'waiver-withdrawn')
   applySpec(spec)
   assert.equal(settings().tableHeaders, 'th')
+})
+
+test('language workbook: the client can reword e-book labels per language through the layers', async () => {
+  // the client's "Accessible EPUB language" sheet: English concept in column A, one language per column
+  const langSheet = {
+    name: 'Language', rows: [
+      ['English', 'German', 'French'],
+      ['Language code', 'de-DE', 'fr-FR'],
+      ['Page', 'Seitlein', 'page'], // 'Seitlein' is a client wording, not the built-in 'Seite'
+      ['Chapter', 'Kapitel', 'Chapitre'],
+      ['Cover', 'Umschlag', 'Couverture'],
+      ['Image', 'Abbildung', 'image'],
+    ],
+  }
+  const { labels } = readRequirements('lang.xlsx', writeXlsx([langSheet]))
+  assert.deepEqual(labels, {
+    de: { page: 'Seitlein', chapter: 'Kapitel', cover: 'Umschlag', imageAlt: 'Abbildung' },
+    fr: { page: 'page', chapter: 'Chapitre', cover: 'Couverture', imageAlt: 'image' },
+  })
+  // a plain matrix with no matching concepts is not read as labels
+  assert.equal(labelsFromWorkbook([{ name: 'x', rows: [['a', 'b'], ['1', '2']] }]), undefined)
+
+  // apply them to the book layer: recorded, then merged into the settings a build uses
+  setStore(new MemoryStore())
+  let spec = await openSpec({ client: 'BeBra', series: '', book: EISBN }, DEFAULT_SETTINGS)
+  spec = await applyLabels(spec, 'book', labels!, 'Ana', 'lang.xlsx')
+  assert.equal(spec.resolved.settings.labels.de.page, 'Seitlein')
+  applySpec(spec)
+  assert.equal(labelsFor('de-DE').page, 'Seitlein', 'client wording wins')
+  assert.equal(labelsFor('de-DE').chapter, 'Kapitel')
+  assert.equal(labelsFor('fr-FR').cover, 'Couverture')
+  assert.equal(labelsFor('es-ES').page, 'página', 'a language the sheet did not touch keeps the built-in')
+  assert.equal((await store().listDecisions()).find((d) => d.action === 'import')?.detail.includes('language label'), true)
+  setSettings(DEFAULT_SETTINGS)
 })
 
 test('Excel: the spec workbook round-trips, with drop-downs', async () => {

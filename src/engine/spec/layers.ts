@@ -34,6 +34,8 @@ export interface Layer {
   values: Record<string, RuleValue> // rule ID → value
   sources: Record<string, Source>
   waivers: Record<string, Waiver>
+  /** reader-facing label overrides per 2-letter language code (from the client's language workbook); merged into settings.labels */
+  labels?: Record<string, Record<string, string>>
   updatedAt: string
 }
 
@@ -54,6 +56,8 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS)
   const pendingWaivers: Resolved['pendingWaivers'] = []
   for (const r of RULES) if (r.key) from[r.id] = { level: 'default', name: '' }
   const ordered = [...layers].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level))
+  const labels: Record<string, Record<string, string>> = {}
+  for (const [code, m] of Object.entries(base.labels ?? {})) labels[code] = { ...m }
   for (const layer of ordered) {
     for (const [id, value] of Object.entries(layer.values)) {
       const r = ruleById.get(id)
@@ -65,7 +69,9 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS)
       settings[r.key] = value
       from[id] = { level: layer.level, name: layer.name, source: layer.sources[id], waiver: layer.waivers[id] }
     }
+    for (const [code, m] of Object.entries(layer.labels ?? {})) labels[code] = { ...(labels[code] ?? {}), ...m }
   }
+  settings.labels = labels
   return { settings: settings as unknown as HouseSettings, from, pendingWaivers }
 }
 
@@ -76,6 +82,8 @@ export function layerFromSettings(level: Level, name: string, s: HouseSettings, 
     if (!r.key) continue
     if (JSON.stringify(s[r.key]) !== JSON.stringify(base[r.key])) l.values[r.id] = s[r.key] as RuleValue
   }
+  // labels are not rule-shaped (a nested map); carry them on the layer so Settings-screen wording flows through too
+  if (s.labels && Object.keys(s.labels).length) l.labels = s.labels
   return l
 }
 
