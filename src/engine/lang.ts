@@ -46,6 +46,15 @@ export function detectLanguage(text: string): string {
   return scriptOf(text) ?? stopScores(text)[0].lang
 }
 
+/** A language the text clearly is. Undefined when the sample is too short to trust. */
+export function confidentLanguage(text: string): string | undefined {
+  const script = scriptOf(text)
+  if (script) return script
+  const [top, second] = stopScores(text)
+  if (!top || top.score < 4 || top.score < (second?.score ?? 0) + 3) return undefined
+  return top.lang
+}
+
 /** Of the language codes a file declares, the one matching its text ("en-GB, en-US, es-ES" + Spanish text → es-ES). */
 export function pickLanguage(declared: string[], text: string): string {
   const found = detectLanguage(text)

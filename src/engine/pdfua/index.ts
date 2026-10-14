@@ -2,13 +2,14 @@ import { PDFDocument, PDFName, PDFArray, PDFDict, PDFNumber, PDFString, PDFHexSt
 import { analyzePdf, titleCase, type PdfBook } from '../pdfepub/analyze.ts'
 import type { Raster } from '../pdf/raster.ts'
 import type { ReviewItem } from '../epub/package.ts'
-import { inferUaStyles, buildStructure, imageList, type UaStyle, type Figure, type UaRole } from './structure.ts'
+import { inferUaStyles, buildStructure, imageList, type UaStyle, type Figure, type UaRole, type SNode } from './structure.ts'
 import { detectFigures } from './figures.ts'
 import { readAltDocx, matchAlt, type AltEntry } from './altdocx.ts'
 import { planPages, writeUa, type UaMeta } from './write.ts'
 import { trimOf } from './pages.ts'
 import { checkUa } from './check.ts'
 import { labelsFor } from '../epub/locale.ts'
+import { resolveAlt, type SpecPicture } from '../epub/alt.ts'
 
 // =============================================================================================
 // Accessible PDF (PDF/UA) workflow: inputs → merged PDF → analysis → human review → tagged PDF.
@@ -165,16 +166,111 @@ function frontPages(a: UaAnalysis): { page: number; label: string }[] {
 const figKey = (f: Figure) => `${f.page}:${Math.round(f.box.x0)}:${Math.round(f.box.y0)}`
 const cloneFigs = (m: Map<number, Figure[]>) => new Map([...m].map(([k, fs]) => [k, fs.map((f) => ({ ...f, lines: [], caption: '', node: undefined }))]))
 
+const normName = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, '')
+
+/** Spec-sheet rows whose file name is part of the figure caption. Rows that do not match are left unused. */
+export function specForFigures(figures: { key: string; caption: string }[], specs: SpecPicture[]): Record<string, { alt: string; longDesc?: string; decorative?: boolean }> {
+  const used = new Set<SpecPicture>()
+  const out: Record<string, { alt: string; longDesc?: string; decorative?: boolean }> = {}
+  for (const f of figures) {
+    const cap = normName(f.caption)
+    if (cap.length < 4) continue
+    const hit = specs.find((s) => {
+      if (used.has(s)) return false
+      const stem = normName(s.file.replace(/\.[a-z0-9]+$/i, ''))
+      return stem.length >= 4 && (cap.includes(stem) || stem.includes(cap.slice(0, 40)))
+    })
+    if (!hit) continue
+    used.add(hit)
+    out[f.key] = { alt: hit.alt, longDesc: hit.longDesc, decorative: hit.decorative }
+  }
+  return out
+}
+
+export interface UaBuildInput {
+  styles: UaStyle[]
+  meta: UaAnalysis['meta']
+  /** Text the reviewer typed. An empty string means they cleared it. */
+  alt: Record<string, string>
+  cropToTrim: boolean
+  sourceName?: string
+  spec?: Record<string, { alt: string; longDesc?: string; decorative?: boolean }>
+  ai?: Record<string, { alt: string; approved?: boolean }>
+  fileAlt?: Record<string, { alt: string; longDesc?: string }>
+  /** The reviewer marked this picture as decoration. It is tagged as an artifact, not a figure. */
+  decorative?: Record<string, boolean>
+}
+
+const dropNode = (root: SNode, gone: SNode) => {
+  const walk = (n: SNode) => {
+    n.kids = n.kids.filter((k) => k !== gone)
+    n.kids.forEach(walk)
+  }
+  walk(root)
+}
+
+/** Typed text, then the spec sheet, then file text, then a decorative mark, then an AI draft. */
+export function figureChoice(input: {
+  key: string
+  caption: string
+  remembered?: string
+  alt: Record<string, string>
+  spec?: UaBuildInput['spec']
+  ai?: UaBuildInput['ai']
+  fileAlt?: UaBuildInput['fileAlt']
+  decorative?: Record<string, boolean>
+}): { alt: string; decorative: boolean; pendingAi: boolean } {
+  if (input.decorative?.[input.key]) return { alt: '', decorative: true, pendingAi: false }
+  const typedRaw = (input.alt[input.key] ?? '').trim()
+  const typedGiven = Object.prototype.hasOwnProperty.call(input.alt, input.key)
+  const choice = resolveAlt({
+    typed: typedGiven && typedRaw ? { alt: typedRaw } : null,
+    spec: input.spec?.[input.key] ?? null,
+    file: input.fileAlt?.[input.key] ?? (!typedGiven && input.remembered ? { alt: input.remembered } : null),
+    ai: input.ai?.[input.key] ?? null,
+    caption: input.caption,
+  })
+  const approvedAi = choice.source === 'ai' && !!input.ai?.[input.key]?.approved
+  return { alt: choice.decorative ? '' : choice.alt, decorative: choice.decorative, pendingAi: choice.source === 'ai' && !approvedAi && !!choice.alt }
+}
+
 export async function buildUa(
-  a: UaAnalysis, input: { styles: UaStyle[]; meta: UaAnalysis['meta']; alt: Record<string, string>; cropToTrim: boolean; sourceName?: string },
+  a: UaAnalysis, input: UaBuildInput,
 ): Promise<{ pdf: Uint8Array; review: ReviewItem[]; stats: Record<string, number>; fileName: string }> {
   const roles = new Map<string, UaRole>(input.styles.map((s) => [s.key, s.role]))
   const st = buildStructure(a.book, roles, cloneFigs(a.detected))
-  for (const f of st.figures) if (f.node) f.node.alt = input.alt[figKey(f)] ?? ''
+  const extra: ReviewItem[] = []
+  let pendingAi = 0
+  let decorativeN = 0
+  const remembered = new Map(a.figures.map((f) => [f.key, f.alt.trim()]))
+  const hide = (f: Figure) => {
+    decorativeN++
+    const node = f.node
+    f.node = undefined
+    if (!node) return
+    dropNode(st.root, node)
+    // text drawn on the ornament is no longer a figure, so the writer marks it as an artifact
+    for (const l of f.lines) if (st.owner.get(l) === node) st.owner.delete(l)
+  }
+  for (const f of st.figures) {
+    if (!f.node) continue
+    const key = figKey(f)
+    const choice = figureChoice({
+      key, caption: f.caption, remembered: remembered.get(key), alt: input.alt, spec: input.spec, ai: input.ai, fileAlt: input.fileAlt, decorative: input.decorative,
+    })
+    if (choice.decorative) {
+      hide(f)
+      continue
+    }
+    f.node.alt = choice.alt
+    if (choice.pendingAi) pendingAi++
+  }
+  if (decorativeN) extra.push({ level: 'info', msg: `Marked ${decorativeN} decorative picture(s) as artifacts, so a screen reader skips them.` })
+  if (pendingAi) extra.push({ level: 'warn', msg: `${pendingAi} picture description(s) are unapproved AI drafts.` })
   const plan = await planPages(a.merged) // fresh copy: writing modifies the document
   const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a) })
   const pdf = await out.pdf
-  const review = [...a.review.filter((r) => !/alt text/.test(r.msg)), ...out.review, ...(await checkUa(pdf))]
+  const review = [...a.review.filter((r) => !/alt text/.test(r.msg)), ...extra, ...out.review, ...(await checkUa(pdf))]
   // as in the samples: the source file's name, plus the e-ISBN when there is one
   const base = (input.sourceName?.replace(/\.pdf$/i, '') || input.meta.title.split(':')[0]).replace(/[\\/:*?"<>|]+/g, '').trim() || 'document'
   return { pdf, review, stats: out.stats, fileName: `${base}${input.meta.isbn ? '_' + input.meta.isbn.replace(/[^\dXx]/g, '') : ''}.pdf` }

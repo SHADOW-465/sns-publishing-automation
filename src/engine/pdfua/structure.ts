@@ -1,5 +1,6 @@
 import { type PdfBook, type PLine, columnStarts, columnOf, titleCase } from '../pdfepub/analyze.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
+import { detectTables } from '../pdf/tables.ts'
 import type { Box } from './content.ts'
 
 // =============================================================================================
@@ -40,6 +41,10 @@ export interface SNode {
   alt?: string
   figure?: Figure
   text?: string // plain text (headings: bookmarks; links)
+  /** PDF/UA header scope, set on TH */
+  scope?: 'Column' | 'Row'
+  rowSpan?: number
+  colSpan?: number
 }
 
 export interface Figure {
@@ -181,6 +186,52 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (roleOf(l) !== 'Artifact') lines.push(l)
     }
 
+    // ruled grids become tables. A heading, a note, or a long cell is prose in a box, not a table.
+    const tables = detectTables({ width: page.width, height: page.height, lines, rules: page.rules, shades: page.shades }).filter((t) => {
+      const filled = t.cells.filter((c) => c.lines.some((l) => l.text.trim() && !/^H\d$/.test(roleOf(l)) && roleOf(l) !== 'Note'))
+      if (filled.length < 4) return false
+      if (t.cells.some((c) => c.lines.length > 8 || c.lines.some((l) => /^H\d$/.test(roleOf(l)) || roleOf(l) === 'Note'))) return false
+      const colsUsed = new Set(filled.map((c) => c.c))
+      const rowsUsed = new Set(filled.map((c) => c.r))
+      return colsUsed.size >= 2 && rowsUsed.size >= 2
+    })
+    const tableLineSet = new Set(tables.flatMap((t) => t.lines))
+    const tableNodes: { y: number; node: SNode }[] = []
+    for (const t of tables) {
+      const table = mk('Table')
+      const nR = t.rows.length - 1
+      for (let r = 0; r < nR; r++) {
+        const tr = mk('TR')
+        for (const cell of t.cells.filter((c) => c.r === r).sort((a, b) => a.c - b.c)) {
+          const header = t.head && r === 0
+          const td = mk(header ? 'TH' : 'TD')
+          if (header) td.scope = 'Column'
+          if (cell.rowspan > 1) td.rowSpan = cell.rowspan
+          if (cell.colspan > 1) td.colSpan = cell.colspan
+          for (const l of cell.lines) own(l, td)
+          td.text = cell.lines.map((l) => l.text.trim()).filter(Boolean).join(' ')
+          tr.kids.push(td)
+        }
+        if (tr.kids.length) table.kids.push(tr)
+      }
+      if (table.kids.length) tableNodes.push({ y: t.y0, node: table })
+    }
+    tableNodes.sort((a, b) => a.y - b.y)
+    if (tableLineSet.size) {
+      const kept = lines.filter((l) => !tableLineSet.has(l))
+      lines.length = 0
+      lines.push(...kept)
+    }
+    let tableAt = 0
+    const flushTables = (y: number) => {
+      while (tableAt < tableNodes.length && tableNodes[tableAt].y <= y + 1) {
+        closePara()
+        closeList()
+        container.kids.push(tableNodes[tableAt].node)
+        tableAt++
+      }
+    }
+
     // figures and their captions: each caption block (Caption-role text, or a "Figure 3" label line) belongs to the nearest figure
     // beside, above or below it; the pair is read figure first, then caption, pairs in page order (rows top to bottom, left to right)
     const LABEL = /^(abb\.|abbildung|fig\.|figure|tab\.|tabelle|table|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i
@@ -277,6 +328,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
 
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
+      flushTables(l.y)
       const text = l.text.trim()
       // title pages: the title is the heading; subtitle and author lines in display type are text
       const lastH = headings[headings.length - 1]
@@ -410,6 +462,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         para = { node: p, last: l, kind: 'P', first: l }
       }
     }
+    flushTables(Infinity)
   }
   closePara()
 

@@ -4,6 +4,7 @@ import { pageContent, pageResources, streamBytes, latin1, fromLatin1, trimOf } f
 import { imageList, type SNode, type Structure } from './structure.ts'
 import type { PdfBook, PLine } from '../pdfepub/analyze.ts'
 import type { ReviewItem } from '../epub/package.ts'
+import { confidentLanguage } from '../lang.ts'
 
 // =============================================================================================
 // Accessible PDF writer: re-tags the document from scratch (PDF/UA-1).
@@ -70,6 +71,40 @@ export function writeUa(
   const mcrs = new Map<SNode, { page: number; mcid: number }[]>()
   const figureOf = new Map<PLine, SNode>()
   for (const f of st.figures) for (const l of f.lines) if (f.node) figureOf.set(l, f.node)
+
+  // Note numbers are their own short lines. Each one becomes a Link inside a Reference, and the
+  // glyphs are tagged as that Link (an annotation alone leaves the number in the paragraph).
+  let structSeq = st.nodes.reduce((m, n) => Math.max(m, n.id), 0) + 1
+  const adopt = (n: SNode) => {
+    n.id = structSeq++
+    st.nodes.push(n)
+    return n
+  }
+  const notePlans: { refLine: PLine; link: SNode; note: SNode; id: string }[] = []
+  const noteRefLine = new Map<PLine, SNode>()
+  const usedNoteRefs = new Set<PLine>()
+  const noteEls = st.nodes.filter((n) => n.tag === 'Note' && n.lines.length).sort((a, b) => a.lines[0].page - b.lines[0].page || a.lines[0].y - b.lines[0].y)
+  for (const note of noteEls) {
+    const id = note.lines.map((l) => l.text.trim()).join(' ').match(/^(\d{1,3}|[*†‡])/)?.[1]
+    if (!id) continue
+    const here = note.lines[0]
+    const candidates: { l: PLine; host: SNode }[] = []
+    for (const [l, host] of st.owner) {
+      if (usedNoteRefs.has(l) || host === note || host.tag === 'Note') continue
+      if (l.text.trim() !== id || l.size > book.bodySize * 0.8) continue
+      if (l.page > here.page || (l.page === here.page && l.y >= here.y)) continue
+      candidates.push({ l, host })
+    }
+    candidates.sort((a, b) => b.l.page - a.l.page || b.l.y - a.l.y)
+    const ref = candidates[0]
+    if (!ref) continue
+    const link = adopt({ id: -1, tag: 'Link', kids: [], lines: [ref.l], text: `Note ${id}` })
+    const reference = adopt({ id: -1, tag: 'Reference', kids: [link], lines: [] })
+    ref.host.kids.push(reference)
+    noteRefLine.set(ref.l, link)
+    notePlans.push({ refLine: ref.l, link, note, id })
+    usedNoteRefs.add(ref.l)
+  }
   let unmatchedText = 0
   let taggedOps = 0
   let artifactOps = 0
@@ -111,7 +146,7 @@ export function writeUa(
         if (p.x >= trim.x1 - 2 || p.x < trim.x0 - 20 || H - p.y < trim.top || H - p.y > trim.bottom) return artifactOps++, null // slug
         const l = lineFor(p, layout.lines, H)
         if (l) covered.add(l)
-        node = l ? (figureOf.get(l) ?? st.owner.get(l)) : undefined
+        node = l ? (noteRefLine.get(l) ?? figureOf.get(l) ?? st.owner.get(l)) : undefined
         // rotated labels inside a chart belong to the chart
         if (!l) node = figs.find((f) => p.x >= f.box.x0 - 2 && p.x <= f.box.x1 + 2 && p.y >= f.box.y0 - 2 && p.y <= f.box.y1 + 2)?.node
         // running heads / folios sit in the page margins and are meant to be artifacts; so are blank spacers
@@ -261,16 +296,44 @@ export function writeUa(
   if (imgLinks) review.push({ level: 'info', msg: `Linked ${imgLinks} image-list entries to their pictures.` })
   if (tocLinks + urlLinks) review.push({ level: 'info', msg: `Added ${tocLinks} contents link(s) and ${urlLinks} web link(s).` })
 
+  // The reference number already sits in a Link. The annotation jumps to the note, and the note number jumps back.
+  let noteLinks = 0
+  for (const plan of notePlans) {
+    const refBox = boxOf([plan.refLine])
+    const nl = plan.note.lines[0]
+    const Hn = book.pages[nl.page].height
+    const numW = Math.min(nl.x1 - nl.x0, Math.max(8, ((nl.x1 - nl.x0) * (plan.id.length + 1)) / Math.max(nl.text.trim().length, plan.id.length + 1)))
+    const back = { x0: nl.x0, x1: nl.x0 + numW, y0: Hn - nl.base - 3, y1: Hn - nl.y + 1 }
+    if (refBox.x1 - refBox.x0 < 2 || back.x1 - back.x0 < 2) continue
+    const refTop = book.pages[plan.refLine.page].height - plan.refLine.y + plan.refLine.size
+    const noteTop = Hn - nl.y + nl.size
+    const annot = ctx.register(ctx.obj({
+      Type: 'Annot', Subtype: 'Link', Rect: [refBox.x0, refBox.y0, refBox.x1, refBox.y1], Border: [0, 0, 0],
+      P: pageRefs[plan.refLine.page], Contents: PDFHexString.fromText(`Note ${plan.id}`), StructParent: annotKey,
+      Dest: ctx.obj([pageRefs[nl.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(noteTop), ctx.obj(null)]),
+    }))
+    const arr = pages[plan.refLine.page].node.lookupMaybe(PDFName.of('Annots'), PDFArray)
+    if (arr) arr.push(annot)
+    else pages[plan.refLine.page].node.set(PDFName.of('Annots'), ctx.obj([annot]))
+    linkNodes.push({ node: plan.link, annot, page: plan.refLine.page, key: annotKey++ })
+    annotKids.set(plan.link, [{ ref: annot, page: plan.refLine.page }])
+    addLink(nl.page, back, plan.note, { Dest: ctx.obj([pageRefs[plan.refLine.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(refTop), ctx.obj(null)]) }, `Return from note ${plan.id}`)
+    noteLinks++
+  }
+  if (noteLinks) review.push({ level: 'info', msg: `Linked ${noteLinks} note number(s) to their notes and back.` })
+
   // ---- 4. structure tree ----
   const hasContent = (n: SNode): boolean => (mcrs.get(n)?.length ?? 0) > 0 || annotKids.has(n) || n.kids.some(hasContent)
   let dropped = 0
   const prune = (n: SNode) => {
+    n.kids.forEach(prune)
     n.kids = n.kids.filter((k) => {
-      const keep = hasContent(k)
+      // an empty header or cell stays, so a table keeps its columns
+      const structural = (k.tag === 'TR' || k.tag === 'TD' || k.tag === 'TH') && hasContent(n)
+      const keep = hasContent(k) || structural
       if (!keep && k.tag === 'Figure') dropped++
       return keep
     })
-    n.kids.forEach(prune)
   }
   prune(st.root)
   if (dropped) review.push({ level: 'warn', msg: `${dropped} detected figure(s) had nothing drawn in them and were left out.` })
@@ -302,6 +365,22 @@ export function writeUa(
       else missingAlt++
     }
     if (n.tag === 'Link' && n.text) dict.Alt = PDFHexString.fromText(n.text)
+    if (n.tag === 'Note') {
+      const id = (n.text || n.lines.map((l) => l.text).join(' ')).trim().match(/^(\d{1,3}|[*†‡])/)?.[1]
+      const page = n.lines[0]?.page ?? 0
+      if (id) dict.ID = PDFString.of(`note-${page}-${id}`)
+    }
+    if (n.tag === 'TH' || n.tag === 'TD') {
+      const attrs: Record<string, PDFObject> = {}
+      if (n.tag === 'TH') attrs.Scope = PDFName.of(n.scope ?? 'Column')
+      if ((n.rowSpan ?? 0) > 1) attrs.RowSpan = PDFNumber.of(n.rowSpan!)
+      if ((n.colSpan ?? 0) > 1) attrs.ColSpan = PDFNumber.of(n.colSpan!)
+      if (Object.keys(attrs).length) dict.A = ctx.obj({ O: 'Table', ...attrs })
+    }
+    const ownText = n.lines.map((l) => l.text).join(' ').replace(/\s+/g, ' ').trim()
+    const span = ownText ? confidentLanguage(ownText) : undefined
+    const docLang = meta.lang.replace(/_/g, '-').slice(0, 2).toLowerCase()
+    if (span && span !== docLang) dict.Lang = PDFString.of(span)
     ctx.assign(refOf.get(n)!, ctx.obj(dict))
   })
   for (const l of linkNodes) parentTree.push([l.key, refOf.get(l.node)!])

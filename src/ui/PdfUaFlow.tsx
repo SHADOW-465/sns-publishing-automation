@@ -4,7 +4,8 @@ import { download, remember, useObjectUrls } from './shared.tsx'
 import { Help, Status } from './wizard.tsx'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
-import type { UaAnalysis } from '../engine/pdfua/index.ts'
+import { specForFigures, type UaAnalysis } from '../engine/pdfua/index.ts'
+import { readRequirements } from '../engine/spec/requirements.ts'
 import type { ReviewItem } from '../engine/epub/package.ts'
 
 // Print PDF → accessible PDF (PDF/UA-1). The PDF is re-tagged from scratch; the reviewer checks
@@ -24,6 +25,8 @@ export function PdfUaFlow() {
   const [styles, setStyles] = useState<UaStyle[]>([])
   const [meta, setMeta] = useState<UaAnalysis['meta']>()
   const [alt, setAlt] = useState<Record<string, string>>({})
+  const [decorative, setDecorative] = useState<Record<string, boolean>>({})
+  const [spec, setSpec] = useState<Record<string, { alt: string; longDesc?: string; decorative?: boolean }>>({})
   const [crop, setCrop] = useState(true)
   const [result, setResult] = useState<Built>()
   const [notice, setNotice] = useState<string>()
@@ -62,6 +65,8 @@ export function PdfUaFlow() {
       setNotice(saved ? `Applied the saved settings for “${r.book.meta.publisher}”.` : undefined)
       setMeta(r.meta)
       setAlt(Object.fromEntries(r.figures.map((f) => [f.key, f.alt])))
+      setDecorative({})
+      setSpec({})
       setA(r)
       setResult(undefined)
     })
@@ -69,7 +74,7 @@ export function PdfUaFlow() {
   const onBuild = () =>
     run('Tagging the PDF…', async () => {
       const { buildUa } = await import('../engine/pdfua/index.ts')
-      setResult(await buildUa(a!, { styles, meta: meta!, alt, cropToTrim: crop, sourceName: pdf!.name }))
+      setResult(await buildUa(a!, { styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name }))
       if (a!.book.meta.publisher) remember('uaprofile', a!.book.meta.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     })
 
@@ -77,6 +82,19 @@ export function PdfUaFlow() {
     setExtras(await Promise.all([...(files ?? [])].map(async (f) => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) }))))
   const setRole = (key: string, role: UaRole) => setStyles((s) => s.map((x) => (x.key === key ? { ...x, role } : x)))
   const set = (k: keyof UaAnalysis['meta'], v: string) => setMeta({ ...meta!, [k]: v })
+  const loadSheet = (file: File) =>
+    run('Reading the picture sheet…', async () => {
+      if (!a) return
+      const { pictures } = readRequirements(file.name, new Uint8Array(await file.arrayBuffer()))
+      if (!pictures?.length) {
+        setNotice('That file has no picture-description sheet. It needs a file-name column and an alt-text column.')
+        return
+      }
+      const matched = specForFigures(a.figures.map((f) => ({ key: f.key, caption: f.caption })), pictures)
+      setSpec(matched)
+      const n = Object.keys(matched).length
+      setNotice(`Loaded ${pictures.length} picture description${pictures.length === 1 ? '' : 's'}. ${n} match a caption on this PDF. A typed description still wins.`)
+    })
 
   return (
     <div className="flow">
@@ -179,7 +197,7 @@ export function PdfUaFlow() {
             </div>
           </section>
 
-          <Figures a={a} alt={alt} setAlt={setAlt} />
+          <Figures a={a} alt={alt} setAlt={setAlt} decorative={decorative} setDecorative={setDecorative} onSheet={(file) => loadSheet(file)} />
 
           <section className="card">
             <h2>Build</h2>
@@ -196,19 +214,30 @@ export function PdfUaFlow() {
   )
 }
 
-function Figures({ a, alt, setAlt }: { a: UaAnalysis; alt: Record<string, string>; setAlt: (x: Record<string, string>) => void }) {
+function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
+  a: UaAnalysis
+  alt: Record<string, string>
+  setAlt: (x: Record<string, string>) => void
+  decorative: Record<string, boolean>
+  setDecorative: (x: Record<string, boolean>) => void
+  onSheet: (file: File) => void
+}) {
   const [filter, setFilter] = useState<'todo' | 'all'>('todo')
   const urls = useObjectUrls(useMemo(() => a.figures.filter((f) => f.thumb).map((f) => [f.key, f.thumb!] as [string, Uint8Array]), [a]), 'image/jpeg')
-  const todo = a.figures.filter((f) => !alt[f.key]?.trim())
+  const todo = a.figures.filter((f) => !decorative[f.key] && !alt[f.key]?.trim())
   const shown = filter === 'todo' ? todo : a.figures
   const label = (page: number) => a.book.numbers[page] ?? `PDF page ${page + 1}`
   return (
     <section className="card">
       <h2>Pictures (alt text)</h2>
       <p className="muted">
-        PDF/UA needs a description for every picture and chart. {a.figures.length - todo.length} of {a.figures.length} were filled in from the Word file
-        {a.altUnused.length ? `; ${a.altUnused.length} description(s) from it matched no picture (listed below)` : ''}.
+        PDF/UA needs a description for every picture and chart. {a.figures.length - todo.length} of {a.figures.length} were filled in from the Word file or marked as decoration
+        {a.altUnused.length ? `; ${a.altUnused.length} description(s) from it matched no picture (listed below)` : ''}. A typed description wins over the spec sheet.
       </p>
+      <label className="alt">
+        <span>Picture descriptions (spec sheet)</span>
+        <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onSheet(f); e.target.value = '' }} />
+      </label>
       <div className="row">
         <label>
           <input type="radio" checked={filter === 'todo'} onChange={() => setFilter('todo')} /> Needs a description ({todo.length})
@@ -226,9 +255,17 @@ function Figures({ a, alt, setAlt }: { a: UaAnalysis; alt: Record<string, string
                 page {label(f.page)} · {f.vector ? 'chart / drawing' : 'image'}
               </code>
               {f.caption && <div className="why">Caption: {f.caption}</div>}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={!!decorative[f.key]}
+                  onChange={(e) => setDecorative({ ...decorative, [f.key]: e.target.checked })}
+                />{' '}
+                Decoration — hide from the reading order
+              </label>
               <label className="alt">
                 <span>Alt text</span>
-                <textarea rows={2} value={alt[f.key] ?? ''} onChange={(e) => setAlt({ ...alt, [f.key]: e.target.value })} />
+                <textarea rows={2} disabled={!!decorative[f.key]} value={alt[f.key] ?? ''} onChange={(e) => setAlt({ ...alt, [f.key]: e.target.value })} />
               </label>
             </div>
           </div>
