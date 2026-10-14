@@ -44,7 +44,15 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels }: {
       if (pictures?.length) onPictures?.(pictures)
       const pictureNote = pictures?.length ? ` ${pictures.length} picture description${pictures.length === 1 ? '' : 's'} matched by file name.` : ''
       const labelNote = labels && Object.keys(labels).length ? ` Language labels for ${Object.keys(labels).join(', ')} found.` : ''
-      setMsg((template ? `Read the spec workbook: ${s.length} rules.` : rows.length || s.length ? `Read ${items.length} requirements; ${s.filter((x) => x.ruleId).length} matched a rule by their words. Check each one.` : 'Read the file.') + pictureNote + labelNote)
+      const matched = s.filter((x) => x.ruleId).length
+      const base = template
+        ? `Read the spec workbook: ${s.length} rules.`
+        : matched
+          ? `Read ${items.length} requirements; ${matched} matched a rule by their words. Check each one.`
+          : labels && Object.keys(labels).length
+            ? 'Read the language sheet.'
+            : `Read ${items.length} requirements; none matched a rule by their words.`
+      setMsg(base + pictureNote + labelNote)
     } catch (e) {
       setMsg((e as Error).message)
     }

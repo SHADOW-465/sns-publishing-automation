@@ -209,11 +209,17 @@ const esMX: Labels = { ...es, cover: 'Portada', title: 'Página de título' }
 
 const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es, nl, pl, sv, da, no: da, nb: da, tr, ru, el, ar, fa: ar, ur: ar, he }
 
-/** Built-in labels for the language, with the house's own wording from Settings on top. */
+/**
+ * Built-in labels for the language, with the house's own wording from Settings on top.
+ * A region tag such as es-MX is applied after the 2-letter code, so Spanish wording from the
+ * language sheet does not replace the Mexican cover and title-page words.
+ */
 export const labelsFor = (lang: string): Labels => {
-  const code = lang.slice(0, 2).toLowerCase()
-  const base = /^es[-_]mx$/i.test(lang) ? esMX : (TABLE[code] ?? en)
-  return { ...base, ...(settings().labels[code] ?? {}) }
+  const tag = lang.replace(/_/g, '-').toLowerCase()
+  const code = tag.slice(0, 2)
+  const base = tag === 'es-mx' ? esMX : (TABLE[code] ?? en)
+  const table = settings().labels ?? {}
+  return { ...base, ...(table[code] ?? {}), ...(tag === code ? {} : table[tag] ?? {}) }
 }
 
 /** Label keys the Settings screen lets a house reword. */

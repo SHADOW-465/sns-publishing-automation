@@ -111,6 +111,49 @@ test('language workbook: the client can reword e-book labels per language throug
   setSettings(DEFAULT_SETTINGS)
 })
 
+test('language workbook: Mexican Spanish keeps its own cover and title page', async () => {
+  // the client's Major-Languages-Naming sheet, including the tag-sample sheet that also says "English"
+  const sample = {
+    name: 'Language-Tags-Sample', rows: [
+      ['Element', 'Spanish(With Full code) - Sample', 'English'],
+      ['Page ID', '<span aria-label="página 1"></span>', 'page'],
+      ['image alt(default)', '<img alt="imagen"', 'image'],
+    ],
+  }
+  const naming = {
+    name: 'Major-Languages-Naming', rows: [
+      ['English', 'Mexico – Spanish', 'Spanish', 'German'],
+      ['Language code', 'es-MX', 'es-ES', 'de-DE'],
+      ['Page', 'página', 'página', 'Seite'],
+      ['Cover', 'Portada', 'Cubierta', 'Umschlag'],
+      ['Title Page', 'Página de título', 'Portada', 'Titelseite'],
+      ['Image', 'imagen', 'imagen', 'Bild'],
+      ['Decorative', 'decorativa', 'decorativa', 'dekorativ'],
+    ],
+  }
+  // Mexico is listed first; es-ES still owns the shared "es" code because its region matches the language
+  const labels = labelsFromWorkbook([sample, naming])
+  assert.equal(labels?.es.cover, 'Cubierta')
+  assert.equal(labels?.es.title, 'Portada')
+  assert.equal(labels?.['es-mx'].cover, 'Portada')
+  assert.equal(labels?.['es-mx'].title, 'Página de título')
+  assert.equal(labels?.de.page, 'Seite')
+  assert.equal(labels?.en, undefined, 'the concept column is not a second copy of English')
+
+  setStore(new MemoryStore())
+  let spec = await openSpec({ client: 'BeBra', series: '', book: EISBN }, DEFAULT_SETTINGS)
+  spec = await applyLabels(spec, 'book', labels!, 'Ana', 'language.xlsx')
+  applySpec(spec)
+  assert.equal(labelsFor('es-ES').cover, 'Cubierta')
+  assert.equal(labelsFor('es-ES').title, 'Portada')
+  assert.equal(labelsFor('es-MX').cover, 'Portada', 'Mexican cover is not replaced by the Spanish one')
+  assert.equal(labelsFor('es-MX').title, 'Página de título')
+  assert.equal(labelsFor('es-MX').page, 'página', 'shared Spanish wording still applies')
+  assert.equal(labelsFor('de-DE').decorativeAlt, 'dekorativ')
+  assert.equal(labelsFor('es-MX').imageAlt, 'imagen')
+  setSettings(DEFAULT_SETTINGS)
+})
+
 test('Excel: the spec workbook round-trips, with drop-downs', async () => {
   setStore(new MemoryStore())
   const spec = await openSpec({ client: 'Sirio', series: '', book: EISBN }, DEFAULT_SETTINGS)

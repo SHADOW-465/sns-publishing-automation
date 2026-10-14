@@ -185,9 +185,9 @@ export function pictureAltsFromWorkbook(sheets: Sheet[]): SpecPicture[] {
 }
 
 // The client's "Accessible EPUB language" workbook: a concept × language matrix. The first column
-// is the English concept word; each other column is one language (its 2-letter code read from a
-// "Language code" row, e.g. "de-DE" → de). We map the English concept to the locale.ts label key so
-// a publisher can reword the e-book's own labels (page, chapter, cover…) per language — without code.
+// is the English concept word; each other column is one language (its code read from a
+// "Language code" row, e.g. "de-DE" → de, "es-MX" kept as es-mx). We map the English concept to the
+// locale.ts label key so a publisher can reword the e-book's own labels per language — without code.
 const CONCEPT_TO_KEY: Record<string, string> = {
   page: 'page',
   chapter: 'chapter',
@@ -204,40 +204,65 @@ const CONCEPT_TO_KEY: Record<string, string> = {
   decorative: 'decorativeAlt',
 }
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
-const code2 = (s: string) => norm(s).slice(0, 2).toLowerCase()
+
+/** "de-DE" → "de-de", "es-MX" → "es-mx", a bare "de" stays "de". Three-letter codes are left unread. */
+function langTag(raw: string): string {
+  const named = LANG_NAME[norm(raw).toLowerCase()]
+  const src = named ?? norm(raw).replace(/_/g, '-')
+  const m = src.match(/^([A-Za-z]{2,3})(?:-([A-Za-z]{2}|\d{3}))?$/)
+  if (!m || m[1].length !== 2) return ''
+  return m[2] ? `${m[1].toLowerCase()}-${m[2].toLowerCase()}` : m[1].toLowerCase()
+}
+
+/** The column that owns the 2-letter code: es-ES over es-MX (region matches the language), else the first. */
+function primaryTag(tags: string[]): string {
+  return tags.find((t) => {
+    const [lang, region] = t.split('-')
+    return !!region && region === lang
+  }) ?? tags[0]
+}
 
 /** Label overrides from the client's language workbook, or undefined if no language matrix is present. */
 export function labelsFromWorkbook(sheets: Sheet[]): LabelOverrides | undefined {
   for (const sh of sheets) {
-    const head = sh.rows.find((r) => r.some((c) => /^english$/i.test(norm(c))))
-    if (!head) continue
-    // columns B… hold one language each; find each column's 2-letter code from the "Language code" row (fallback: the header word)
+    // a "Language code" row is what makes this the naming sheet; the tag-sample sheet also says "English"
     const codeRow = sh.rows.find((r) => /language code/i.test(norm(r[0] ?? '')))
-    const langCol: { col: number; code: string }[] = []
-    const seen = new Set<string>()
+    const head = sh.rows.find((r) => r.some((c) => /^english$/i.test(norm(c))))
+    if (!head || !codeRow) continue
+    const langCol: { col: number; tag: string }[] = []
     head.forEach((h, c) => {
       if (c === 0 || !norm(h)) return
-      const raw = norm(codeRow?.[c] ?? '') || LANG_NAME[norm(h).toLowerCase()] || norm(h)
-      const code = code2(raw)
-      // labelsFor keys by 2-letter code, so the first column of each code wins (es-ES over es-MX; es-MX's cover/title are already built in)
-      if (code && !seen.has(code)) (seen.add(code), langCol.push({ col: c, code }))
+      const tag = langTag(codeRow[c] ?? '') || langTag(h)
+      if (tag) langCol.push({ col: c, tag })
     })
     if (!langCol.length) continue
+    const byCode = new Map<string, string[]>()
+    for (const { tag } of langCol) {
+      const code = tag.slice(0, 2)
+      byCode.set(code, [...(byCode.get(code) ?? []), tag])
+    }
     const out: LabelOverrides = {}
     for (const row of sh.rows) {
       const key = CONCEPT_TO_KEY[norm(row[0] ?? '').toLowerCase()]
       if (!key) continue
-      for (const { col, code } of langCol) {
+      for (const { col, tag } of langCol) {
         const v = norm(row[col] ?? '')
         if (!v) continue
-        ;(out[code] ??= {})[key] = v
+        const code = tag.slice(0, 2)
+        // the primary region (es-ES) fills the 2-letter code; a second region (es-MX) keeps its own tag
+        const storeAs = tag === primaryTag(byCode.get(code)!) ? code : tag
+        ;(out[storeAs] ??= {})[key] = v
       }
     }
     if (Object.keys(out).length) return out
   }
   return undefined
 }
-const LANG_NAME: Record<string, string> = { english: 'en', german: 'de', french: 'fr', spanish: 'es', italian: 'it', portuguese: 'pt', 'portugal – portuguese': 'pt', 'mexico – spanish': 'es' }
+const LANG_NAME: Record<string, string> = {
+  english: 'en', german: 'de-DE', french: 'fr-FR', spanish: 'es-ES', italian: 'it-IT', portuguese: 'pt-PT',
+  'portugal – portuguese': 'pt-PT', 'portugal - portuguese': 'pt-PT',
+  'mexico – spanish': 'es-MX', 'mexico - spanish': 'es-MX',
+}
 
 /** Suggestions that would change an accessibility rule: shown with the waiver wording. */
 export const waiverNeeded = (s: Suggestion) => {
