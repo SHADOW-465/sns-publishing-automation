@@ -443,7 +443,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, vi
   onSheet: (file: File) => void
 }) {
   const [filter, setFilter] = useState<'todo' | 'all'>(todo ? 'todo' : 'all')
-  const urls = useObjectUrls(useMemo(() => result.pictures.map((p) => [p.path, result.files.get(`OEBPS/${p.path}`)!] as [string, Uint8Array]), [result]), 'image/jpeg')
+  const urls = useObjectUrls(useMemo(() => result.pictures.map((p) => [p.path, result.files.get(`OEBPS/${p.path}`)!] as [string, Uint8Array]), [result]))
   const needs = (p: PdfBuildResult['pictures'][number]) => needsPictureDescription(p, alt) || (p.source === 'ai' && !p.approved)
   const shown = filter === 'todo' ? result.pictures.filter(needs) : result.pictures
   return (

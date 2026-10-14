@@ -223,7 +223,7 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
   onSheet: (file: File) => void
 }) {
   const [filter, setFilter] = useState<'todo' | 'all'>('todo')
-  const urls = useObjectUrls(useMemo(() => a.figures.filter((f) => f.thumb).map((f) => [f.key, f.thumb!] as [string, Uint8Array]), [a]), 'image/jpeg')
+  const urls = useObjectUrls(useMemo(() => a.figures.filter((f) => f.thumb).map((f) => [f.key, f.thumb!] as [string, Uint8Array]), [a]))
   const todo = a.figures.filter((f) => !decorative[f.key] && !alt[f.key]?.trim())
   const shown = filter === 'todo' ? todo : a.figures
   const label = (page: number) => a.book.numbers[page] ?? `PDF page ${page + 1}`

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Preview } from './Preview.tsx'
 import { isbn13Valid, type BookMeta, type ReviewItem, type Section } from '../engine/epub/package.ts'
 import { settings } from '../engine/settings.ts'
-import { extOf } from '../engine/epub/image.ts'
+import { imageMime } from '../engine/epub/image.ts'
 import type { Files } from '../engine/zip.ts'
 
 export function download(data: Uint8Array | string, name: string, type: string) {
@@ -128,9 +128,11 @@ export function useObjectUrls(entries: [string, Uint8Array][], type?: string): M
   const [urls, setUrls] = useState(() => new Map<string, string>())
   useEffect(() => {
     const m = new Map(entries.map(([k, d]): [string, string] => {
-      const e = extOf(d)
-      const detected = e === 'png' ? 'image/png' : e === 'gif' ? 'image/gif' : e === 'jpg' ? 'image/jpeg' : e === 'webp' ? 'image/webp' : e === 'svg' ? 'image/svg+xml' : ''
-      return [k, URL.createObjectURL(new Blob([d as BlobPart], { type: type || detected || undefined }))]
+      // a zip entry is often a view into a larger buffer; copy it or the blob can be the wrong bytes
+      const copy = new ArrayBuffer(d.byteLength)
+      new Uint8Array(copy).set(d)
+      const mime = imageMime(new Uint8Array(copy), type ?? '')
+      return [k, URL.createObjectURL(new Blob([copy], { type: mime || undefined }))]
     }))
     setUrls(m)
     return () => m.forEach((u) => URL.revokeObjectURL(u))

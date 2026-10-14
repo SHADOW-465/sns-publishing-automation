@@ -21,6 +21,17 @@ export function imageSize(b: Uint8Array): { width: number; height: number } {
 export const mediaType = (path: string) =>
   /\.png$/i.test(path) ? 'image/png' : /\.gif$/i.test(path) ? 'image/gif' : /\.svg$/i.test(path) ? 'image/svg+xml' : /\.webp$/i.test(path) ? 'image/webp' : 'image/jpeg'
 
+/** MIME from the bytes. A caller hint is used only when the bytes are not a known image. */
+export function imageMime(b: Uint8Array, fallback = ''): string {
+  const e = extOf(b)
+  if (e === 'png') return 'image/png'
+  if (e === 'gif') return 'image/gif'
+  if (e === 'jpg') return 'image/jpeg'
+  if (e === 'webp') return 'image/webp'
+  if (e === 'svg') return 'image/svg+xml'
+  return fallback
+}
+
 /** File extension from the bytes, not the name: a PNG uploaded as "cover.jpg" must be stored as .png. */
 export function extOf(b: Uint8Array): 'png' | 'gif' | 'jpg' | 'svg' | 'webp' | '' {
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png'
