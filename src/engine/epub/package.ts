@@ -206,7 +206,7 @@ export function packageEpub(p: {
       ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
       : `<div xml:lang="${lang}">\n${body}\n</div>`
   const coverP = `<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg"${standard ? '' : ' role="doc-cover"'} src="${p.cover.path}"/></p>`
-  put('OEBPS/cover.xhtml', doc(L.cover, standard && settings().stdWrappers === 'none' ? coverP : `<section epub:type="cover">\n${langDiv(coverP)}\n</section>`))
+  put('OEBPS/cover.xhtml', doc(L.coverTitle, standard && settings().stdWrappers === 'none' ? coverP : `<section${standard ? '' : ` aria-label="${esc(L.coverTitle)}"`} epub:type="cover">\n${langDiv(coverP)}\n</section>`))
   for (const s of sections) put(`OEBPS/${s.file}`, doc(s.title, langDiv(s.body)))
   const extra = settings().extraCss.trim()
   put('OEBPS/css/style.css', (standard ? (c: string) => standardCss(c, settings()) : (c: string) => c)(formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls))) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
@@ -228,19 +228,22 @@ export function packageEpub(p: {
   const tocSec = sections.find((s) => s.type === 'toc')
   const titleSec = sections.find((s) => s.type === 'title')
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
+  // every list has a heading that names it. EPUBCheck 5.4 rejects aria-labelledby on <nav> (NAV-04), so by default the
+  // wrapping section carries the name of the page and each <nav> is named by its own heading
+  const onNav = settings().navLabelOn === 'nav'
+  const named = (id: string) => (onNav ? `aria-labelledby="${id}" ` : '')
   put('OEBPS/nav.xhtml', doc(L.navTitle, standard ? `<nav epub:type="toc" id="toc">\n${ol(tree)}\n</nav>` : [
-    // EPUBCheck's navigation schema rejects aria-label(ledby) on <nav>: the headings name them
-    `<section epub:type="frontmatter">`,
+    `<section${onNav ? '' : ' aria-labelledby="toc01"'} epub:type="frontmatter">`,
     settings().langWrapper ? `<div xml:lang="${lang}">` : '',
-    `<nav epub:type="toc" id="toc"${standard ? '' : ' role="doc-toc"'}>`,
+    `<nav ${named('toc01')}epub:type="toc" id="toc"${standard ? '' : ' role="doc-toc"'}>`,
     `<h1 id="toc01">${esc(L.navTitle)}</h1>`,
     ol(tree),
     `</nav>`,
     pageList.length && !standard
-      ? `<nav epub:type="page-list" hidden="" role="doc-pagelist">\n<h2>${esc(L.pageList)}</h2>\n<ol class="nav">\n${pageList.map((pg) => `<li><a href="${pg.file}#page-${esc(pg.n)}">${esc(pg.n)}</a></li>`).join('\n')}\n</ol>\n</nav>`
+      ? `<nav ${named('pagelist01')}epub:type="page-list" hidden="" role="doc-pagelist">\n<h2 id="pagelist01">${esc(L.pageList)}</h2>\n<ol class="nav">\n${pageList.map((pg) => `<li><a href="${pg.file}#page-${esc(pg.n)}">${esc(pg.n)}</a></li>`).join('\n')}\n</ol>\n</nav>`
       : '',
-    `<nav epub:type="landmarks" hidden="" role="navigation">`,
-    `<h2>${esc(L.landmarks)}</h2>`,
+    `<nav ${named('landmarks01')}epub:type="landmarks" hidden="" role="navigation">`,
+    `<h2 id="landmarks01">${esc(L.landmarks)}</h2>`,
     `<ol class="nav">`,
     `<li><a epub:type="cover" href="cover.xhtml">${esc(L.cover)}</a></li>`,
     titleSec ? `<li><a epub:type="titlepage" href="${titleSec.file}">${esc(L.title)}</a></li>` : '',
@@ -302,6 +305,8 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
     meta.conformsTo ? `<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>` : '',
     meta.certifiedBy ? `<meta property="a11y:certifiedBy">${esc(meta.certifiedBy)}</meta>` : '',
   ].filter(Boolean).join('\n')
+  const tdm = settings().tdmReservation === 'reserved'
+  const copyrightYear = meta.rights.match(/\b(1[5-9]\d\d|20\d\d)\b/)?.[1] ?? ''
   const unique = new Map<string, ImageOut>()
   for (const im of allImgs) unique.set(im.path, im)
   const manifest = [
@@ -320,8 +325,8 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
         : `<item id="img${i}" href="${im.path}" media-type="${mediaType(im.path)}"/>`),
   ]
   put('OEBPS/content.opf', `<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="${lang}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="${lang}"${tdm ? ' prefix="tdm: http://www.w3.org/ns/tdmrep#"' : ''}>
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
 <dc:identifier id="pub-id">urn:isbn:${isbnDigits(meta.eisbn)}</dc:identifier>
 <dc:title id="pub-title">${esc(title)}</dc:title>
 <dc:language>${esc(lang)}</dc:language>
@@ -332,6 +337,8 @@ ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
 <dc:date>${modified.slice(0, 10)}</dc:date>
 ${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
 <meta property="dcterms:modified">${modified}</meta>
+${copyrightYear ? `<meta property="dcterms:dateCopyrighted">${copyrightYear}</meta>` : ''}
+${tdm ? '<meta property="tdm:reservation">1</meta>' : ''}
 ${standard ? '' : a11yMeta}
 <meta name="cover" content="cover-image"/>
 </metadata>
@@ -343,7 +350,8 @@ ${manifest.join('\n')}
 ${sections.map((s) => `<itemref idref="${s.id}"/>`).join('\n')}
 </spine>
 <guide>
-<reference type="cover" title="${esc(L.cover)}" href="cover.xhtml"/>
+<reference type="cover" title="${esc(L.coverTitle)}" href="cover.xhtml"/>
+<reference type="toc" title="${esc(tocSec?.nav || L.navTitle)}" href="${tocSec?.file ?? 'nav.xhtml'}"/>
 </guide>
 </package>
 `.replace(/\n{2,}/g, '\n'))

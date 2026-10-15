@@ -27,9 +27,15 @@ export interface Labels {
   publisherWord: string
   imageAlt: string
   decorativeAlt: string
+  /** heading of the notes page, for books whose end notes are collected there */
+  notes: string
+  /** the <title> of the cover page and its guide entry; the cover entry in the menu says `cover` (a client may want another word here) */
+  coverTitle: string
 }
+/** what a language table states: the cover title follows `cover` unless a client's layer words it differently */
+type Base = Omit<Labels, 'coverTitle'>
 
-const es: Labels = {
+const es: Base = {
   cover: 'Cubierta',
   halftitle: 'Anteportada',
   title: 'Portada',
@@ -46,10 +52,10 @@ const es: Labels = {
   dedication: 'Dedicatoria',
   epigraph: 'Epígrafe',
   front: 'Preliminares',
-  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editorial', imageAlt: 'imagen', decorativeAlt: 'decorativa',
+  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editorial', imageAlt: 'imagen', decorativeAlt: 'decorativa', notes: 'Notas',
 }
 
-const en: Labels = {
+const en: Base = {
   cover: 'Cover',
   halftitle: 'Half Title',
   title: 'Title Page',
@@ -66,10 +72,10 @@ const en: Labels = {
   dedication: 'Dedication',
   epigraph: 'Epigraph',
   front: 'Front matter',
-  chapter: 'Chapter', titleWord: 'Title', authorWord: 'Author', publisherWord: 'Publisher', imageAlt: 'image', decorativeAlt: 'decorative',
+  chapter: 'Chapter', titleWord: 'Title', authorWord: 'Author', publisherWord: 'Publisher', imageAlt: 'image', decorativeAlt: 'decorative', notes: 'Notes',
 }
 
-const de: Labels = {
+const de: Base = {
   ...en,
   cover: 'Umschlag', halftitle: 'Schmutztitel', title: 'Titelseite', copyright: 'Impressum',
   navTitle: 'Inhaltsverzeichnis', landmarks: 'Orientierungspunkte', pageList: 'Seitenliste',
@@ -77,10 +83,10 @@ const de: Labels = {
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Verlagslogo: ${publisher}` : ''),
   a11ySummary: 'Die Barrierefreiheit dieser Publikation wurde nicht zertifiziert.',
   dedication: 'Widmung', epigraph: 'Motto', front: 'Titelei',
-  chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', imageAlt: 'Bild', decorativeAlt: 'dekorativ',
+  chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', imageAlt: 'Bild', decorativeAlt: 'dekorativ', notes: 'Anmerkungen',
 }
 
-const fr: Labels = {
+const fr: Base = {
   ...en,
   cover: 'Couverture', halftitle: 'Faux-titre', title: 'Page de titre', copyright: 'Mentions légales',
   navTitle: 'Table des matières', landmarks: 'Repères', pageList: 'Liste des pages',
@@ -91,8 +97,9 @@ const fr: Labels = {
   chapter: 'Chapitre', titleWord: 'Titre', authorWord: 'Auteur', publisherWord: 'Éditeur', imageAlt: 'image', decorativeAlt: 'décorative',
 }
 
-const it: Labels = {
+const it: Base = {
   ...en,
+  notes: 'Note',
   cover: 'Copertina', halftitle: 'Occhietto', title: 'Pagina del titolo', copyright: 'Colophon',
   navTitle: 'Indice', landmarks: 'Punti di riferimento', pageList: 'Elenco delle pagine',
   startReading: 'Inizia a leggere', page: 'pagina', eisbn: 'ISBN digitale', logoAlt: "Logo dell'editore",
@@ -102,7 +109,7 @@ const it: Labels = {
   chapter: 'Capitolo', titleWord: 'Titolo', authorWord: 'Autore', publisherWord: 'Editore', imageAlt: 'immagine', decorativeAlt: 'decorativa',
 }
 
-const pt: Labels = {
+const pt: Base = {
   ...es,
   cover: 'Capa', halftitle: 'Anterrosto', title: 'Página de título', copyright: 'Ficha técnica',
   navTitle: 'Índice', landmarks: 'Pontos de referência', pageList: 'Lista de páginas',
@@ -114,8 +121,9 @@ const pt: Labels = {
 }
 
 
-const nl: Labels = {
+const nl: Base = {
   ...en,
+  notes: 'Noten',
   cover: 'Omslag', halftitle: 'Voortitel', title: 'Titelpagina', copyright: 'Colofon',
   navTitle: 'Inhoudsopgave', landmarks: 'Oriëntatiepunten', pageList: 'Paginalijst',
   startReading: 'Begin met lezen', page: 'pagina', eisbn: 'E-book ISBN', logoAlt: 'Logo van de uitgever',
@@ -124,8 +132,9 @@ const nl: Labels = {
   dedication: 'Opdracht', epigraph: 'Motto', front: 'Voorwerk',
 }
 
-const pl: Labels = {
+const pl: Base = {
   ...en,
+  notes: 'Przypisy',
   cover: 'Okładka', halftitle: 'Strona przedtytułowa', title: 'Strona tytułowa', copyright: 'Strona redakcyjna',
   navTitle: 'Spis treści', landmarks: 'Punkty orientacyjne', pageList: 'Lista stron',
   startReading: 'Zacznij czytać', page: 'strona', eisbn: 'ISBN e-booka', logoAlt: 'Logo wydawcy',
@@ -134,8 +143,9 @@ const pl: Labels = {
   dedication: 'Dedykacja', epigraph: 'Motto', front: 'Strony wstępne',
 }
 
-const sv: Labels = {
+const sv: Base = {
   ...en,
+  notes: 'Noter',
   cover: 'Omslag', halftitle: 'Smutstitel', title: 'Titelsida', copyright: 'Copyrightsida',
   navTitle: 'Innehållsförteckning', landmarks: 'Landmärken', pageList: 'Sidlista',
   startReading: 'Börja läsa', page: 'sida', eisbn: 'E-boks-ISBN', logoAlt: 'Förlagets logotyp',
@@ -144,8 +154,9 @@ const sv: Labels = {
   dedication: 'Dedikation', epigraph: 'Motto', front: 'Inledande sidor',
 }
 
-const da: Labels = {
+const da: Base = {
   ...en,
+  notes: 'Noter',
   cover: 'Omslag', halftitle: 'Smudstitel', title: 'Titelblad', copyright: 'Kolofon',
   navTitle: 'Indholdsfortegnelse', landmarks: 'Pejlemærker', pageList: 'Sideliste',
   startReading: 'Begynd at læse', page: 'side', eisbn: 'E-bogs-ISBN', logoAlt: 'Forlagets logo',
@@ -154,8 +165,9 @@ const da: Labels = {
   dedication: 'Dedikation', epigraph: 'Motto', front: 'Indledende sider',
 }
 
-const tr: Labels = {
+const tr: Base = {
   ...en,
+  notes: 'Notlar',
   cover: 'Kapak', halftitle: 'İç kapak', title: 'Başlık sayfası', copyright: 'Telif sayfası',
   navTitle: 'İçindekiler', landmarks: 'Yer işaretleri', pageList: 'Sayfa listesi',
   startReading: 'Okumaya başla', page: 'sayfa', eisbn: 'E-kitap ISBN', logoAlt: 'Yayıncı logosu',
@@ -164,8 +176,9 @@ const tr: Labels = {
   dedication: 'İthaf', epigraph: 'Epigraf', front: 'Ön sayfalar',
 }
 
-const ru: Labels = {
+const ru: Base = {
   ...en,
+  notes: 'Примечания',
   cover: 'Обложка', halftitle: 'Авантитул', title: 'Титульный лист', copyright: 'Выходные данные',
   navTitle: 'Оглавление', landmarks: 'Ориентиры', pageList: 'Список страниц',
   startReading: 'Начать чтение', page: 'страница', eisbn: 'ISBN электронной книги', logoAlt: 'Логотип издательства',
@@ -174,8 +187,9 @@ const ru: Labels = {
   dedication: 'Посвящение', epigraph: 'Эпиграф', front: 'Предисловие',
 }
 
-const el: Labels = {
+const el: Base = {
   ...en,
+  notes: 'Σημειώσεις',
   cover: 'Εξώφυλλο', halftitle: 'Σελίδα προτίτλου', title: 'Σελίδα τίτλου', copyright: 'Πνευματικά δικαιώματα',
   navTitle: 'Περιεχόμενα', landmarks: 'Σημεία αναφοράς', pageList: 'Λίστα σελίδων',
   startReading: 'Έναρξη ανάγνωσης', page: 'σελίδα', eisbn: 'ISBN ηλεκτρονικού βιβλίου', logoAlt: 'Λογότυπο εκδότη',
@@ -184,8 +198,9 @@ const el: Labels = {
   dedication: 'Αφιέρωση', epigraph: 'Επίγραμμα', front: 'Εισαγωγικές σελίδες',
 }
 
-const ar: Labels = {
+const ar: Base = {
   ...en,
+  notes: 'ملاحظات',
   cover: 'الغلاف', halftitle: 'صفحة العنوان المختصر', title: 'صفحة العنوان', copyright: 'حقوق النشر',
   navTitle: 'فهرس المحتويات', landmarks: 'معالم', pageList: 'قائمة الصفحات',
   startReading: 'ابدأ القراءة', page: 'صفحة', eisbn: 'الرقم الدولي للكتاب الإلكتروني', logoAlt: 'شعار الناشر',
@@ -194,8 +209,9 @@ const ar: Labels = {
   dedication: 'إهداء', epigraph: 'تصدير', front: 'الصفحات الأولى',
 }
 
-const he: Labels = {
+const he: Base = {
   ...en,
+  notes: 'הערות',
   cover: 'עטיפה', halftitle: 'שער חצי', title: 'עמוד שער', copyright: 'זכויות יוצרים',
   navTitle: 'תוכן עניינים', landmarks: 'ציוני דרך', pageList: 'רשימת עמודים',
   startReading: 'התחל לקרוא', page: 'עמוד', eisbn: 'ISBN של הספר האלקטרוני', logoAlt: 'לוגו ההוצאה',
@@ -205,9 +221,9 @@ const he: Labels = {
 }
 
 /** Mexican Spanish (client language sheet): the cover is the Portada, the title page the Página de título. */
-const esMX: Labels = { ...es, cover: 'Portada', title: 'Página de título' }
+const esMX: Base = { ...es, cover: 'Portada', title: 'Página de título' }
 
-const TABLE: Record<string, Labels> = { es, en, de, fr, it, pt, ca: es, nl, pl, sv, da, no: da, nb: da, tr, ru, el, ar, fa: ar, ur: ar, he }
+const TABLE: Record<string, Base> = { es, en, de, fr, it, pt, ca: es, nl, pl, sv, da, no: da, nb: da, tr, ru, el, ar, fa: ar, ur: ar, he }
 
 /**
  * Built-in labels for the language, with the house's own wording from Settings on top.
@@ -219,12 +235,17 @@ export const labelsFor = (lang: string): Labels => {
   const code = tag.slice(0, 2)
   const base = tag === 'es-mx' ? esMX : (TABLE[code] ?? en)
   const table = settings().labels ?? {}
-  return { ...base, ...(table[code] ?? {}), ...(tag === code ? {} : table[tag] ?? {}) }
+  const over = { ...(table[code] ?? {}), ...(tag === code ? {} : table[tag] ?? {}) }
+  const out = { ...base, ...over }
+  return { ...out, coverTitle: over.coverTitle || out.cover }
 }
 
 /** Label keys the Settings screen lets a house reword. */
-export const LABEL_KEYS = ['cover', 'halftitle', 'title', 'copyright', 'navTitle', 'landmarks', 'pageList', 'startReading', 'page', 'eisbn', 'logoAlt', 'a11ySummary', 'dedication', 'epigraph', 'front'] as const
-export const builtInLabels = (code: string) => TABLE[code] ?? en
+export const LABEL_KEYS = ['cover', 'coverTitle', 'halftitle', 'title', 'copyright', 'navTitle', 'landmarks', 'pageList', 'startReading', 'page', 'eisbn', 'logoAlt', 'a11ySummary', 'dedication', 'epigraph', 'front'] as const
+export const builtInLabels = (code: string): Labels => {
+  const b = TABLE[code] ?? en
+  return { ...b, coverTitle: b.cover }
+}
 
 // Section types recognised from heading text (all supported languages at once).
 export type SectionType =

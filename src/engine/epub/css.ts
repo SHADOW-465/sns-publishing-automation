@@ -46,7 +46,8 @@ p.extract2 { text-align: left; margin: 0 0 1em 1.5em; text-indent: 0; font-famil
 p.hang { text-align: left; margin: 0 0 0.3em 1.5em; text-indent: -1.5em; font-family: serif; }
 p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
 p.img, p.image_Container { text-align: center; margin: 1em auto; text-indent: 0; }
-figure.fig_group, div.fig_group { text-align: center; margin: 1em 0; }
+figure.fig_group, div.fig_group { text-align: center; margin: 1.5em 0 0 0; }
+figure.fig_group + p, div.fig_group + p { margin-top: 0.5em; margin-bottom: 1.5em; }
 h3.sec1, h4.sec1, h5.sec1 { font-size: 100%; text-align: left; margin: 1em 0; font-family: serif; }
 ul.bull { text-align: justify; margin: 1em 0; font-family: serif; }
 ol.num { text-align: justify; margin: 1em 0; font-family: serif; }
@@ -56,18 +57,21 @@ span.space1 { margin-right: 0.4em; }
 
 /* table of contents pages */
 .nav { margin: 0; list-style-type: none; }
-p.toc_1, p.toc_1t, p.toc_1a, p.toc_2, p.toc_3 { text-align: left; text-indent: 0; font-family: serif; }
+p.toc_1, p.toc_1t, p.toc_1a, p.toc_1s, p.toc_2, p.toc_3 { text-align: left; text-indent: 0; font-family: serif; }
 p.toc_1 { margin: 0.8em 0 0 0; }
 p.toc_1t { margin: 1.5em 0 0 0; }
 p.toc_1a { margin: 0.4em 0 0 1.5em; text-indent: -1.5em; }
 p.toc_2 { margin: 1.5em 0 0 0; text-align: center; }
 p.toc_3 { margin: 1em 0 0 0; }
+p.toc_1s { margin: 0.1em 0 0 1.5em; font-size: 85%; font-family: sans-serif; }
 span.toc_2a { display: block; font-size: 110%; }
-p.toc_1 a, p.toc_1t a, p.toc_1a a, p.toc_2 a, p.toc_3 a { text-decoration: none; }
+p.toc_1 a, p.toc_1t a, p.toc_1a a, p.toc_1s a, p.toc_2 a, p.toc_3 a { text-decoration: none; }
 
 /* footnotes: the separator line is hr.footline (see footnoteRule in Settings) */
 div.footnotes { margin-top: 2em; }
 p.Nota-al-pie { font-size: 85%; text-align: justify; margin: 0.2em 0 0 0; text-indent: 0; font-family: serif; }
+div.endnotes { margin-top: 1em; }
+p.Nota-final { font-size: 90%; text-align: left; margin: 0.6em 0 0 2em; text-indent: -2em; font-family: serif; }
 
 /* tables */
 table { border-collapse: collapse; width: 100%; margin: 1em 0; }
@@ -153,6 +157,11 @@ function optionCss(): string {
     `p.Nota-al-pie { text-indent: ${s.footnoteIndentEm}em; }`,
     // a chapter entry starts flush and its wrapped lines hang in by this much, as the printed contents page
     `p.toc_1a { margin-left: ${s.tocEntryIndentEm}em; text-indent: ${s.tocEntryIndentEm ? -s.tocEntryIndentEm : 0}em; }`,
+    `p.toc_1s { margin-left: ${s.tocEntryIndentEm}em; }`,
+    // (NAV-02) the printed page number sits at the right edge, the title at the left, as in print
+    ...(s.tocPageNumbers === 'show'
+      ? ['p.toc_1, p.toc_1t, p.toc_1a, p.toc_1s { display: flex; justify-content: space-between; align-items: baseline; }', 'span.toc_pg { margin-left: 1em; text-indent: 0; }']
+      : []),
   ].join('\n')
 }
 
@@ -160,12 +169,21 @@ function optionCss(): string {
 export const FIXED_CLASSES = new Set(['p.indent', 'p.noindent', 'p.extract', 'p.extract1', 'p.extract2', 'p.hang', 'p.center', 'h3.sec1', 'h4.sec1', 'h5.sec1', 'li.bull'])
 
 export function buildCss(used: Map<string, { tag: string; decls: Decls }>, body: Decls): string {
+  const house = settings().houseCss.trim() || HOUSE_CSS
   const gen = [...used]
     .filter(([key]) => !FIXED_CLASSES.has(key))
-    .map(([key, u]) =>
+    .map(([key, u]) => {
+      // a variant of a house class ("title-3-rs"): that class's own declarations with the listed changes
+      const from = u.decls['@house']
+      if (from) {
+        const rule = house.match(new RegExp(`^[a-z0-9]*\\.${from.replace(/[-_]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'm'))?.[1] ?? ''
+        const base = Object.fromEntries(rule.split(';').map((d) => [d.slice(0, d.indexOf(':')).trim(), d.slice(d.indexOf(':') + 1).trim()]).filter(([k, v]) => k && v))
+        const { '@house': _drop, ...changes } = u.decls
+        return ruleOf(key, { ...base, ...changes })
+      }
       // table cell classes are shared by <td> and <th> (header row, Settings → tableHeaders)
-      u.tag === 'td' ? ruleOf(`${key}, th.${key.slice(3)}`, { ...u.decls }) : ruleOf(key, houseDecls(u.tag, u.decls, body)))
-  const house = settings().houseCss.trim() || HOUSE_CSS
+      return u.tag === 'td' ? ruleOf(`${key}, th.${key.slice(3)}`, { ...u.decls }) : ruleOf(key, houseDecls(u.tag, u.decls, body))
+    })
   return house + '\n/* house options (Settings) */\n' + optionCss() + '\n\n/* book styles (generated from the InDesign paragraph styles) */\n' + gen.join('\n') + '\n'
 }
 
