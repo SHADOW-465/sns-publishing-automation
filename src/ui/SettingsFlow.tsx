@@ -30,7 +30,7 @@ export function loadSettings() {
 }
 
 const LABEL_HELP: Record<string, string> = {
-  cover: 'Cover (menu entry and page name)', halftitle: 'Half title', title: 'Title page', copyright: 'Copyright page', navTitle: 'Title of the navigation menu',
+  cover: 'Cover (menu entry and page name)', coverTitle: 'Title of the cover page (empty = same as the cover)', halftitle: 'Half title', title: 'Title page', copyright: 'Copyright page', navTitle: 'Title of the navigation menu',
   landmarks: 'Landmarks list (hidden)', pageList: 'Page list (hidden)', startReading: '“Start reading” landmark', page: 'Word before page numbers (“página 12”)',
   eisbn: 'E-book ISBN label on the copyright page', logoAlt: 'Description of the publisher logo', a11ySummary: 'Accessibility summary (store listing)',
   dedication: 'Dedication page name', epigraph: 'Epigraph page name', front: 'Other front pages',

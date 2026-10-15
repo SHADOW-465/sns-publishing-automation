@@ -195,6 +195,8 @@ const CONCEPT_TO_KEY: Record<string, string> = {
   'reference points': 'landmarks',
   landmarks: 'landmarks',
   cover: 'cover',
+  'cover title': 'coverTitle',
+  'cover page title': 'coverTitle',
   'title page': 'title',
   'start reading': 'startReading',
   title: 'titleWord',

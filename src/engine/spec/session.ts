@@ -3,6 +3,7 @@
 import { houseSettings, setSettings, DEFAULT_SETTINGS, type HouseSettings } from '../settings.ts'
 import { ruleById, show, needsWaiver, WAIVER_TEXT, type RuleValue } from './rules.ts'
 import { emptyLayer, layerFromSettings, resolve, specHash, LEVEL_LABEL, type Layer, type Level, type Resolved, type Source } from './layers.ts'
+import { bundledLayer } from './clients.ts'
 import { store, type Decision, type DecisionAction } from './store.ts'
 
 export interface SpecContext {
@@ -20,7 +21,7 @@ export interface Spec {
 
 /** Load the client, series and book layers for a build (creating empty ones). */
 export async function openSpec(ctx: SpecContext, house: HouseSettings = houseSettings()): Promise<Spec> {
-  const get = async (level: Level, name: string) => (name.trim() ? ((await store().getLayer(level, name)) ?? emptyLayer(level, name)) : undefined)
+  const get = async (level: Level, name: string) => (name.trim() ? ((await store().getLayer(level, name)) ?? bundledLayer(level, name) ?? emptyLayer(level, name)) : undefined)
   const layers = [await get('client', ctx.client), await get('series', ctx.series), await get('book', ctx.book)].filter((l): l is Layer => !!l)
   return { ctx, house, layers, resolved: resolveSpec(house, layers) }
 }

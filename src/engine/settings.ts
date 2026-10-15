@@ -63,6 +63,18 @@ export interface HouseSettings extends StdOptions {
   /** rule above the footnotes: a short line as in print, a full-width line, or none */
   footnoteRule: 'short' | 'full' | 'none'
   footnoteRuleWidth: number // % of the text width, for 'short'
+  /** chapter title element: h2 for every chapter, or the tag the source used (h1 when the export typed it so) */
+  chapterTag: 'h2' | 'source'
+  /** class of a chapter title set without a label ("Natur"): the client's chapter-b, or the InDesign style's own name */
+  chapterHeadingClass: 'chapter-b' | 'style'
+  /** printed page numbers on the contents page: shown right-aligned as in print, or left out */
+  tocPageNumbers: 'strip' | 'show'
+  /** a chapter's subtitle ("Natur: Ackerland, Grünfläche…") in the navigation menu when the printed contents lists it under the chapter */
+  navSubtitle: boolean
+  /** where the accessible name of the navigation lists sits: on the wrapping section (valid for EPUBCheck 5.4) or on <nav> itself (rejected by EPUBCheck 5.4) */
+  navLabelOn: 'section' | 'nav'
+  /** text-and-data-mining reservation in the package (W3C TDM reservation protocol) */
+  tdmReservation: 'off' | 'reserved'
 
   // ---- stylesheet ----
   /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference;
@@ -100,6 +112,14 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   tableHeaders: 'th', // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
   footnoteRule: 'short',
   footnoteRuleWidth: 25,
+  // source / style / no subtitle: an InDesign <h1 class="h1"> stays that way, and the menu shows the chapter title.
+  // A client layer (BeBra: h2.chapter-b, subtitles in the menu) turns the review rules on for that publisher.
+  chapterTag: 'source',
+  chapterHeadingClass: 'style',
+  tocPageNumbers: 'strip',
+  navSubtitle: false,
+  navLabelOn: 'section',
+  tdmReservation: 'off',
   cssFormat: 'vertical',
   maxSpaceEm: 2,
   blockSpaceEm: 1,
@@ -149,6 +169,12 @@ function sanitize(s: HouseSettings): HouseSettings {
     variantOn: Array.isArray(s.variantOn) ? s.variantOn.filter((g) => g in VARIANT_GROUPS) : d.variantOn,
     tableHeaders: oneOf('tableHeaders', ['reference', 'th']) as HouseSettings['tableHeaders'],
     footnoteRule: oneOf('footnoteRule', ['short', 'full', 'none']) as HouseSettings['footnoteRule'],
+    chapterTag: oneOf('chapterTag', ['h2', 'source']) as HouseSettings['chapterTag'],
+    chapterHeadingClass: oneOf('chapterHeadingClass', ['chapter-b', 'style']) as HouseSettings['chapterHeadingClass'],
+    tocPageNumbers: oneOf('tocPageNumbers', ['strip', 'show']) as HouseSettings['tocPageNumbers'],
+    navSubtitle: typeof s.navSubtitle === 'boolean' ? s.navSubtitle : d.navSubtitle,
+    navLabelOn: oneOf('navLabelOn', ['section', 'nav']) as HouseSettings['navLabelOn'],
+    tdmReservation: oneOf('tdmReservation', ['off', 'reserved']) as HouseSettings['tdmReservation'],
     cssFormat: oneOf('cssFormat', ['vertical', 'compact']) as HouseSettings['cssFormat'],
     footnoteRuleWidth: num('footnoteRuleWidth', 5, 100),
     maxSpaceEm: num('maxSpaceEm', 0, 10),

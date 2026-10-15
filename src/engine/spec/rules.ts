@@ -45,7 +45,7 @@ export interface Rule {
 
 export const WAIVER_TEXT = 'Yes, I know this reduces accessibility, do it anyway.'
 
-export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Stylesheet', 'Copyright page', 'Standard EPUB', 'Quality check'] as const
+export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Package', 'Stylesheet', 'Copyright page', 'Standard EPUB', 'Quality check'] as const
 
 const onOff: [string, string][] = [['true', 'Yes'], ['false', 'No']]
 
@@ -124,6 +124,24 @@ export const RULES: Rule[] = [
     example: (v) => `h1.… { font-size: ${Math.round(1.1 * Number(v) / 5) * 5}%; }  (a label 10% larger than the text)`,
     keywords: ['font size', 'tamaño de fuente', 'tamaño de letra', 'heading size', 'tamaño del título', 'too big', 'muy grande'],
     origin: 'V3 row 17',
+  },
+
+  {
+    id: 'HD-07', group: 'Headings', title: 'Chapter title element', kind: 'free', type: 'choice', key: 'chapterTag',
+    help: 'Every chapter title is a heading (h2), never a classed paragraph. "As the source" keeps an h1 when the InDesign export already typed the title so.',
+    choices: [['h2', 'h2 for every chapter title'], ['source', 'The element the export used']],
+    example: (v) => (v === 'h2' ? '<h2 class="chapter-b" id="chap1">Natur</h2>' : '<h1 class="h1" id="chap1">Natur</h1>'),
+    keywords: ['chapter heading', 'chapter title', 'h2 chapter', 'no header tag', 'no heading style', 'título de capítulo', 'kapitelüberschrift'],
+    choiceWords: { source: ['as the source', 'keep h1'] },
+    origin: 'EPUB Automation Report 15-10-26',
+  },
+  {
+    id: 'HD-08', group: 'Headings', title: 'Class of a chapter title without a label', kind: 'free', type: 'choice', key: 'chapterHeadingClass',
+    help: 'A chapter that has only a title ("Natur", no "Chapter 1" above it) gets the class chapter-b, as in the client’s hand-finished e-book. A chapter with a label keeps the class of its InDesign style.',
+    choices: [['chapter-b', 'chapter-b'], ['style', 'The InDesign style name']],
+    example: (v) => `<h2 class="${v === 'style' ? 'h1' : 'chapter-b'}" id="chap1">Natur</h2>`,
+    keywords: ['chapter-b', 'chapter class'],
+    origin: 'EPUB Automation Report 15-10-26',
   },
 
   // ---- paragraphs and classes ----
@@ -222,6 +240,40 @@ export const RULES: Rule[] = [
     example: (v) => `p.toc_1a { margin-left: ${v}em; text-indent: -${v}em; }`,
     keywords: ['toc alignment', 'toc', 'índice', 'alineación del índice', 'contents', 'lista de ejercicios'],
     origin: 'V3 rows 18–19',
+  },
+  {
+    id: 'NAV-02', group: 'Contents pages', title: 'Page numbers on the contents page', kind: 'free', type: 'choice', key: 'tocPageNumbers',
+    help: 'Show the printed page number of each entry, right-aligned as in print (the number is not part of the link), or leave the numbers out.',
+    choices: [['strip', 'Without page numbers'], ['show', 'With the printed page numbers, right-aligned']],
+    example: (v) => (v === 'show' ? '<p class="toc_1a"><a href="chapter02.xhtml">Natur</a><span class="toc_pg">11</span></p>' : '<p class="toc_1a"><a href="chapter02.xhtml">Natur</a></p>'),
+    keywords: ['toc page numbers', 'page numbers in toc', 'números de página en el índice', 'inhalt seitenzahlen', 'toc mistake'],
+    choiceWords: { show: ['show', 'right-aligned', 'with page numbers'], strip: ['without', 'remove numbers', 'sin números'] },
+    origin: 'EPUB Automation Report 15-10-26',
+  },
+  {
+    id: 'NAV-03', group: 'Contents pages', title: 'Chapter subtitle in the navigation menu', kind: 'free', type: 'bool', key: 'navSubtitle',
+    help: 'When the printed contents lists a line under a chapter ("Ackerland, Grünfläche…") and that line is the chapter’s first heading, the navigation menu shows "Natur: Ackerland, Grünfläche…".',
+    choices: onOff, example: (v) => (v ? '<a href="chapter02.xhtml">Natur: Ackerland, Grünfläche, Urban Gardening</a>' : '<a href="chapter02.xhtml">Natur</a>'),
+    keywords: ['nav subtitle', 'chapter subtitle', 'nav chapter splitting', 'ncx labels'],
+    origin: 'EPUB Automation Report 15-10-26',
+  },
+  {
+    id: 'NAV-04', group: 'Contents pages', title: 'Where the navigation lists are named', kind: 'free', type: 'choice', key: 'navLabelOn',
+    help: 'Every page has an accessible name. On the navigation page it sits on the wrapping section, which EPUBCheck accepts. Putting aria-labelledby on <nav> itself is what the client’s e-book does, but EPUBCheck 5.4 reports it as an error.',
+    choices: [['section', 'On the wrapping section (valid)'], ['nav', 'On <nav> (EPUBCheck 5.4 error)']],
+    example: (v) => (v === 'nav' ? '<nav aria-labelledby="toc01" epub:type="toc" …>' : '<section aria-labelledby="toc01" epub:type="frontmatter">\n<nav epub:type="toc" …>'),
+    keywords: ['aria-label', 'aria-labelledby', 'aria label missing', 'etiqueta aria'],
+    origin: 'EPUB Automation Report 15-10-26',
+  },
+
+  // ---- package ----
+  {
+    id: 'PKG-01', group: 'Package', title: 'Text and data mining reservation', kind: 'free', type: 'choice', key: 'tdmReservation',
+    help: 'Declares in the package that the publisher reserves text-and-data-mining rights (TDM reservation protocol). Only the publisher can decide this, so it is off unless a client style turns it on.',
+    choices: [['off', 'Not declared'], ['reserved', 'Rights reserved']],
+    example: (v) => (v === 'reserved' ? '<package … prefix="tdm: http://www.w3.org/ns/tdmrep#">\n<meta property="tdm:reservation">1</meta>' : '(nothing)'),
+    keywords: ['tdm', 'text and data mining', 'data mining', 'tdmrep'],
+    origin: 'EPUB Automation Report 15-10-26',
   },
 
   // ---- stylesheet ----
