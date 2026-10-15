@@ -1,5 +1,5 @@
 import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName, tocEntryText } from './read.ts'
-import { inlineHtml, inlineText, type InlineCtx } from './inline.ts'
+import { inlineHtml, inlineText, tocPageOf, type InlineCtx } from './inline.ts'
 import { px, em, isOverride, type Decls } from './css.ts'
 import { houseDecls, cellDecls, ruleOf, FIXED_CLASSES } from '../epub/css.ts'
 import { type Files } from '../zip.ts'
@@ -12,6 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
+import { insertAtMarker } from '../epub/insert.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
 import { settings, isHousePrintOnly, variantProps } from '../settings.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
@@ -404,6 +405,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const headingIds = new Map<PBlock, string>()
   // rebuilt entries, each with the paragraph it came from (page markers stay between the entries)
   const tocHtml = new Map<Sec, { html: string; src: PBlock }[]>()
+  const showPages = settings().tocPageNumbers === 'show'
+  // chapter → its first heading, when the printed contents lists that heading right under the chapter (a subtitle)
+  const subtitles = new Map<Sec, string>()
   let secNo = 0
   const repaired: string[] = []
   // h2 is an exact match only. A fuzzy "same page" match on h2 turned exercise lines into chapter entries.
@@ -423,8 +427,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
       const raw = tocEntryText(e.el)
-      const pageSpan = Array.from(e.el.querySelectorAll('[class]')).find((s) => /seitenzahl|pagenum|page-number|toc-page|^optisch$/i.test((s.getAttribute('class') ?? '').split(/\s+/).pop() ?? '') && /^\s*(\d+|[ivxlcdm]+)\s*$/i.test(s.textContent ?? ''))
-      const page = (e.el.textContent ?? '').match(/\t\s*(\d+|[ivxlcdm]+)\s*$/i)?.[1] ?? pageSpan?.textContent?.match(/(\d+|[ivxlcdm]+)/i)?.[1]
+      const page = tocPageOf(e.el)
+      // (NAV-02) the printed number stays beside the entry, outside the link, for the CSS to set at the right edge
+      const pg = showPages && page ? `<span class="toc_pg">${esc(page)}</span>` : ''
       const n = norm(raw)
       const ctx = inlineCtx(ex, meta.language, L, () => '', () => '')
       const html = inlineHtml(e.el, ctx, { heading: true, stripPageNumber: true })
@@ -452,14 +457,14 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         // chapter entries are toc_1a; front and back matter (Conclusión, Apéndice, Glosario) toc_1, as in print (V3 row 18)
         // the first plain entry after a run of chapters has space above it (toc_1t)
         const cls = target.type === 'part' ? 'toc_2' : target.type === 'chapter' ? 'toc_1a' : /class="toc_1a"/.test(out[out.length - 1]?.html ?? '') ? 'toc_1t' : 'toc_1'
-        out.push({ html: `<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a></p>`, src: e })
+        out.push({ html: `<p class="${cls}"><a href="${target.stem}.xhtml">${target.type === 'part' ? headingInner(target, 'toc_2a') : html}</a>${target.type === 'part' ? '' : pg}</p>`, src: e })
         continue
       }
       if (labelOnly) {
         lastTarget = labelOnly
         // the export lost the chapter title ("2." only): rebuild the entry from the chapter heading
         if (s.type === 'toc' && labelOnly.titleText && !n.replace(norm(labelOnly.labelText), '')) {
-          out.push({ html: `<p class="toc_1a"><a href="${labelOnly.stem}.xhtml">${esc(labelOnly.nav)}</a></p>`, src: e })
+          out.push({ html: `<p class="toc_1a"><a href="${labelOnly.stem}.xhtml">${esc(labelOnly.nav)}</a>${pg}</p>`, src: e })
           repaired.push(labelOnly.nav)
         } else out.push({ html: `<p class="toc_3"><a href="${labelOnly.stem}.xhtml">${html}</a></p>`, src: e })
         continue
@@ -467,17 +472,20 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       const h = subheads.find((x) => norm(x.b.text) === n || sameTitle(x.b.text)) ?? headings.find((x) => page && x.b.page === page && (norm(x.b.text).includes(n) || n.includes(norm(x.b.text))))
       if (h) {
         if (!headingIds.has(h.b)) headingIds.set(h.b, `sec${++secNo}`)
-        out.push({ html: `<p class="toc_1a"><a href="${h.s.stem}.xhtml#${headingIds.get(h.b)}">${html}</a></p>`, src: e })
+        // a heading that opens the chapter just listed is that chapter's subtitle
+        const subtitle = lastTarget?.type === 'chapter' && h.s === lastTarget && lastTarget.items.find((x) => x.t === 'p' && !!x.text) === h.b
+        if (subtitle) subtitles.set(lastTarget!, raw) // as the contents page prints it (a hyphen the heading lost stays)
+        out.push({ html: `<p class="${subtitle ? 'toc_1s' : 'toc_1a'}"><a href="${h.s.stem}.xhtml#${headingIds.get(h.b)}">${html}</a>${pg}</p>`, src: e })
         continue
       }
       const byPage = page && all.find((x) => x.firstPage === page)
       if (byPage && byPage === lastTarget) continue
       if (byPage) {
-        out.push({ html: `<p class="toc_1"><a href="${byPage.stem}.xhtml">${html}</a></p>`, src: e })
+        out.push({ html: `<p class="toc_1"><a href="${byPage.stem}.xhtml">${html}</a>${pg}</p>`, src: e })
         review.push({ level: 'warn', msg: `TOC entry "${e.text}" linked by page number only (text did not match a heading).`, where: s.stem })
         continue
       }
-      out.push({ html: `<p class="toc_1">${html}</p>`, src: e })
+      out.push({ html: `<p class="toc_1">${html}${pg}</p>`, src: e })
       review.push({ level: 'error', msg: `TOC entry "${e.text}" could not be linked to any section.`, where: s.stem })
     }
     tocHtml.set(s, out)
@@ -486,6 +494,14 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const linked = new Set([...out.map((x) => x.html).join('\n').matchAll(/href="([^"#]+)\.xhtml/g)].map((m) => m[1]))
     const missing = all.filter((x) => (x.type === 'chapter' || x.type === 'part') && !linked.has(x.stem))
     if (s.type === 'toc' && missing.length) review.push({ level: 'warn', msg: `Contents page does not list: ${missing.map((x) => x.nav).slice(0, 5).join('; ')}${missing.length > 5 ? '…' : ''}. They are still in the navigation menu.`, where: s.stem })
+  }
+
+  // (NAV-03) "Natur" + its listed subtitle → "Natur: Ackerland, Grünfläche, Urban Gardening" in the menu and the <title>
+  if (settings().navSubtitle) {
+    for (const [sec, sub] of subtitles) {
+      if (input.sectionNav?.[all.indexOf(sec)]?.trim()) continue
+      if (sec.nav && sub) sec.nav = `${sec.nav}${/[.:!?]$/.test(sec.nav) ? '' : ':'} ${sub}`
+    }
   }
 
   // ---- 2e. render every section ---------------------------------------------------------------
@@ -500,6 +516,12 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   let linkedNotes = 0
   let fnNo = 0
   const fnSeen = new Map<string, string>()
+  // end notes are collected on the book's notes page when the book has one (Anmerkungen);
+  // a book whose hand-finished EPUB keeps them under each chapter (no notes section) stays that way
+  const collectEndnotes = all.some((x) => x.type === 'notes')
+  const endnoteList: { n: string; marker: string; file: string; li: Element }[] = []
+  const notesStem = all.find((x) => x.type === 'notes')?.stem ?? SECTION_META.notes.file
+  const notesFile = `${notesStem}.xhtml`
   const logos = input.images.filter((i) => i.placement === 'logo')
   // Pictures dumped far from the page they illustrate. The caption is held out of the HTML
   // until page markers exist, then inserted after that page's marker. `token` marks the old spot.
@@ -654,11 +676,18 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
           review.push({ level: 'error', msg: `Footnote "${id}" is referenced but its text is missing.`, where: file })
           return ''
         }
-        const num = String(++fnNo).padStart(2, '0')
-        fnSeen.set(id, num)
+        fnNo++
         const marker = footnoteMarker(li)
+        if (collectEndnotes && ex.endnotes?.has(id)) {
+          const n = String(fnNo)
+          fnSeen.set(id, n)
+          endnoteList.push({ n, marker, file, li })
+          return `<sup><a epub:type="noteref" href="${notesFile}#fn-${n}" id="fn_${n}" role="doc-noteref">${esc(marker)}</a></sup>`
+        }
+        const num = String(fnNo).padStart(2, '0')
+        fnSeen.set(id, num)
         notes.push(renderFootnote(li, num, marker, ex, meta.language, L))
-        return `<a epub:type="noteref" href="#fn-${num}" id="fn_${num}" role="doc-noteref">${esc(marker)}</a>`
+        return `<sup><a epub:type="noteref" href="#fn-${num}" id="fn_${num}" role="doc-noteref">${esc(marker)}</a></sup>`
       },
     )
     const use = (tg: string, cls: string, d: Decls) => {
@@ -808,7 +837,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       if (!headed) parts.push(heading)
       body += parts.join('\n')
     } else if (isFront) {
-      body += renderFront(s, ctx, meta, logos, imgName, imgOut, ex, L, review, declsOf, dropped)
+      body += renderFront(s, ctx, meta, logos, imgName, imgOut, ex, L, review, declsOf, dropped, use, (input.printPages ?? []).find((p) => p.n === s.firstPage))
     } else {
       // page markers that precede the heading stay above it
       let k = 0
@@ -822,6 +851,21 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const sectionHtml = `<section${lbl} epub:type="${etype}"${meta0.role ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`
     sections.push({ file, id: s.stem, type: s.type, nav: s.nav, parent: s.parent ? `${s.parent.stem}.xhtml` : undefined, body: sectionHtml, title: s.nav || name })
   }
+  if (endnoteList.length) {
+    // numbered notes in reading order, each with a link back to the line it belongs to
+    const html = `<div class="endnotes">\n${endnoteList.map((e) => renderFootnote(e.li, e.n, e.marker, ex, meta.language, L, { file: e.file, cls: 'Nota-final' })).join('\n')}\n</div>`
+    const page = sections.find((x) => x.type === 'notes')
+    if (page) page.body = page.body.replace(/\n?<\/section>\s*$/, () => `\n${html}\n</section>`)
+    else
+      sections.push({
+        file: notesFile, id: notesStem, type: 'notes', nav: L.notes, title: L.notes,
+        body: `<section aria-labelledby="${notesStem}" epub:type="endnotes" role="doc-endnotes">\n<h2 id="${notesStem}" role="heading" aria-level="2">${esc(L.notes)}</h2>\n${html}\n</section>`,
+      })
+  }
+  // a picture still on the notes page was dumped there by the export and no caption led to its printed page
+  for (const page of sections.filter((x) => x.type === 'notes'))
+    for (const m of page.body.matchAll(/<figure[^>]*><img[^>]*src="images\/([^"]+)"/g))
+      review.push({ level: 'warn', msg: `Picture ${m[1]} is still on the notes page: the export put it there and no caption tells which printed page it belongs to. Move it to its chapter.`, where: page.file })
   const placedImages = new Set(imgOut.map((i) => i.path))
   for (const c of input.images) {
     if (c.placement === 'logo') continue
@@ -848,11 +892,20 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     let left = 0
     for (const [n, group] of byPage) {
       const chunk = group.map((g) => g.html).join('\n')
-      const marker = `id="page-${n}"`
-      const dest = sections.find((s) => s.body.includes(marker))
-      const re = new RegExp(`(<span[^>]*${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^>]*/>)`)
-      if (dest && re.test(dest.body)) {
-        dest.body = dest.body.replace(re, (m) => `${m}\n${chunk}`)
+      // where the printed page starts; a page the export left without a marker is closed off just before the next marked page
+      const findMarker = (page: string | number) => {
+        const mk = `id="page-${page}"`
+        const d = sections.find((x) => x.body.includes(mk))
+        return d ? { d, re: new RegExp(`<span[^>]*${mk}[^>]*/>`) } : undefined
+      }
+      let hit = findMarker(n)
+      let side: 'before' | 'after' = 'after'
+      for (let k = 1; !hit && k <= 3 && /^\d+$/.test(n); k++) (hit = findMarker(Number(n) + k)), (side = 'before')
+      // never inside a paragraph: the picture goes at the edge of the paragraph the marker sits in
+      const placed = hit && insertAtMarker(hit.d.body, hit.re, chunk, side)
+      if (hit && placed) {
+        const dest = hit.d
+        dest.body = placed
         for (const item of group) {
           for (const m of item.html.matchAll(/\sid="([^"]+)"/g)) if (!m[1].startsWith('page-')) idFile.set(m[1], dest.file)
           const home = sections.find((s) => s.file === item.home)
@@ -877,6 +930,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
   // cross references (InDesign hyperlinks to text anchors) → the file that now holds the anchor
   for (const sec of sections) {
+    sec.body = sec.body.replace(/\n{2,}/g, '\n') // the places pictures were moved from leave empty lines
     sec.body = sec.body.replace(/href="xref:([^"]*)"/g, (_, id: string) => {
       const f = idFile.get(id)
       if (!f) review.push({ level: 'warn', msg: `Internal link to "${id}" points nowhere; link removed.`, where: sec.file })
@@ -959,7 +1013,8 @@ function renderHeading(
   if (!s.label.length && !s.title.length) return ''
   // a chapter the export already marked <h1> stays h1; a chapter typed as a paragraph stays h2 (house style)
   const srcTag = tag((s.title[0] ?? s.label[0]).el)
-  const h = s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
+  // (HD-07) a chapter title is always a heading: h2, whatever the export typed it as
+  const h = s.type === 'part' || (srcTag === 'h1' && !(s.type === 'chapter' && settings().chapterTag === 'h2')) ? 'h1' : 'h2'
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
   if (s.label.length && s.title.length) {
     const lc = classOf(s.label[0])
@@ -972,7 +1027,8 @@ function renderHeading(
     return `<${h} class="${lc}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
   }
   const only = s.label.length ? s.label : s.title
-  const c = classOf(only[0])
+  // (HD-08) a chapter with only a title, no "Chapter 1" label above it, takes the client's class chapter-b
+  const c = s.type === 'chapter' && !s.label.length && settings().chapterHeadingClass === 'chapter-b' ? 'chapter-b' : classOf(only[0])
   use(h, c, declsOf(only[0]))
   return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
 }
@@ -1077,7 +1133,7 @@ function footnoteMarker(li: Element): string {
   return /^\*+$/.test(m) || !m ? '*' : m
 }
 
-function renderFootnote(li: Element, num: string, marker: string, ex: Export, lang: string, L: Labels): string {
+function renderFootnote(li: Element, num: string, marker: string, ex: Export, lang: string, L: Labels, onPage?: { file: string; cls: string }): string {
   // page markers inside a note stay where the note list sits, not beside the reference
   const ctx = inlineCtx(ex, lang, L, () => '', () => '')
   const ps = Array.from(li.querySelectorAll('p')).length ? Array.from(li.querySelectorAll('p')) : [li]
@@ -1086,8 +1142,8 @@ function renderFootnote(li: Element, num: string, marker: string, ex: Export, la
     for (const a of Array.from(clone.querySelectorAll('a'))) {
       if (a.getAttribute('role') === 'doc-backlink' || classesOf(a).includes('_idFootnoteAnchor') || epubType(a) === 'backlink') a.remove()
     }
-    const back = i === 0 ? `<a epub:type="backlink" href="#fn_${num}" role="doc-backlink">${esc(marker)}</a> ` : ''
-    return `<p class="Nota-al-pie">${back}${inlineHtml(clone, ctx)}</p>`
+    const back = i === 0 ? `<a epub:type="backlink" href="${onPage?.file ?? ''}#fn_${num}" role="doc-backlink">${esc(marker)}</a> ` : ''
+    return `<p class="${onPage?.cls ?? 'Nota-al-pie'}">${back}${inlineHtml(clone, ctx)}</p>`
   })
   return `<div epub:type="footnote" id="fn-${num}" role="doc-footnote">\n${paras.join('\n')}\n</div>`
 }
@@ -1164,6 +1220,7 @@ function renderTable(el: Element, ctx: InlineCtx, ex: Export, cellClass: (c: Ele
 function renderFront(
   s: Sec, ctx: InlineCtx, meta: BookMeta, logos: ImageChoice[], imgName: (s: string) => string, imgOut: ImageOut[],
   ex: Export, L: Labels, review: ReviewItem[], declsOf: (b: PBlock) => Decls, dropped: string[],
+  use: (tg: string, cls: string, d: Decls) => void, printPage?: PrintPage,
 ): string {
   const out: string[] = []
   const eq = (a: string, b: string) => !!b && norm(a) === norm(b)
@@ -1195,7 +1252,17 @@ function renderFront(
     } else items.push(b)
   }
   const html = (b: PBlock) => (joined.get(b) ?? [b]).map((x) => inlineHtml(x.el, ctx)).join(' ')
-  for (const b of s.type === 'copyright' ? items : s.items) {
+  /** house class of a title-page line, or a variant of it ("title-3-rs": right-aligned, sans) when the export set the line so */
+  const titleLook = (b: PBlock, tg: string, base: string): string => {
+    const align = declsOf(b)['text-align']
+    const a = align === 'right' ? 'r' : align === 'left' ? 'l' : ''
+    const sans = isSansLine(b, ex, declsOf) ? 's' : ''
+    if (!a && !sans) return base
+    const name = `${base}-${a}${sans}`
+    use(tg, name, { '@house': base, ...(a ? { 'text-align': align } : {}), ...(sans ? { 'font-family': 'sans-serif' } : {}) })
+    return name
+  }
+  for (const b of s.type === 'copyright' ? items : s.type === 'title' ? inPrintOrder(s.items, printPage) : s.items) {
     if (b.t === 'pb') {
       out.push(ctx.pageMarker(b.n))
       continue
@@ -1206,11 +1273,13 @@ function renderFront(
       continue
     }
     if (s.type === 'title') {
-      if (eq(b.text, meta.title)) out.push(`<h1 aria-label="${esc(L.titleWord)}" class="title_1">${inlineHtml(b.el, ctx, { heading: true })}</h1>`)
-      else if (authors.some((a) => eq(b.text, a))) out.push(`<p aria-label="${esc(L.authorWord)}" class="title-3">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
-      else if (meta.publisher && eq(b.text, meta.publisher)) out.push(`<p aria-label="${esc(L.publisherWord)}" class="title-2">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
-      else if (eq(b.text, meta.subtitle)) out.push(`<p class="title-4">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
-      else out.push(`<p class="title-2">${inlineHtml(b.el, ctx, { heading: true })}</p>`)
+      // the title page keeps the look of the printed one: its order (above), the alignment the export gave each line, sans or serif
+      const inner = inlineHtml(b.el, ctx, { heading: true })
+      if (eq(b.text, meta.title)) out.push(`<h1 aria-label="${esc(L.titleWord)}" class="${titleLook(b, 'h1', 'title_1')}">${inner}</h1>`)
+      else if (authors.some((a) => eq(b.text, a))) out.push(`<p aria-label="${esc(L.authorWord)}" class="${titleLook(b, 'p', 'title-3')}">${inner}</p>`)
+      else if (meta.publisher && eq(b.text, meta.publisher)) out.push(`<p aria-label="${esc(L.publisherWord)}" class="${titleLook(b, 'p', 'title-2')}">${inner}</p>`)
+      else if (eq(b.text, meta.subtitle)) out.push(`<p class="${titleLook(b, 'p', 'title-4')}">${inner}</p>`)
+      else out.push(`<p class="${titleLook(b, 'p', 'title-2')}">${inner}</p>`)
       continue
     }
     // copyright page
@@ -1232,7 +1301,7 @@ function renderFront(
   }
   if (s.type === 'copyright' && !isbnDone && meta.eisbn) out.push(`<p class="copy1">${esc(L.eisbn)}: ${esc(eisbnShown)}</p>`)
   if (s.type === 'title') {
-    if (!out.some((h) => h.includes('class="title_1"'))) review.push({ level: 'warn', msg: `Title page: no line matches the book title "${meta.title}", so no <h1> was set.`, where: 'title.xhtml' })
+    if (!out.some((h) => h.includes('class="title_1'))) review.push({ level: 'warn', msg: `Title page: no line matches the book title "${meta.title}", so no <h1> was set.`, where: 'title.xhtml' })
     for (const l of logos) {
       const name = imgName(l.src)
       imgOut.push({ path: name, data: ex.images.get(l.src)! })
@@ -1241,6 +1310,40 @@ function renderFront(
   }
   if (s.type === 'halftitle' && !out.some((h) => h.startsWith('<h1'))) out.push(`<h1 class="title">${esc(meta.title)}</h1>`)
   return out.join('\n')
+}
+
+/**
+ * Title-page lines in the order they are printed, top to bottom, when the print PDF is there.
+ * InDesign exports text frames in the order they were made, not where they sit on the page ("the author is at the bottom").
+ * Only used when every line is found on the printed page; otherwise the export's order stays.
+ */
+export function inPrintOrder(items: Block[], page?: PrintPage): Block[] {
+  if (!page?.lines.length) return items
+  const lines = page.lines.map((l) => norm(l.text))
+  const ps = items.filter((b): b is PBlock => b.t === 'p' && !!b.text)
+  const at = ps.map((b) => {
+    const t = norm(b.text)
+    return lines.findIndex((l) => l.length >= 2 && (t.startsWith(l) || l.startsWith(t)))
+  })
+  if (ps.length < 2 || at.some((i) => i < 0) || new Set(at).size !== at.length) return items
+  const sorted = ps.map((b, i) => ({ b, i: at[i] })).sort((x, y) => x.i - y.i).map((x) => x.b)
+  let k = 0
+  return items.map((b) => (b.t === 'p' && b.text ? sorted[k++] : b))
+}
+
+const SERIFISH = /garamond|times|minion|georgia|palatino|bembo|caslon|baskerville|didot|bodoni|cambria|book|roman/i
+const SANSISH = /sans|avenir|helvetica|arial|futura|gill|myriad|frutiger|univers|verdana/i
+
+/** Is the title-page line set in a sans-serif face? The font of its spans (or paragraph); a face with no generic fallback
+ *  that differs from the paragraph's own and is not a known serif name is a display sans, as title pages usually use. */
+function isSansLine(b: PBlock, ex: Export, declsOf: (b: PBlock) => Decls): boolean {
+  const own = declsOf(b)['font-family'] ?? ''
+  const span = Array.from(b.el.querySelectorAll('span[class]')).map((c) => ex.css.decls('span', classesOf(c))['font-family']).find(Boolean) ?? ''
+  const fam = span || own
+  if (/serif/i.test(fam) && !/sans-serif/i.test(fam)) return false
+  if (SANSISH.test(fam)) return true
+  if (!fam || fam === own || SERIFISH.test(fam)) return false
+  return true
 }
 
 /** List items (with their depth and kind) → <ul class="bull"> / <ol class="num">, nested where the source nests. */

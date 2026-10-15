@@ -11,6 +11,8 @@ import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { altTally } from '../src/engine/epub/alt.ts'
 import { printReport } from './check-epub.ts'
 import { read } from './samples.ts'
+import { openSpec, applySpec } from '../src/engine/spec/session.ts'
+import { DEFAULT_SETTINGS } from '../src/engine/settings.ts'
 
 const [src, pdf, coverPath, outDir = 'out', eisbn = ''] = process.argv.slice(2)
 const out = resolve(outDir)
@@ -19,6 +21,10 @@ console.log('META', a.meta)
 for (const s of a.styles) console.log(String(s.count).padStart(5), s.role.padEnd(14), s.key.padEnd(34), '|', s.samples[0]?.slice(0, 60))
 const printPages = pdf ? await readPrintPages(pdfjs as never, read(resolve(pdf))) : undefined
 const cover = coverPath ? { name: basename(coverPath), data: read(resolve(coverPath)) } : undefined
+// the client's own style (bundled client layer, matched on the publisher) and any house settings apply, as in the app
+const spec = await openSpec({ client: a.meta.publisher, series: '', book: eisbn || a.meta.title }, DEFAULT_SETTINGS)
+applySpec(spec)
+console.log('CLIENT RULES', spec.layers.filter((l) => Object.keys(l.values).length || l.labels).map((l) => `${l.level}:${l.name} ${JSON.stringify(l.values)} ${JSON.stringify(l.labels ?? {})}`).join(' | ') || '(none)')
 const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn, ...(process.env.PROFILE ? { profile: process.env.PROFILE as 'standard' } : {}) }, cover })
 mkdirSync(out, { recursive: true })
 writeFileSync(resolve(out, 'book.epub'), r.epub)

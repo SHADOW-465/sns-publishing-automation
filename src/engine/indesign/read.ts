@@ -23,6 +23,8 @@ export interface Export {
   css: StyleSheet
   blocks: Block[]
   footnotes: Map<string, Element>
+  /** ids of the notes InDesign collected as end notes (epub:type endnotes): they belong on a notes page, not under the chapter */
+  endnotes: Set<string>
   /** zip path -> bytes, images only */
   images: Map<string, Uint8Array>
   coverImage?: string
@@ -62,6 +64,7 @@ export function readExport(files: Files): Export {
 
   const blocks: Block[] = []
   const footnotes = new Map<string, Element>()
+  const endnotes = new Set<string>()
   let page = ''
   for (const it of spine) {
     if (!it || it.props.includes('nav') || !files.has(it.href)) continue
@@ -83,7 +86,7 @@ export function readExport(files: Files): Export {
       const tg = tag(c)
       const et = epubType(c)
       if (/footnotes|endnotes/.test(et) || classesOf(c).includes('_idFootnotes') || et === 'footnote') {
-        for (const li of Array.from(c.querySelectorAll('li, aside'))) if (li.id) footnotes.set(li.id, li)
+        for (const li of Array.from(c.querySelectorAll('li, aside'))) if (li.id) (footnotes.set(li.id, li), /endnotes/.test(et) && endnotes.add(li.id))
         if (et === 'footnote' && c.id) footnotes.set(c.id, c)
         // InDesign often marks a whole frame "endnotes" that also holds the bibliography and credits
         if (et !== 'footnote') walk(c)
@@ -138,7 +141,7 @@ export function readExport(files: Files): Export {
 
   const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
   const creators = Array.from(opf.getElementsByTagName('dc:creator')).map((e) => (e.textContent ?? '').trim()).filter(Boolean)
-  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, images, coverImage }
+  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage }
 }
 
 /** Paragraph grouping key: the named paragraph style, or the override classes if it has none. */
@@ -205,7 +208,11 @@ const isTocPageSpan = (el: Element) => {
   if (!/optisch|toc|ihv/i.test(cls) || !/^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')) return false
   let n: Node | null = el
   while (n && (n as Element).localName !== 'body') {
-    for (let s = n.nextSibling; s; s = s.nextSibling) if ((s.textContent ?? '').trim()) return false
+    // a page number split over two spans ("1" "21" → 121) is still a page number; words after it are the title
+    for (let s = n.nextSibling; s; s = s.nextSibling) {
+      if (s.nodeType === 1 && isTocPageSpan(s as Element)) continue
+      if ((s.textContent ?? '').trim()) return false
+    }
     const parent: Node | null = n.parentNode
     if (!parent || /^(p|h[1-6]|body)$/.test((parent as Element).localName ?? '')) break
     n = parent

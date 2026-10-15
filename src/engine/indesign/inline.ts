@@ -40,8 +40,36 @@ const isTocPageSpan = (el: Element) => {
   return /optisch|toc|ihv/i.test(cls) && /^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')
 }
 
+/** The page-number spans at the end of a contents entry. A number inside the title ("von 1800 bis heute", set in the same
+ *  "optisch" class) is text, not a page number, so only spans after the last word count. */
+function trailingPageSpans(p: Element): Element[] {
+  const out: Element[] = []
+  let done = false
+  const back = (el: Element) => {
+    for (let i = el.childNodes.length - 1; i >= 0 && !done; i--) {
+      const n = el.childNodes[i]
+      if (n.nodeType === 3) done = !!(n.textContent ?? '').replace(/[\s ]/g, '')
+      else if (n.nodeType === 1) {
+        const c = n as Element
+        if (pageBreakOf(c) !== null || tag(c) === 'br') continue
+        if (isTocPageSpan(c)) out.push(c)
+        else back(c)
+      }
+    }
+  }
+  back(p)
+  return out.reverse()
+}
+
+/** The printed page number at the end of a contents entry: its page-number spans (a number split over two spans is joined), or ending the text after a tab. */
+export function tocPageOf(p: Element): string | undefined {
+  const spans = trailingPageSpans(p).map((e) => (e.textContent ?? '').replace(/\s+/g, '')).join('')
+  return spans || (p.textContent ?? '').match(/	[\s	]*(\d+|[ivxlcdm]+)\s*$/i)?.[1]
+}
+
 export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): string {
   const base = opts.base ?? ctx.css.paragraphFace(classesOf(p))
+  const trailing = new Set(opts.stripPageNumber ? trailingPageSpans(p) : [])
   const segs: Seg[] = []
   const walk = (el: Element, face: Face, href?: string) => {
     for (const n of Array.from(el.childNodes)) {
@@ -62,7 +90,7 @@ export function inlineHtml(p: Element, ctx: InlineCtx, opts: InlineOpts = {}): s
       else if (tg === 'a' && isNoteRef(c)) segs.push({ k: 'raw', html: ctx.noteRef((c.getAttribute('href') ?? '').split('#')[1] ?? '') })
       else if (tg === 'a') walk(c, face, normalizeHref(c.getAttribute('href') ?? '', c.textContent ?? ''))
       else if (tg === 'img') continue
-      else if (opts.stripPageNumber && isTocPageSpan(c)) continue
+      else if (trailing.has(c)) continue
       else walk(c, ctx.css.spanFace(classesOf(c), face), href)
     }
   }
