@@ -215,7 +215,7 @@ export function packageEpub(p: {
 
   // ---- navigation: nav.xhtml (EPUB 3) and toc.ncx (EPUB 2 readers) ----
   type Entry = { label: string; href: string; kids: Entry[] }
-  const tree: Entry[] = [{ label: L.cover, href: 'cover.xhtml#cimg', kids: [] }]
+  const tree: Entry[] = [{ label: L.coverTitle, href: 'cover.xhtml#cimg', kids: [] }]
   const byFile = new Map<string, Entry>()
   for (const s of sections) {
     if (!s.nav) continue // untitled pages (full-page pictures) are in the spine, not the TOC
@@ -245,7 +245,7 @@ export function packageEpub(p: {
     `<nav ${named('landmarks01')}epub:type="landmarks" hidden="" role="navigation">`,
     `<h2 id="landmarks01">${esc(L.landmarks)}</h2>`,
     `<ol class="nav">`,
-    `<li><a epub:type="cover" href="cover.xhtml">${esc(L.cover)}</a></li>`,
+    `<li><a epub:type="cover" href="cover.xhtml">${esc(L.coverTitle)}</a></li>`,
     titleSec ? `<li><a epub:type="titlepage" href="${titleSec.file}">${esc(L.title)}</a></li>` : '',
     tocSec ? `<li><a epub:type="toc" href="${tocSec.file}">${esc(tocSec.nav || L.navTitle)}</a></li>` : '',
     bodyStart ? `<li><a epub:type="bodymatter" href="${bodyStart.file}">${esc(L.startReading)}</a></li>` : '',

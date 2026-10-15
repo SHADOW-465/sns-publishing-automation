@@ -29,7 +29,7 @@ export interface Labels {
   decorativeAlt: string
   /** heading of the notes page, for books whose end notes are collected there */
   notes: string
-  /** the <title> of the cover page and its guide entry; the cover entry in the menu says `cover` (a client may want another word here) */
+  /** the <title> of the cover page, its guide entry, and the cover entry in the menu and NCX; defaults to `cover` */
   coverTitle: string
 }
 /** what a language table states: the cover title follows `cover` unless a client's layer words it differently */

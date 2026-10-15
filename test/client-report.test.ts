@@ -167,6 +167,9 @@ test('10: the cover page title is a configurable client label, not a hardcoded w
   const plain = book()
   assert.match(plain.f('cover.xhtml'), /<title>Umschlag<\/title>/)
   assert.match(plain.f('content.opf'), /<reference type="cover" title="Umschlag"/)
+  assert.match(plain.f('nav.xhtml'), /<a href="cover\.xhtml#cimg">Umschlag<\/a>/, 'default: the menu uses the cover word')
+  assert.match(plain.f('nav.xhtml'), /<a epub:type="cover" href="cover\.xhtml">Umschlag<\/a>/)
+  assert.match(plain.f('toc.ncx'), /<navLabel><text>Umschlag<\/text><\/navLabel><content src="cover\.xhtml#cimg"\/>/)
   const layer = bundledLayer('client', 'BeBra Verlag GmbH')!
   assert.equal(layer.labels?.de?.coverTitle, 'Abdeckung')
   assert.equal(bundledLayer('client', 'BeBra'), undefined, 'matches the client, not any name that starts alike')
@@ -175,7 +178,11 @@ test('10: the cover page title is a configurable client label, not a hardcoded w
   const { f } = book(settings())
   assert.match(f('cover.xhtml'), /<title>Abdeckung<\/title>/)
   assert.match(f('cover.xhtml'), /<section aria-label="Abdeckung" epub:type="cover">/)
-  assert.match(f('nav.xhtml'), /<a href="cover\.xhtml#cimg">Umschlag<\/a>/, 'the menu keeps the cover word')
+  assert.match(f('nav.xhtml'), /<a href="cover\.xhtml#cimg">Abdeckung<\/a>/)
+  assert.match(f('nav.xhtml'), /<a epub:type="cover" href="cover\.xhtml">Abdeckung<\/a>/)
+  assert.doesNotMatch(f('nav.xhtml'), /Umschlag/)
+  assert.match(f('toc.ncx'), /<navLabel><text>Abdeckung<\/text><\/navLabel><content src="cover\.xhtml#cimg"\/>/)
+  assert.doesNotMatch(f('toc.ncx'), /Umschlag/)
   assert.match(f('content.opf'), /<reference type="cover" title="Abdeckung"/)
 })
 
@@ -341,6 +348,10 @@ test('Tempelhofer Feld: the twelve points of the client review hold on the real 
   }
   assert.match(f('content.opf'), /xmlns:opf="http:\/\/www\.idpf\.org\/2007\/opf"/)
   assert.match(f('cover.xhtml'), /<title>Abdeckung<\/title>/)
+  assert.match(f('nav.xhtml'), /<a href="cover\.xhtml#cimg">Abdeckung<\/a>/)
+  assert.match(f('toc.ncx'), /<navLabel><text>Abdeckung<\/text><\/navLabel><content src="cover\.xhtml#cimg"\/>/)
+  assert.doesNotMatch(f('nav.xhtml'), /Umschlag/)
+  assert.doesNotMatch(f('toc.ncx'), /Umschlag/)
   assert.match(f('content.opf'), /<reference type="toc" title="Inhalt" href="toc\.xhtml"\/>/)
   // the package is valid, and the honest check agrees
   const ec = epubcheck(r.epub)

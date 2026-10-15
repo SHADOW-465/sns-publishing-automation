@@ -32,7 +32,7 @@ const CLIENT_STYLES: ClientStyle[] = [
       'NAV-01': 0, // entries start flush left, as in print
       'PKG-01': 'reserved', // the package declares the text-and-data-mining reservation
     },
-    labels: { de: { coverTitle: 'Abdeckung' } }, // "Wrong title name in cover": the cover page is titled Abdeckung, the menu still says Umschlag
+    labels: { de: { coverTitle: 'Abdeckung' } }, // "Wrong title name in cover": page, guide, menu and NCX say Abdeckung
   },
 ]
 
