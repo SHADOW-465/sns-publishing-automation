@@ -1,4 +1,4 @@
-import { type Block, type Export, type Profile, type Role, type StyleInfo, readExport, inferProfile, cssClassName, tocEntryText } from './read.ts'
+import { type Block, type Export, type Profile, type Role, type StyleInfo, ROLES, readExport, inferProfile, cssClassName, tocEntryText } from './read.ts'
 import { inlineHtml, inlineText, tocPageOf, type InlineCtx } from './inline.ts'
 import { px, em, isOverride, type Decls } from './css.ts'
 import { houseDecls, cellDecls, ruleOf, FIXED_CLASSES } from '../epub/css.ts'
@@ -87,9 +87,21 @@ type PBlock = Extract<Block, { t: 'p' }>
 // Step 1: analyse — everything the reviewer needs to confirm before the EPUB is generated
 // ---------------------------------------------------------------------------------------------
 
+/** Styles of the export that a client's styleMap names: a style name or a regular expression over it. These decide before any guess. */
+function styleMapProfile(ex: Export): Profile {
+  const out: Profile = {}
+  const rules = Object.values(settings().styleMap)
+  if (!rules.length) return out
+  for (const k of new Set(ex.blocks.flatMap((b) => (b.t === 'p' ? [b.key] : [])))) {
+    const r = rules.find((x) => x.match === k || (() => { try { return new RegExp(x.match, 'i').test(k) } catch { return false } })())
+    if (r && (ROLES as readonly string[]).includes(r.role)) out[k] = { role: r.role as Role, outClass: r.class ?? '' }
+  }
+  return out
+}
+
 export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture[] = []): Analysis {
   const ex = readExport(files)
-  const styles = inferProfile(ex, saved)
+  const styles = inferProfile(ex, { ...saved, ...styleMapProfile(ex) })
   const role = new Map(styles.map((s) => [s.key, s.role]))
   const review: ReviewItem[] = []
 
@@ -682,12 +694,12 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
           const n = String(fnNo)
           fnSeen.set(id, n)
           endnoteList.push({ n, marker, file, li })
-          return `<sup><a epub:type="noteref" href="${notesFile}#fn-${n}" id="fn_${n}" role="doc-noteref">${esc(marker)}</a></sup>`
+          return noteRef(`${notesFile}#fn-${n}`, `fn_${n}`, esc(marker))
         }
         const num = String(fnNo).padStart(2, '0')
         fnSeen.set(id, num)
         notes.push(renderFootnote(li, num, marker, ex, meta.language, L))
-        return `<sup><a epub:type="noteref" href="#fn-${num}" id="fn_${num}" role="doc-noteref">${esc(marker)}</a></sup>`
+        return noteRef(`#fn-${num}`, `fn_${num}`, esc(marker))
       },
     )
     const use = (tg: string, cls: string, d: Decls) => {
@@ -1014,7 +1026,8 @@ function renderHeading(
   // a chapter the export already marked <h1> stays h1; a chapter typed as a paragraph stays h2 (house style)
   const srcTag = tag((s.title[0] ?? s.label[0]).el)
   // (HD-07) a chapter title is always a heading: h2, whatever the export typed it as
-  const h = s.type === 'part' || (srcTag === 'h1' && !(s.type === 'chapter' && settings().chapterTag === 'h2')) ? 'h1' : 'h2'
+  const want = s.type === 'chapter' ? settings().markup['chapter-title']?.tag ?? (settings().chapterTag === 'h2' ? 'h2' : undefined) : undefined
+  const h = want && /^h[1-6]$/.test(want) ? want : s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
   if (s.label.length && s.title.length) {
     const lc = classOf(s.label[0])
@@ -1028,9 +1041,19 @@ function renderHeading(
   }
   const only = s.label.length ? s.label : s.title
   // (HD-08) a chapter with only a title, no "Chapter 1" label above it, takes the client's class chapter-b
-  const c = s.type === 'chapter' && !s.label.length && settings().chapterHeadingClass === 'chapter-b' ? 'chapter-b' : classOf(only[0])
+  const wantClass = settings().markup['chapter-title']?.class ?? (settings().chapterHeadingClass === 'chapter-b' ? 'chapter-b' : '')
+  const c = s.type === 'chapter' && !s.label.length && wantClass ? wantClass.replace('{style}', classOf(only[0])) : classOf(only[0])
   use(h, c, declsOf(only[0]))
   return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
+}
+
+/** A note reference, written as the client's noteref template says (default: a link in a <sup>). */
+function noteRef(href: string, id: string, label: string): string {
+  const t = settings().markup.noteref
+  const attrs = Object.entries(t?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+  const a = `<a epub:type="noteref" href="${href}"${id ? ` id="${id}"` : ''} role="doc-noteref"${attrs}>${label}</a>`
+  const wrap = t?.wrap ?? 'sup'
+  return wrap ? `<${wrap}>${a}</${wrap}>` : a
 }
 
 /** Page markers inside a paragraph: before any of its text (the page starts with it) or after. */
@@ -1083,7 +1106,7 @@ function linkNotes(items: Item[], key: string): number {
       if (!nums.has(n)) return m
       const first = !refd.has(n)
       refd.add(n)
-      return `<sup><a epub:type="noteref" href="#${key}-n${n}"${first ? ` id="${key}-r${n}"` : ''} role="doc-noteref">${n}</a></sup>`
+      return noteRef(`#${key}-n${n}`, first ? `${key}-r${n}` : '', String(n))
     })
   }
   for (const it of items) {

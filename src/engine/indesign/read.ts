@@ -368,7 +368,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       count: byKey.get(k)!.blocks.length,
       samples: byKey.get(k)!.blocks.slice(0, 3).map((b) => b.text.slice(0, 140)),
       role: s?.role ?? auto.role,
-      outClass: s?.outClass ?? auto.outClass,
+      outClass: s?.outClass || auto.outClass,
       unsure: s ? false : unsure,
       reason: s ? 'from saved publisher profile' : reason,
     })

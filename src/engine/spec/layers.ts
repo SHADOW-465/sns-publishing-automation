@@ -10,7 +10,7 @@
 // takes effect with a waiver recorded on the same layer ("Yes, I know this reduces accessibility…").
 // Every resolved value says which layer (and which file and row, for imported requirements) set it.
 // =============================================================================================
-import { DEFAULT_SETTINGS, type HouseSettings } from '../settings.ts'
+import { DEFAULT_SETTINGS, type HouseSettings, type MarkupTemplate, type MarkupRole, type StyleRule } from '../settings.ts'
 import { RULES, ruleById, needsWaiver, type RuleValue } from './rules.ts'
 
 export const LEVELS = ['house', 'client', 'series', 'book'] as const
@@ -36,6 +36,12 @@ export interface Layer {
   waivers: Record<string, Waiver>
   /** reader-facing label overrides per 2-letter language code (from the client's language workbook); merged into settings.labels */
   labels?: Record<string, Record<string, string>>
+  /** how a role is written out (chapter title, note reference); later layers win per role */
+  markup?: Partial<Record<MarkupRole, MarkupTemplate>>
+  /** source style → meaning, keyed by a name for the entry; later layers win per key */
+  styleMap?: Record<string, StyleRule>
+  /** the client's CSS, appended after the house CSS */
+  css?: string
   updatedAt: string
 }
 
@@ -72,6 +78,18 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS)
     for (const [code, m] of Object.entries(layer.labels ?? {})) labels[code] = { ...(labels[code] ?? {}), ...m }
   }
   settings.labels = labels
+  const markup: Record<string, MarkupTemplate> = { ...(base.markup ?? {}) }
+  const styleMap: Record<string, StyleRule> = { ...(base.styleMap ?? {}) }
+  const css = [base.extraCss ?? ''].filter(Boolean)
+  for (const layer of ordered) {
+    const who = { level: layer.level, name: layer.name }
+    for (const [role, t] of Object.entries(layer.markup ?? {})) (markup[role] = t), (from[`markup:${role}`] = who)
+    for (const [key, r] of Object.entries(layer.styleMap ?? {})) (styleMap[key] = r), (from[`style:${key}`] = who)
+    if (layer.css?.trim()) css.push(layer.css.trim())
+  }
+  settings.markup = markup
+  settings.styleMap = styleMap
+  settings.extraCss = css.join('\n')
   return { settings: settings as unknown as HouseSettings, from, pendingWaivers }
 }
 

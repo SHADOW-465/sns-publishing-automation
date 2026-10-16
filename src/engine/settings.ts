@@ -33,7 +33,31 @@ export const STD_CHOICES = {
 export type StdOptions = { [K in keyof typeof STD_CHOICES]: (typeof STD_CHOICES)[K][number] }
 export const STD_DEFAULTS = Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, v[0]])) as StdOptions
 
+/** How a role is written out. Data a client layer can carry; the engine fills in what the template leaves out. */
+export interface MarkupTemplate {
+  /** element: h2 for a chapter title */
+  tag?: string
+  /** class; for a chapter title it is used when the chapter has no label above it ("{style}" = the InDesign style's own class) */
+  class?: string
+  /** wrapper element: "sup" around a note reference; "" for none */
+  wrap?: string
+  /** extra attributes */
+  attrs?: Record<string, string>
+}
+export type MarkupRole = 'chapter-title' | 'noteref'
+/** A source style and what it means. `match` is a style name or a regular expression over it ("^ihv(\d)$"). */
+export interface StyleRule {
+  match: string
+  role: string
+  /** output class for this style only */
+  class?: string
+}
+
 export interface HouseSettings extends StdOptions {
+  /** role → output template, from the client layers (resolved) */
+  markup: Partial<Record<MarkupRole, MarkupTemplate>>
+  /** source style → meaning, from the client layers (resolved); decides before any guess */
+  styleMap: Record<string, StyleRule>
   /** extra phrases that mark print-only imprint lines (removed from the e-book copyright page) */
   printOnly: string[]
   /** reader-facing labels per language code ("es", "en"…), overriding the built-in ones */
@@ -96,6 +120,8 @@ export interface HouseSettings extends StdOptions {
 }
 
 export const DEFAULT_SETTINGS: HouseSettings = {
+  markup: {},
+  styleMap: {},
   printOnly: [],
   labels: {},
   extraCss: '',
@@ -160,6 +186,8 @@ function sanitize(s: HouseSettings): HouseSettings {
     ...s,
     printOnly: Array.isArray(s.printOnly) ? s.printOnly.map(String) : d.printOnly,
     labels: s.labels && typeof s.labels === 'object' ? s.labels : d.labels,
+    markup: s.markup && typeof s.markup === 'object' ? s.markup : d.markup,
+    styleMap: s.styleMap && typeof s.styleMap === 'object' ? s.styleMap : d.styleMap,
     extraCss: typeof s.extraCss === 'string' ? s.extraCss : d.extraCss,
     houseCss: typeof s.houseCss === 'string' ? s.houseCss : d.houseCss,
     ...(Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, (v as readonly unknown[]).includes((s as unknown as Record<string, unknown>)[k]) ? (s as unknown as Record<string, unknown>)[k] : (d as unknown as Record<string, unknown>)[k]])) as StdOptions),

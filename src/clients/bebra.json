@@ -1,0 +1,17 @@
+{
+  "match": "bebraverlag",
+  "name": "BeBra Verlag",
+  "file": "EPUB-Automation-Report (15-10-26)",
+  "values": {
+    "NAV-02": "show",
+    "NAV-03": true,
+    "NAV-01": 0,
+    "PKG-01": "reserved"
+  },
+  "labels": { "de": { "coverTitle": "Abdeckung" } },
+  "markup": {
+    "chapter-title": { "tag": "h2", "class": "chapter-b" },
+    "noteref": { "wrap": "sup" }
+  },
+  "styleMap": {}
+}

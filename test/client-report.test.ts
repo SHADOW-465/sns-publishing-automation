@@ -13,8 +13,8 @@ import { blockBoundary, insertAtMarker } from '../src/engine/epub/insert.ts'
 import { bundledLayer } from '../src/engine/spec/clients.ts'
 import { tocPageOf } from '../src/engine/indesign/inline.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
-import { epubcheck } from './epubcheck.ts'
-import { refdiff } from './refdiff.ts'
+import { epubcheck, localValidator } from './epubcheck.ts'
+import { refdiff } from '../src/engine/check/refdiff.ts'
 import { synthExport } from './synth.ts'
 import type { PrintPage } from '../src/engine/pdf/pages.ts'
 
@@ -364,9 +364,63 @@ test('Tempelhofer Feld: the twelve points of the client review hold on the real 
 test('refdiff: a build matches itself, and names what differs from a reference with other markup', () => {
   const a = book()
   assert.deepEqual(refdiff(a.r.files, a.r.files), [])
-  const plain = book({ chapterTag: 'h1', chapterHeadingClass: '' })
+  const plain = book({ chapterTag: 'source', chapterHeadingClass: 'style' })
   const d = refdiff(plain.r.files, a.r.files)
   assert.ok(d.some((x) => x.startsWith('chapter headings')), d.join('\n'))
   const ec = epubcheck(a.r.epub)
   if (ec) assert.deepEqual(ec.errors, [])
+})
+
+// ---- phase 1: the gate -------------------------------------------------------------------------------
+test('gate: green only when EPUBCheck ran and passed; conformance catches a broken heading; claims must match the content', async () => {
+  const { gate, claimsCheck } = await import('../src/engine/check/gate.ts')
+  const { zipEpub } = await import('../src/engine/zip.ts')
+  const b = book()
+  const s = settings()
+  const none = await gate(b.r.epub, s)
+  assert.notEqual(none.verdict, 'green', 'without EPUBCheck the verdict cannot be green')
+  assert.ok(none.notes.length)
+  if (epubcheck(b.r.epub)) {
+    const g = await gate(b.r.epub, s, { validator: localValidator })
+    assert.deepEqual(g.stages.filter((x) => x.errors.length).map((x) => `${x.id}: ${x.errors}`), [])
+    assert.notEqual(g.verdict, 'red')
+  }
+  // a deliberately broken template: the chapter title written as a paragraph
+  const broken = new Map(b.r.files)
+  const ch = [...broken.keys()].find((k) => /chapter01\.xhtml$/.test(k))!
+  broken.set(ch, new TextEncoder().encode(text(broken.get(ch)!).replace(/<h2\b/g, '<p').replace(/<\/h2>/g, '</p>')))
+  const bad = await gate(zipEpub(broken), s)
+  assert.equal(bad.verdict, 'red')
+  assert.ok(bad.stages.find((x) => x.id === 'conformance')!.errors.some((m) => m.startsWith('HD-07')))
+  // a claim the content does not back up
+  const lie = new Map(b.r.files)
+  const page = [...lie.keys()].find((k) => /chapter01\.xhtml$/.test(k))!
+  lie.set(page, new TextEncoder().encode(text(lie.get(page)!).replace('</body>', '<img src="x.png" alt=""/></body>')))
+  assert.ok(claimsCheck(lie).some((m) => /no description/.test(m)))
+})
+
+// ---- phase 2: a client is a data file ----------------------------------------------------------------
+test('rules as data: BeBra is JSON; a second client with other classes builds with no code change', async () => {
+  const { resolveSpec } = await import('../src/engine/spec/session.ts')
+  const layer = bundledLayer('client', 'BeBra Verlag GmbH')!
+  assert.deepEqual(layer.markup?.['chapter-title'], { tag: 'h2', class: 'chapter-b' })
+  assert.equal(layer.values['HD-07'], undefined, 'the chapter heading comes from the markup template, not a rule')
+  assert.equal(labelsFor('de-DE').coverTitle, 'Umschlag', 'the house word stays Umschlag')
+  await BEBRA()
+  assert.match(book(settings()).f('chapter01.xhtml'), /<h2 class="chapter-b" id="chap1"/)
+  // another publisher: its own heading class, note references without a wrapper, a style meaning, extra CSS
+  const other = bundledLayer('client', 'Zweiter Verlag AG', [{
+    match: 'zweiterverlag', name: 'Zweiter Verlag', file: 'test',
+    markup: { 'chapter-title': { tag: 'h2', class: 'kapitel' }, noteref: { wrap: '' } },
+    styleMap: { sub: { match: '^h2$', role: 'h3' } },
+    css: 'p.kapitel-x { color: #333; }',
+  }])!
+  const s = resolveSpec(DEFAULT_SETTINGS, [other]).settings
+  const { f } = book(s)
+  assert.match(f('chapter01.xhtml'), /<h2 class="kapitel" id="chap1"/)
+  assert.doesNotMatch(f('chapter01.xhtml'), /chapter-b/)
+  assert.doesNotMatch(f('notes.xhtml') + f('chapter01.xhtml'), /<sup><a epub:type="noteref"/)
+  assert.match(f('chapter01.xhtml'), /<a epub:type="noteref"/)
+  assert.match(f('chapter01.xhtml'), /<h3[^>]*>The fields<\/h3>/)
+  assert.match(f('css/style.css'), /p\.kapitel-x/)
 })
