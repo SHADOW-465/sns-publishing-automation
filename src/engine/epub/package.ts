@@ -160,6 +160,8 @@ export interface ReviewItem {
   level: 'error' | 'warn' | 'info'
   msg: string
   where?: string
+  /** a book-level sanity check that failed (design §3.2): shown as a banner above the review list */
+  kind?: 'cross-check'
 }
 
 export interface ImageOut {

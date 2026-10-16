@@ -12,6 +12,9 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
+import { indesignNotes } from './notes.ts'
+import { type NoteFinding } from '../structure/notes.ts'
+import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { insertAtMarker } from '../epub/insert.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
@@ -58,6 +61,8 @@ export interface Analysis {
   sources: Partial<Record<keyof BookMeta, string>>
   images: ImageChoice[]
   review: ReviewItem[]
+  /** the kinds of notes the book has, each reference matched to its note (design §3.4) */
+  notes: NoteFinding[]
 }
 
 export interface BuildInput {
@@ -80,6 +85,8 @@ export interface BuildResult {
   review: ReviewItem[]
   /** what the quality check compares the EPUB against */
   source: CheckSource
+  /** per picture: where it went and which signal placed it, with its confidence (design §3.5) */
+  pictures: PicturePlacement[]
 }
 
 type PBlock = Extract<Block, { t: 'p' }>
@@ -160,7 +167,8 @@ export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture
   if (!ex.footnotes.size && ex.blocks.some((b) => b.t === 'p' && b.el.querySelector('a[href*="footnote"]')))
     review.push({ level: 'warn', msg: 'Footnote references found but no footnote text — check the InDesign export options.' })
   const sources = { title: fm.source.title, subtitle: fm.source.subtitle, authors: fm.source.author, publisher: fm.source.publisher, printIsbn: fm.printIsbn ? 'copyright page' : '' }
-  return { ex, styles, meta, sources, images, review }
+  const notes = indesignNotes(ex, (b) => role.get(b.key) ?? 'p')
+  return { ex, styles, meta, sources, images, review, notes }
 }
 
 /** The caption after a picture, and a little of the text before it. */
@@ -418,6 +426,9 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const headingIds = new Map<PBlock, string>()
   // rebuilt entries, each with the paragraph it came from (page markers stay between the entries)
   const tocHtml = new Map<Sec, { html: string; src: PBlock }[]>()
+  // the chapters the printed contents lists, with the page it prints and the page the chapter really starts on (cross-check)
+  const tocChapters: { title: string; printed?: string; first?: string }[] = []
+  let tocSeen = false
   const showPages = settings().tocPageNumbers === 'show'
   // chapter → its first heading, when the printed contents lists that heading right under the chapter (a subtitle)
   const subtitles = new Map<Sec, string>()
@@ -436,6 +447,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const tocLike = s.type === 'toc' || (s.type === 'list' && tocShare >= 0.5) || (entries.length > 2 && tocShare >= 0.5)
     if (!tocLike) continue
     const out: { html: string; src: PBlock }[] = []
+    if (s.type === 'toc') tocSeen = true
     let lastTarget: Sec | undefined
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
@@ -467,6 +479,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
       }
       if (target) {
         lastTarget = target
+        if (s.type === 'toc' && target.type === 'chapter') tocChapters.push({ title: target.nav, printed: page, first: target.firstPage })
         // chapter entries are toc_1a; front and back matter (Conclusión, Apéndice, Glosario) toc_1, as in print (V3 row 18)
         // the first plain entry after a run of chapters has space above it (toc_1t)
         const cls = target.type === 'part' ? 'toc_2' : target.type === 'chapter' ? 'toc_1a' : /class="toc_1a"/.test(out[out.length - 1]?.html ?? '') ? 'toc_1t' : 'toc_1'
@@ -511,7 +524,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
 
   // book-level sanity checks: a chapter of a few lines, one section that is most of the book, an overlong copyright page
   const wordCount = (s: Sec) => s.items.reduce((n, b) => n + (b.t === 'p' ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
-  for (const m of crossChecks(all.map((s) => ({ type: s.type, nav: s.nav, words: wordCount(s) })))) review.push({ level: 'warn', msg: m })
+  const chapterLinks = [...tocChapters]
+  for (const m of crossChecks(all.map((s) => ({ type: s.type, nav: s.nav, words: wordCount(s) })), tocSeen ? chapterLinks : undefined)) review.push({ level: 'warn', msg: m, kind: 'cross-check' })
 
   // (NAV-03) "Natur" + its listed subtitle → "Natur: Ackerland, Grünfläche, Urban Gardening" in the menu and the <title>
   if (settings().navSubtitle) {
@@ -544,7 +558,19 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   // until page markers exist, then inserted after that page's marker. `token` marks the old spot.
   const moveImg = new Map<Block, string>()
   const moveCap = new Set<PBlock>()
-  const parked: { target: string; home: string; html: string; token: string }[] = []
+  // per picture, every signal that says where it belongs (design §3.5); decided once the page markers exist
+  const placeEv = new Map<string, PlaceEvidence[]>()
+  const addEv = (src: string, e: PlaceEvidence) => placeEv.set(src, [...(placeEv.get(src) ?? []), e])
+  const candidates = (c: ImageChoice) => candidatePages(`${c.caption} ${c.nearby}`, input.printPages ?? [])
+  for (const sec of all) for (const b of sec.items) {
+    if (b.t !== 'img' || imgChoice.get(b.src)?.placement !== 'inline') continue
+    if (b.frame === 'flow') addEv(b.src, placeEvidence('anchor', 'anchored in the text flow', b.page || undefined))
+    else if (b.page) addEv(b.src, placeEvidence('layout-page', `its layout frame is on printed page ${b.page}`, b.page))
+  }
+  const parked: { target: string; home: string; html: string; token: string; src: string }[] = []
+  const movedSrc = new Set<string>()
+  const leftSrc = new Set<string>()
+  const onNotes = new Set<string>()
   let parkNo = 0
   let longNo = 0
 
@@ -611,7 +637,13 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         const target = hits[0].n
         const htmlPage = Number(b.page)
         const printN = Number(target)
-        if (!Number.isFinite(htmlPage) || !Number.isFinite(printN) || Math.abs(printN - htmlPage) < 5) continue
+        if (!Number.isFinite(htmlPage) || !Number.isFinite(printN)) continue
+        // within a few pages the picture stays where the export put it, and the caption only confirms that page
+        if (Math.abs(printN - htmlPage) < 5) {
+          addEv(b.src, placeEvidence('caption-pdf', `its caption is on printed page ${target}`, b.page))
+          continue
+        }
+        addEv(b.src, placeEvidence('caption-pdf', `its caption is on printed page ${target}`, target))
         moveImg.set(b, target)
         moveCap.add(caption)
       }
@@ -757,7 +789,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     // end-of-chapter notes: a "Notes" subheading followed by numbered paragraphs
     let inNotes = false
     const verse = settings().verseLines ? verseLines(s.items) : new Map<PBlock, string>()
-    let hold: { target: string; figure: string } | undefined
+    let hold: { target: string; figure: string; src: string } | undefined
     const releaseHold = () => {
       if (!hold) return
       items.push({ kind: 'other', html: hold.figure })
@@ -781,7 +813,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         const target = moveImg.get(b)
         if (target) {
           releaseHold()
-          hold = { target, figure }
+          hold = { target, figure, src: b.src }
         } else {
           releaseHold()
           items.push({ kind: 'other', html: figure })
@@ -820,7 +852,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         const html = `<p class="${ca}">${inlineHtml(b.el, ctx, { stripPageNumber: r === 'toc' })}</p>`
         if (hold && moveCap.has(b)) {
           const token = `figpark${parkNo++}`
-          parked.push({ target: hold.target, home: file, html: `${hold.figure}\n${html}`, token })
+          parked.push({ target: hold.target, home: file, html: `${hold.figure}\n${html}`, token, src: hold.src })
           items.push({ kind: 'other', html: `<!--${token}-->` })
           hold = undefined
         } else items.push({ kind: inNotes ? 'note' : inset && !vc ? 'inset' : 'other', note, html })
@@ -882,7 +914,8 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   // a picture still on the notes page was dumped there by the export and no caption led to its printed page
   for (const page of sections.filter((x) => x.type === 'notes'))
     for (const m of page.body.matchAll(/<figure[^>]*><img[^>]*src="images\/([^"]+)"/g))
-      review.push({ level: 'warn', msg: `Picture ${m[1]} is still on the notes page: the export put it there and no caption tells which printed page it belongs to. Move it to its chapter.`, where: page.file })
+      (onNotes.add(m[1]), review.push({ level: 'warn', msg: `Picture ${m[1]} is still on the notes page: the export put it there and no caption tells which printed page it belongs to. Move it to its chapter.`, where: page.file }))
+  const placedNames = new Set(imgOut.map((i) => i.path))
   const placedImages = new Set(imgOut.map((i) => i.path))
   for (const c of input.images) {
     if (c.placement === 'logo') continue
@@ -929,6 +962,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
           if (home) home.body = home.body.replace(`<!--${item.token}-->`, () => '')
         }
         moved += group.length
+        for (const item of group) movedSrc.add(item.src)
       } else {
         for (const item of group) {
           const home = sections.find((s) => s.file === item.home)
@@ -938,6 +972,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         }
         left += group.length
         leftPages.push(n)
+        for (const item of group) leftSrc.add(item.src)
       }
     }
     if (moved) review.push({ level: 'info', msg: `Moved ${moved} picture(s) to the printed page that contains their caption.` })
@@ -945,6 +980,21 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   }
   if (gaps.missing.length)
     review.push({ level: 'warn', msg: `No page marker for page(s) ${gaps.missing.join(', ')}${input.printPages?.length ? ' (could not be located in the print PDF)' : ' — upload the print PDF to place them automatically'}.` })
+  // the placement of every picture: the strongest signal that holds, and how sure it makes us (design §3.5)
+  const pictures: PicturePlacement[] = input.images.filter((c) => c.placement !== 'logo').map((c) => {
+    const name = imgName(c.src)
+    const cands = candidates(c)
+    if (!placedNames.has(name)) {
+      const inStream = ex.blocks.some((b) => b.t === 'img' && b.src === c.src)
+      const p = decidePlacement(c.src, name, [], false, cands, inStream ? 'it comes after the last text of the book, so it is left out' : 'it is not in the reading order of the export, so it is left out')
+      return inStream ? { ...p, signal: 'layout-page' as const, confidence: 0.7, action: 'listed' as const } : p
+    }
+    const own = (placeEv.get(c.src) ?? []).filter((e) => !(leftSrc.has(c.src) && e.signal === 'caption-pdf'))
+    const p = decidePlacement(c.src, name, own, movedSrc.has(c.src), cands, leftSrc.has(c.src) ? 'its caption names a printed page that has no page marker in reading order, so it stays where the export put it' : '')
+    return onNotes.has(name.replace('images/', ''))
+      ? { ...p, confidence: 0.3, action: 'blocked' as const, candidates: cands, note: 'the export put it on the notes page and no caption tells which printed page it belongs to' }
+      : p
+  })
   // cross references (InDesign hyperlinks to text anchors) → the file that now holds the anchor
   for (const sec of sections) {
     sec.body = sec.body.replace(/\n{2,}/g, '\n') // the places pictures were moved from leave empty lines
@@ -998,7 +1048,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
   const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printIsbn: meta.printIsbn, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages, pendingAi }
-  return { epub, files, sections, review, source }
+  return { epub, files, sections, review, source, pictures }
 }
 
 // ---------------------------------------------------------------------------------------------

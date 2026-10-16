@@ -39,6 +39,7 @@ export function IndesignFlow() {
   const [styles, setStyles] = useState<StyleInfo[]>([])
   const [meta, setMeta] = useState<BookMeta>()
   const [images, setImages] = useState<ImageChoice[]>([])
+  const [acked, setAcked] = useState<Set<string>>(new Set())
   const [result, setResult] = useState<BuildResult>()
   const [report, setReport] = useState<CheckReport>()
   const [stale, setStale] = useState(true)
@@ -166,13 +167,15 @@ export function IndesignFlow() {
   const liveSections = (result?.sections ?? []).map((s, i) => ({ ...s, type: types[i] ?? s.type, nav: (navs[i] ?? '').trim() || s.nav }))
   const structureInput = result && analysis && meta
     ? {
-        styles, sources: analysis.sources, meta, notes: result.review,
+        styles, sources: analysis.sources, meta, notes: result.review, noteFindings: analysis.notes, pictures: result.pictures,
         sections: liveSections.map((x) => ({ ...x, preview: text(result.files.get('OEBPS/' + x.file) ?? new Uint8Array()).replace(/^[\s\S]*<body>/, '').replace(/<\/?(?:span|b|i|sup|sub|a)\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) })),
       }
     : undefined
-  const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0 }
+  const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0, banner: [] as string[] }
   const structurePending = structureReview.items.length
-  const blocking = styles.filter((x) => x.count > 0 && x.unsure && (x.confidence ?? 1) < 0.6)
+  // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
+  // (build messages, such as a missing picture description, are fixed on their own step and do not block here)
+  const blocking = structureReview.items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !x.id.startsWith('note:'))
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
@@ -287,6 +290,8 @@ export function IndesignFlow() {
             spec={spec}
             onRule={onRule}
             standard={(meta?.profile ?? 'accessible') === 'standard'}
+            acked={acked}
+            onAck={(id) => setAcked(new Set([...acked, id]))}
           />
           )}
           <Outline sections={result.sections.map((s, i) => ({ ...s, type: types[i] ?? s.type }))} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />
@@ -313,7 +318,7 @@ export function IndesignFlow() {
             </p>
           )}
           <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy || blocking.length > 0} />
-          {blocking.length > 0 && <p className="err small" role="status">Choose what {blocking.length === 1 ? `the style “${blocking[0].key}”` : `these ${blocking.length} styles (${blocking.slice(0, 3).map((x) => x.key).join(', ')}…)`} mean{blocking.length === 1 ? 's' : ''} in the list above: the tool is under 60% sure.</p>}
+          {blocking.length > 0 && <p className="err small" role="status">{blocking.length} item{blocking.length === 1 ? '' : 's'} in the list above {blocking.length === 1 ? 'is' : 'are'} under 60% sure: {blocking.slice(0, 2).map((x) => x.title).join('; ')}{blocking.length > 2 ? '…' : ''}. Decide {blocking.length === 1 ? 'it' : 'them'} to go on.</p>}
         </section>
       )}
 

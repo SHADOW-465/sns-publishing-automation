@@ -32,10 +32,13 @@ function RuleSelect({ rule, spec, onRule }: { rule: Rule; spec?: Spec; onRule: (
   )
 }
 
-export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRule, standard }: {
+export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRule, standard, acked, onAck }: {
   input: ReviewInput
   /** same list the Next warning counts, so the two numbers cannot drift */
-  review?: { items: CheckItem[]; sure: number; auto: number }
+  review?: { items: CheckItem[]; sure: number; auto: number; banner: string[] }
+  /** items a person accepted as they are (notes, pictures): they no longer block */
+  acked?: Set<string>
+  onAck?: (id: string) => void
   setStyle: (key: string, patch: Partial<StyleInfo>) => void
   onType: (index: number, type: string) => void
   onMeta: () => void
@@ -43,7 +46,7 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
   onRule: (id: string, level: 'book' | 'client', v: RuleValue) => void
   standard: boolean
 }) {
-  const { items, sure, auto } = review ?? reviewList(input)
+  const { items, sure, auto, banner } = review ?? reviewList(input)
   const style = (k: string) => input.styles.find((s) => s.key === k)
   const control = (it: CheckItem) => {
     if (it.area === 'style') {
@@ -62,10 +65,17 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
       )
     }
     if (it.area === 'meta') return <button onClick={onMeta}>Open Book details</button>
+    if ((it.area === 'picture' || it.area === 'note') && onAck) return acked?.has(it.id) ? <span className="muted small">accepted as it is</span> : <button onClick={() => onAck(it.id)}>Accept as it is</button>
     return null
   }
   return (
     <section className="check-first" aria-label="Check these first">
+      {banner.length > 0 && (
+        <div className="err" role="alert">
+          <strong>The book as a whole does not add up:</strong>
+          <ul>{banner.map((m) => <li key={m}>{m}</li>)}</ul>
+        </div>
+      )}
       <h3>Check these first</h3>
       <p className="muted small">
         {items.length ? `${items.length} thing${items.length === 1 ? '' : 's'} the tool was not sure about, least sure first.` : 'Nothing to check: the tool was sure of every decision.'} {sure} decision{sure === 1 ? '' : 's'} were clear-cut and are not listed.
@@ -74,7 +84,7 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
       <ol>
         {items.map((it) => (
           <li key={it.id}>
-            <span className={`flag ${it.confidence}`}>{it.confidence === 'low' ? 'not sure' : 'please look'}</span> <strong>{it.title}</strong>
+            <span className={`flag ${it.confidence}`}>{it.confidence === 'low' ? 'not sure' : 'please look'}</span> <span className="muted small">{Math.round(it.score * 100)}%</span> <strong>{it.title}</strong>
             <div className="muted small">{it.why}</div>
             <div className="row">{control(it)}</div>
             {it.topic && (

@@ -112,7 +112,7 @@ test('check-these-first: unsure styles and unknown sections come first, clear on
     { key: 'b', count: 2, samples: ['Dedicatoria'], role: 'imprint', outClass: 'b', unsure: true, reason: 'ISBN / © / legal lines' },
   ] as never
   const r = reviewList({ styles, sources: { title: 'title page' }, meta: { title: 'T', authors: '', publisher: 'P', eisbn: '' }, sections: [{ type: 'chapter', nav: 'One' }, { type: 'other', nav: '' }], notes: [{ level: 'warn', msg: 'Picture needs a description' }] })
-  assert.deepEqual(r.items.map((i) => i.id), ['style:b', 'meta:authors', 'section:1', 'note:3'])
+  assert.deepEqual(r.items.map((i) => i.id), ['meta:authors', 'section:1', 'style:b', 'note:3'])
   assert.equal(r.items[0].confidence, 'low')
   assert.equal(r.sure, 4)
   const untitled = reviewList({ styles: [], sources: {}, meta: { title: 'T', authors: 'A', publisher: 'P', eisbn: '' }, sections: [{ type: 'epigraph', nav: '' }, { type: 'chapter', nav: 'One' }], notes: [] })

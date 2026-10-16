@@ -20,6 +20,7 @@ const books = [
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 
 const out: Record<string, unknown> = {}
+const tally = (xs: string[]) => xs.reduce<Record<string, number>>((m, x) => ((m[x] = (m[x] ?? 0) + 1), m), {})
 for (const b of books) {
   if (!existsSync(b.epub)) continue
   setSettings(DEFAULT_SETTINGS)
@@ -44,7 +45,7 @@ for (const b of books) {
     const n = (t.match(/<img /g) ?? []).length
     if (n) ((figures += n), (figuresIn[f] = n))
   }
-  const rv = reviewList({ styles: a.styles, sources: a.sources, meta: a.meta, sections: r.sections, notes: r.review })
+  const rv = reviewList({ styles: a.styles, sources: a.sources, meta: a.meta, sections: r.sections, notes: r.review, noteFindings: a.notes, pictures: r.pictures })
   const lvl = (l: string) => r.review.filter((x) => x.level === l).length
   out[b.name] = {
     sections: r.sections.length,
@@ -54,6 +55,16 @@ for (const b of books) {
     roles: Object.fromEntries(a.styles.filter((s) => s.count).map((s) => [s.key, `${s.role} (${s.count}x${s.confidence !== undefined ? `, ${s.confidence}` : ''}${s.unsure ? ', unsure' : ''})`])),
     notes,
     pictures: { inBook: figures, imagesInExport: a.images.length, leftOut: r.review.filter((x) => /^Left out picture/.test(x.msg)).length, onNotesPage: r.review.filter((x) => /still on the notes page/.test(x.msg)).length, movedByCaption: Number(r.review.find((x) => /^Moved \d+ picture/.test(x.msg))?.msg.match(/\d+/)?.[0] ?? 0), figuresIn },
+    // phase 3 additions (the baseline had no confidence for these)
+    detection: {
+      styleActions: tally(a.styles.filter((x) => x.count).map((x) => x.action ?? 'none')),
+      pictureSignals: tally(r.pictures.map((p) => p.signal)),
+      pictureActions: tally(r.pictures.map((p) => p.action)),
+      noteKinds: a.notes.map((n) => `${n.kind}: ${n.notes} notes, ${n.refs} refs, ${n.unmatchedRefs.length + n.unmatchedNotes.length} unmatched, ${n.confidence}`),
+      crossChecks: r.review.filter((x) => x.kind === 'cross-check').map((x) => x.msg),
+      blocking: rv.items.filter((i) => i.score < 0.6).length,
+      listed: rv.items.filter((i) => i.score >= 0.6).length,
+    },
     review: { error: lvl('error'), warn: lvl('warn'), info: lvl('info'), checkLow: rv.items.filter((i) => i.confidence === 'low').length, checkMedium: rv.items.filter((i) => i.confidence === 'medium').length, sure: rv.sure, messages: r.review.map((x) => `${x.level}: ${x.msg}`) },
   }
 }

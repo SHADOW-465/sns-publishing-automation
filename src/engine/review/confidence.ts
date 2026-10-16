@@ -3,17 +3,21 @@
 // control changes it (a style's meaning, a section's type, a book detail, or a house rule).
 import type { StyleInfo } from '../indesign/read.ts'
 import type { ReviewItem } from '../epub/package.ts'
+import { noteProblems, kindName, type NoteFinding } from '../structure/notes.ts'
+import type { PicturePlacement } from '../indesign/placement.ts'
 import type { SectionType } from '../epub/locale.ts'
 import { RULES, type Rule } from '../spec/rules.ts'
 
 export type Confidence = 'low' | 'medium'
-export type Area = 'style' | 'section' | 'meta' | 'note'
+export type Area = 'style' | 'section' | 'meta' | 'note' | 'picture'
 
 export interface CheckItem {
   id: string
   area: Area
   confidence: Confidence
   title: string
+  /** 0-1: how sure the tool is. Under 0.6 the item blocks export until a person decides (design §3.2) */
+  score: number
   /** why the tool is not sure, in plain words */
   why: string
   /** style key / section index / meta field, for the control that fixes it */
@@ -40,36 +44,68 @@ export interface ReviewInput {
   sections: { type: SectionType | string; nav: string; /** first words of the section, to recognise an untitled one */ preview?: string }[]
   /** conversion notes from the build */
   notes: ReviewItem[]
+  /** the note kinds found and whether every reference has its note (analyze → notes) */
+  noteFindings?: NoteFinding[]
+  /** where each picture went and which signal placed it (build → pictures) */
+  pictures?: PicturePlacement[]
 }
 
-export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number; auto: number } {
+const level = (score: number): Confidence => (score < 0.6 ? 'low' : 'medium')
+
+/** One list of everything the tool decided and was not sure of, least sure first: styles, sections, book details,
+ *  notes, pictures. Book-level cross-check failures are not in the list: they are the banner above it. */
+export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number; auto: number; banner: string[] } {
   const items: CheckItem[] = []
+  const banner: string[] = []
   let sure = 0
   let auto = 0
+  const push = (it: Omit<CheckItem, 'confidence'>) => items.push({ ...it, confidence: level(it.score) })
   for (const s of a.styles) {
     if (!s.count) continue
-    if (s.unsure) items.push({ id: `style:${s.key}`, area: 'style', confidence: 'low', title: `Style “${s.key}” (${s.count}×) is read as: ${s.role}`, why: `${s.reason}. Example: “${s.samples[0] ?? ''}”`, ref: s.key, topic: topicOfStyle(s) })
+    // 0.85 and up is silent; under it the style is listed; under 0.6 it blocks (design §3.2)
+    const score = s.confidence ?? (s.unsure ? 0.45 : 1)
+    if (s.unsure || (s.action ? s.action !== 'silent' : false)) push({ id: `style:${s.key}`, area: 'style', score, title: `Style “${s.key}” (${s.count}×) is read as: ${s.role}`, why: `${s.reason}. Example: “${s.samples[0] ?? ''}”`, ref: s.key, topic: topicOfStyle(s) })
     else sure++
   }
   const detail: [string, string, string][] = [['title', a.meta.title, 'Title'], ['authors', a.meta.authors, 'Author'], ['publisher', a.meta.publisher, 'Publisher']]
   for (const [field, value, label] of detail) {
     const src = a.sources[field] ?? ''
-    if (!value.trim()) items.push({ id: `meta:${field}`, area: 'meta', confidence: 'low', title: `${label} not found`, why: 'Nothing in the book says it. Type it under Book details.', ref: field })
-    else if (/check/i.test(src)) items.push({ id: `meta:${field}`, area: 'meta', confidence: 'medium', title: `${label}: “${value}”`, why: `Taken from the ${src}.`, ref: field })
+    if (!value.trim()) push({ id: `meta:${field}`, area: 'meta', score: 0.3, title: `${label} not found`, why: 'Nothing in the book says it. Type it under Book details.', ref: field })
+    else if (/check/i.test(src)) push({ id: `meta:${field}`, area: 'meta', score: 0.7, title: `${label}: “${value}”`, why: `Taken from the ${src}.`, ref: field })
     else sure++
   }
   a.sections.forEach((s, i) => {
-    if (s.type === 'other') items.push({ id: `section:${i}`, area: 'section', confidence: 'low', title: `“${s.nav || '(no title)'}” is an unknown kind of section`, why: `The title is not a known front or back matter name. ${s.preview ? `It starts: “${s.preview}”. ` : ''}Choose what it is.`, ref: i })
-    else if (!s.nav.trim()) items.push({ id: `nav:${i}`, area: 'section', confidence: 'low', title: 'A part has no title', why: 'It will be missing from the contents. Type a title in the structure list.', ref: i })
+    if (s.type === 'other') push({ id: `section:${i}`, area: 'section', score: 0.4, title: `“${s.nav || '(no title)'}” is an unknown kind of section`, why: `The title is not a known front or back matter name. ${s.preview ? `It starts: “${s.preview}”. ` : ''}Choose what it is.`, ref: i })
+    else if (!s.nav.trim()) push({ id: `nav:${i}`, area: 'section', score: 0.4, title: 'A part has no title', why: 'It will be missing from the contents. Type a title in the structure list.', ref: i })
     else sure++
   })
+  for (const f of a.noteFindings ?? []) {
+    const problems = noteProblems(f)
+    for (const p of problems) push({ id: p.id, area: 'note', score: p.confidence, title: p.title, why: p.why, topic: 'note' })
+    if (!problems.length && f.action !== 'silent') push({ id: `notes:${f.kind}`, area: 'note', score: f.confidence, title: `${kindName(f.kind)}: ${f.notes} note${f.notes === 1 ? '' : 's'}`, why: f.evidence.join('; '), topic: 'note' })
+    else if (!problems.length) sure++
+  }
+  for (const p of a.pictures ?? []) {
+    if (p.action === 'silent') {
+      sure++
+      continue
+    }
+    const where = p.candidates.length ? ` Closest printed pages: ${p.candidates.join(', ')}.` : ''
+    push({ id: `picture:${p.src}`, area: 'picture', score: p.confidence, title: `Picture ${p.name.replace('images/', '')}${p.page ? `: printed page ${p.page}` : ''} (placed by ${p.signal === 'none' ? 'nothing' : p.signal})`, why: `${p.note.charAt(0).toUpperCase()}${p.note.slice(1)}.${where}`, ref: p.src, topic: 'figure' })
+  }
   for (const n of a.notes) {
+    if (n.kind === 'cross-check') {
+      banner.push(n.msg)
+      continue
+    }
     if (n.level === 'info') {
       auto++
       continue
     }
-    items.push({ id: `note:${items.length}`, area: /ISBN|publisher|author|title/i.test(n.msg) && !/picture|section|style/i.test(n.msg) ? 'meta' : 'note', confidence: n.level === 'error' ? 'low' : 'medium', title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
+    // placement and note problems have their own entries above when the build reported them
+    if (a.pictures && /is still on the notes page/.test(n.msg)) continue
+    push({ id: `note:${items.length}`, area: /ISBN|publisher|author|title/i.test(n.msg) && !/picture|section|style/i.test(n.msg) ? 'meta' : 'note', score: n.level === 'error' ? 0.4 : 0.7, title: n.msg.replace(/^(.{110}).+$/s, '$1…'), why: n.where ? `In ${n.where}.` : 'Reported while building.' })
   }
-  items.sort((x, y) => (x.confidence === y.confidence ? 0 : x.confidence === 'low' ? -1 : 1))
-  return { items, sure, auto }
+  items.sort((x, y) => x.score - y.score)
+  return { items, sure, auto, banner }
 }

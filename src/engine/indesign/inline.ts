@@ -129,7 +129,7 @@ export function inlineText(p: Element, css: StyleSheet, lang: string): string {
   return out.replace(/\s+/g, ' ').trim()
 }
 
-const isNoteRef = (a: Element) =>
+export const isNoteRef = (a: Element) =>
   epubType(a) === 'noteref' || a.getAttribute('role') === 'doc-noteref' || classesOf(a).includes('_idFootnoteLink')
 
 const URLISH = /^(https?:\/\/|www\.)/i

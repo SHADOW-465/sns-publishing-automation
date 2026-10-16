@@ -162,12 +162,13 @@ export function PdfFlow() {
   const ready = !!book || !!wordBook
   const structurePending = result && meta
     ? reviewList({
-        styles: styles.map((s) => ({ ...s, outClass: '', role: 'p' as const, unsure: s.unsure, reason: s.reason })),
+        styles: styles.map((s) => ({ ...s, outClass: '', role: 'p' as const, unsure: s.unsure, reason: s.reason, evidence: undefined, action: undefined })),
         sources: {},
         meta,
         sections: result.sections.map((s, i) => ({ type: s.type, nav: (navs[i] ?? '').trim() || s.nav })),
         notes: [],
-      }).items.filter((it) => it.area !== 'note').length
+        noteFindings: book?.notes,
+      }).items.length
     : 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
