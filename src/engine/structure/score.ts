@@ -83,7 +83,7 @@ export function scoreStyle(s: StyleStats, c: ScoreCtx): Evidence<Canon>[] {
     const lv = s.contents.level
     // a second level-1 style next to an already paired chapter-title style is a front/back section (Introduction, Bibliography…)
     const otherChapter = [...c.pairs].some(([k, r]) => r === 'chapter-title' && k !== s.key)
-    const role: Canon = lv === 1 && (part || pair === 'part-title') ? 'part-title' : lv === 1 && otherChapter && !pair ? 'section-title' : (HEADING_OF_LEVEL[Math.min(lv, 5) - 1] ?? 'h5')
+    const role: Canon = s.contents.part === 'label' ? 'chapter-label' : lv === 1 && (part || pair === 'part-title') ? 'part-title' : lv === 1 && otherChapter && !pair ? 'section-title' : (HEADING_OF_LEVEL[Math.min(lv, 5) - 1] ?? 'h5')
     add(s.contents.source, role, `${s.contents.source === 'nav' ? 'listed in the book’s navigation' : 'listed in the printed contents'}, level ${lv} (${Math.round(s.contents.share * 100)}% of its lines)`)
   }
   // 2. the element
@@ -101,14 +101,40 @@ export function scoreStyle(s: StyleStats, c: ScoreCtx): Evidence<Canon>[] {
     add('pattern', pair, LABEL.test(pair) ? 'short centred line always followed by a large title style' : 'large title style that always follows a label style')
   }
   // 5. typography
-  if (!body && displayLook(s)) {
+  // (a PDF is measured, not styled: its large short lines are voted for as titles in 5b)
+  if (!body && displayLook(s) && s.first.nearImage === undefined) {
     add('typography', pair ?? 'section-title', `large (${s.sizeRatio.toFixed(2)}×) and centred`)
   }
-  if (!body && s.first.headingLook) add('typography', 'h3', 'short, bold/small-caps/sans line with space around it')
   if (!body && s.sizeRatio <= 0.9 && ev.some((e) => e.role === 'imprint' && e.signal !== 'fallback')) add('typography', 'imprint', `small print (${s.sizeRatio.toFixed(2)}×)`)
+  // 5b. layout metrics only a PDF has: its sizes and places are measured, not styled
+  if (!body && s.first.nearImage !== undefined) {
+    const big = pat('numberOnly') >= 0.8 && s.sizeRatio >= 3
+    if (big) {
+      add('pattern', 'chapter-label', 'a lone number set very large')
+      add('typography', 'chapter-label', `${s.sizeRatio.toFixed(1)}× body size`)
+    } else if (s.sizeRatio >= 2.5 && s.avgLen <= 2) {
+      add('pattern', 'dropcap', 'a single letter')
+      add('typography', 'dropcap', `${s.sizeRatio.toFixed(1)}× body size`)
+    } else if (s.sizeRatio >= 1.6 && s.avgLen < 70) {
+      add('typography', 'chapter-title', `short lines at ${s.sizeRatio.toFixed(1)}× body size`, 0.55)
+    } else if (s.share((b) => !!b.bold) >= 0.8 && s.sizeRatio >= 1.05 && s.avgLen < 80) {
+      add('typography', 'h2', 'bold and larger than body text', 0.55)
+    }
+    if (s.sizeRatio <= 0.88 && (s.share((b) => !!b.marker) >= 0.15 || s.share((b) => !!b.nearImage) >= 0.3)) {
+      add('pattern', 'caption', 'small text beside pictures')
+      add('typography', 'caption', `small (${s.sizeRatio.toFixed(2)}×)`)
+    }
+  }
+  const sized = ev.some((e) => e.signal === 'typography' && /^(h2|chapter-title|chapter-label|dropcap)$/.test(e.role) && e.weight >= 0.4 && e.note.includes('body size') || e.note.startsWith('bold and larger'))
+  if (!body && s.first.headingLook && !sized) add('typography', 'h3', 'short, bold/small-caps/sans line with space around it')
   // 6. position
   const opens = pair ?? best(ev) ?? (displayLook(s) ? 'section-title' : undefined)
   if (!body && opens && s.n >= 2 && s.avgLen < 80 && s.share((b) => !!b.firstOnPage) >= 0.6) add('position', opens, 'usually the first line on its page')
+  // a heading is followed by running text
+  if (!body && s.follower === c.bodyKey && s.n >= 2) {
+    const h = ev.find((e) => e.signal === 'typography' && /^(h2|h3)$/.test(e.role))
+    if (h) add('position', h.role, 'always followed by body text')
+  }
   // 7. rare and short
   if (!body && s.first.headingLook && s.n <= c.chapters * 2) add('rare', 'h3', `used only ${s.n}×`)
   // body text: the absence of structure is itself evidence, weighed by how much like running text the style is.

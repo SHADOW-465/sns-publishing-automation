@@ -8,6 +8,11 @@ import { COMPANY, CREDIT, FILEISH } from '../indesign/front.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
 import type { Raster } from '../pdf/raster.ts'
+import { decide, evidence, scoreStyle, type Canon, type Evidence } from '../structure/score.ts'
+import { styleStats, type StyleStats } from '../structure/features.ts'
+import { pdfFeatures } from './features.ts'
+import { pdfNotes } from './notes.ts'
+import type { NoteFinding } from '../structure/notes.ts'
 
 export const MAX_IMAGE_SIDE = 1900 // long side of pictures in the reference EPUB
 // =============================================================================================
@@ -53,6 +58,10 @@ export interface PdfStyleInfo {
   role: PdfRole
   unsure: boolean
   reason: string
+  /** 0-1 from the evidence below (structure/score.ts); under 0.6 a person should look */
+  confidence?: number
+  evidence?: Evidence<Canon>[]
+  action?: 'silent' | 'listed' | 'blocked'
 }
 
 export type PdfProfile = Record<string, PdfRole>
@@ -76,6 +85,8 @@ export interface PdfBook {
   imprintPage?: number
   /** the printed contents page(s), read: where each part and chapter starts */
   contents?: Contents
+  /** the kinds of notes found (a superscript number plus a numbered line at the foot of the page), each reference matched to its note */
+  notes: NoteFinding[]
 }
 
 // InDesign slug: file name + print date/time, often doubled ("02-06-202602-06-2026  19:06"): see pdf/slug.ts
@@ -221,17 +232,6 @@ export async function analyzePdf(
     const found = all.filter((m) => m.entry.level !== 2)
     // subsections listed in the contents are subheads inside the chapters
     for (const m of all.filter((x) => x.entry.level === 2)) for (const l of m.lines) l.forced = 'subhead'
-    const votes = new Map<string, { label: number; title: number }>()
-    for (const m of found) {
-      const last = m.lines[m.lines.length - 1].key
-      for (const l of m.lines) {
-        const v = votes.get(l.key) ?? { label: 0, title: 0 }
-        // the leading lines in another style than the last one are the label ("Capítulo 1"); the rest is the title
-        if (l.key !== last && m.lines.length > 1) v.label++
-        else v.title++
-        votes.set(l.key, v)
-      }
-    }
     // …and each matched line itself is a chapter label or title, even where its font style is shared with other text
     for (const m of found) {
       const last = m.lines[m.lines.length - 1].key
@@ -248,15 +248,38 @@ export async function analyzePdf(
         })
       }
     }
-    for (const [key, v] of votes) {
-      const info = infos.find((i) => i.key === key)
-      // a style that a chapter shares with many other headings (Ceramics: "The Contributors" set like every subhead) keeps its
-      // own role; only the matched lines themselves are headings (forced above)
-      if (!info || saved[key] || key === bodyKey || info.role === 'drop' || v.label + v.title < info.count * 0.5) continue
-      info.role = v.label > v.title ? 'chapter-number' : 'title'
-      info.reason = 'heading listed in the printed contents'
-      info.unsure = false
+  }
+  // ---- every signal votes on every style (structure/score.ts); the first-match role above is one weak vote ----
+  const canonOf: Record<PdfRole, Canon> = { body: 'p', text: 'p', 'chapter-number': 'chapter-label', title: 'chapter-title', subhead: 'h2', subhead2: 'h3', caption: 'caption', dropcap: 'dropcap', drop: 'drop' }
+  const pdfRole = (c: Canon, key: string): PdfRole =>
+    c === 'p' ? (key === bodyKey ? 'body' : 'text')
+    : c === 'chapter-label' || c === 'part-label' ? 'chapter-number'
+    : c === 'chapter-title' || c === 'part-title' || c === 'section-title' ? 'title'
+    : c === 'h2' ? 'subhead' : c === 'h3' || c === 'h4' || c === 'h5' ? 'subhead2'
+    : c === 'caption' || c === 'dropcap' || c === 'drop' ? c : 'text'
+  const feats = pdfFeatures(pages, numbers, { bodyKey, bodySize, imageLines })
+  const statsOf = new Map<string, StyleStats>()
+  for (const info of infos) {
+    const ls = stats.get(info.key)!.lines
+    const avg = stats.get(info.key)!.chars / ls.length
+    const look = info.key !== bodyKey && ((opts.structure !== false && ls.filter((l) => !!l.sc).length / ls.length >= 0.7 && avg < 90 && ls.length >= 2) || (/Bold/.test(info.key) && avg < 60))
+    statsOf.set(info.key, styleStats(info.key, ls.map((l) => Object.assign(feats.get(l)!, { headingLook: look }))))
+  }
+  const scoreCtx = {
+    bodyKey, pairs: new Map<string, Canon>(), chapters: Math.max(6, contents?.entries.filter((e) => e.level === 1).length ?? 0),
+    fallback: new Map(infos.map((i) => [i.key, { role: canonOf[i.role], reason: i.reason }] as const)),
+  }
+  for (const info of infos) {
+    const ev = saved[info.key] ? [evidence<Canon>('saved', canonOf[saved[info.key]], 'saved decision for this style')] : scoreStyle(statsOf.get(info.key)!, scoreCtx)
+    const dec = decide(ev)
+    if (!saved[info.key]) {
+      info.role = pdfRole(dec.role, info.key)
+      info.reason = ev.filter((e) => e.role === dec.role && e.signal !== 'fallback').sort((a, b) => b.weight - a.weight).map((e) => e.note).join('; ') || info.reason
     }
+    info.unsure = saved[info.key] ? false : dec.action === 'blocked'
+    info.action = saved[info.key] ? 'silent' : dec.action
+    info.confidence = saved[info.key] ? 1 : dec.confidence
+    info.evidence = ev
   }
   const roleOf = new Map(infos.map((i) => [i.key, i.role]))
 
@@ -372,5 +395,6 @@ export async function analyzePdf(
     }
   const brand = [...colours].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#333333'
 
-  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, contents }
+  const notes = pdfNotes(pages.map((p, i) => ({ height: p.height, lines: p.lines, label: String(numbers[i]) })), bodySize)
+  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, contents, notes }
 }

@@ -23,8 +23,11 @@ export interface BlockFeatures {
   endsWithPunct: boolean
   pattern?: Pattern
   /** matched an entry of the source's own nav (`nav`) or of the printed contents page (`contents`); level 1 = chapters */
-  contentsMatch?: { level: number; entry: string; source: 'nav' | 'contents' }
+  contentsMatch?: { level: number; entry: string; source: 'nav' | 'contents'; /** the number/label line of a heading, or its title line */ part?: 'label' | 'title' }
   styleFreq: number // how often this style occurs
+  /** PDF only: a dingbat (▶, bullet) started the line and was removed; the line sits right under or beside a picture */
+  marker?: boolean
+  nearImage?: boolean
   /** the reader judged the style to look like a heading: short, set apart, and not like the body text */
   headingLook?: boolean
   /** the style of the next block, to find label/title pairs and "a heading is followed by text" */
@@ -43,7 +46,7 @@ export interface StyleStats {
   /** the style that follows this one at least 70% of the time */
   follower?: string
   /** the contents level when at least half of the blocks match an entry (≥ 2 blocks) */
-  contents?: { level: number; source: 'nav' | 'contents'; share: number }
+  contents?: { level: number; source: 'nav' | 'contents'; share: number; part?: 'label' | 'title' }
   /** a block sample, for the look of the style */
   first: BlockFeatures
 }
@@ -68,6 +71,6 @@ export function styleStats(key: string, bl: BlockFeatures[]): StyleStats {
     avgLen: bl.reduce((n, b) => n + b.textLen, 0) / Math.max(1, bl.length),
     sizeRatio: bl[0]?.sizeRatio ?? 1,
     follower: nx && nx[1] / bl.length >= 0.7 ? nx[0] : undefined,
-    contents: lv && hits.length >= 2 && hits.length / bl.length >= 0.5 ? { level: lv[0], source: hits.find((b) => b.contentsMatch!.level === lv[0])!.contentsMatch!.source, share: hits.length / bl.length } : undefined,
+    contents: lv && hits.length >= 2 && hits.length / bl.length >= 0.5 ? { level: lv[0], source: hits.find((b) => b.contentsMatch!.level === lv[0])!.contentsMatch!.source, share: hits.length / bl.length, part: hits.filter((b) => b.contentsMatch!.part === 'label').length > hits.length / 2 ? 'label' : undefined } : undefined,
   }
 }
