@@ -1,6 +1,6 @@
 // Structure diff of a built EPUB against a hand-finished reference (design §5 stage 6).
 // Returns one line per difference; an empty list means the build matches the reference.
-import { text, type Files } from '../src/engine/zip.ts'
+import { text, type Files } from '../zip.ts'
 
 const opf = (f: Files) => text([...f].find(([p]) => p.endsWith('.opf'))![1])
 const page = (f: Files, name: string) => [...f].find(([p]) => p.endsWith(`/${name}`) || p === name)?.[1]

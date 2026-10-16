@@ -3,6 +3,8 @@ import { FileDrop, type Picked } from './FileDrop.tsx'
 import { Status, Outline, CheckReportView, Help, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { checkEpubBytes, type CheckReport } from '../engine/check/epub.ts'
+import { gate, type GateReport } from '../engine/check/gate.ts'
+import { settings } from '../engine/settings.ts'
 import { text, unzip, type Files } from '../engine/zip.ts'
 import { parseXml, resolvePath, epubType } from '../engine/xml.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
@@ -16,7 +18,7 @@ export function CheckFlow() {
   const [busy, setBusy] = useState<string>()
   const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
-  const [out, setOut] = useState<{ report: CheckReport; files: Files; base: string; sections: { file: string; type: SectionType; nav: string }[]; layout?: PrintPage[] }>()
+  const [out, setOut] = useState<{ verdict: GateReport; report: CheckReport; files: Files; base: string; sections: { file: string; type: SectionType; nav: string }[]; layout?: PrintPage[] }>()
 
   const onCheck = async () => {
     setBusy('Checking…')
@@ -36,7 +38,9 @@ export function CheckFlow() {
       setProgress(undefined)
       const report = checkEpubBytes(epub!.data, { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout })
       const files = unzip(epub!.data)
-      setOut({ report, files, ...spineOf(files), layout })
+      // conformance is for books built here, not for any EPUB dropped in; no EPUBCheck service in the web app yet, so this is never green
+      const verdict = await gate(epub!.data, settings(), { conformance: false })
+      setOut({ verdict, report, files, ...spineOf(files), layout })
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -76,6 +80,10 @@ export function CheckFlow() {
       {out && (
         <section className="card">
           <h2>Report</h2>
+          <p className={`box small ${out.verdict.verdict === 'red' ? 'err' : ''}`} role="status">
+            <strong>{{ green: 'Green: ready for delivery.', amber: 'Amber: no errors found, but not cleared for delivery.', red: 'Red: fix the errors before delivery.' }[out.verdict.verdict]}</strong>{' '}
+            {out.verdict.notes.join(' ')}
+          </p>
           <CheckReportView report={out.report} />
           {out.layout && pdf && out.base === 'OEBPS/' && (
             <>

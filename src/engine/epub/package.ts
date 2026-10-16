@@ -18,6 +18,10 @@ export interface BookMeta {
   rights: string
   certifiedBy: string
   conformsTo: string
+  /** publication date (CCYY-MM-DD), not the build date; left out of the package when unknown */
+  published?: string
+  /** the blurb; left out of the package when unknown */
+  description?: string
   /** accessible = full EPUB accessibility (roles, page list, metadata); standard = clean EPUB 3 for the stores */
   profile?: 'accessible' | 'standard'
 }
@@ -292,6 +296,9 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   if (/<th[\s>]/.test(html)) features.push('tableHeaders') // only when tables really have header cells
   if (/<math[\s>]/.test(html)) features.push('MathML')
   if (sections.some((s) => s.type === 'index')) features.push('index')
+  const imgTags = html.match(/<img[^>]*>/g) ?? []
+  const hasPictures = imgTags.length > 0
+  const allDescribed = imgTags.every((t) => /alt="[^"]+"/.test(t) || (/alt=""/.test(t) && /role="presentation"/.test(t)))
   const a11yMeta = [
     ...features.map((f) => `<meta property="schema:accessibilityFeature">${f}</meta>`),
     '<meta property="schema:accessibilityHazard">noFlashingHazard</meta>',
@@ -299,9 +306,9 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
     '<meta property="schema:accessibilityHazard">noSoundHazard</meta>',
     `<meta property="schema:accessibilitySummary">${esc(L.a11ySummary)}</meta>`,
     '<meta property="schema:accessMode">textual</meta>',
-    '<meta property="schema:accessMode">visual</meta>',
-    '<meta property="schema:accessModeSufficient">textual</meta>',
-    '<meta property="schema:accessModeSufficient">textual,visual</meta>',
+    ...(hasPictures ? ['<meta property="schema:accessMode">visual</meta>'] : []),
+    // claimed only when every picture that is not decorative has a description
+    ...(allDescribed ? ['<meta property="schema:accessModeSufficient">textual</meta>', ...(hasPictures ? ['<meta property="schema:accessModeSufficient">textual,visual</meta>'] : [])] : []),
     meta.conformsTo ? `<meta property="dcterms:conformsTo">${esc(meta.conformsTo)}</meta>` : '',
     meta.certifiedBy ? `<meta property="a11y:certifiedBy">${esc(meta.certifiedBy)}</meta>` : '',
   ].filter(Boolean).join('\n')
@@ -333,8 +340,8 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
 ${authors.map((a, i) => `<dc:creator id="author${i + 1}">${esc(a)}</dc:creator>\n<meta refines="#author${i + 1}" property="role" scheme="marc:relators">aut</meta>`).join('\n')}
 ${meta.publisher.trim() ? `<dc:publisher>${esc(meta.publisher.trim())}</dc:publisher>` : ''}
 ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
-<dc:description>${esc(title)}${authors.length ? ` — ${esc(authors.join(', '))}` : ''}</dc:description>
-<dc:date>${modified.slice(0, 10)}</dc:date>
+${meta.description?.trim() ? `<dc:description>${esc(meta.description.trim())}</dc:description>` : ''}
+${meta.published?.trim() ? `<dc:date>${esc(meta.published.trim())}</dc:date>` : ''}
 ${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
 <meta property="dcterms:modified">${modified}</meta>
 ${copyrightYear ? `<meta property="dcterms:dateCopyrighted">${copyrightYear}</meta>` : ''}

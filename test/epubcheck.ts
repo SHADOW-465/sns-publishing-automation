@@ -38,3 +38,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   console.log(r.output)
   process.exitCode = r.errors.length ? 1 : 0
 }
+
+/** The gate's validator on this machine: local EPUBCheck, or null (not installed). */
+export const localValidator = async (epub: Uint8Array) => {
+  const r = epubcheck(epub)
+  return r && { errors: r.errors, warnings: r.warnings }
+}
