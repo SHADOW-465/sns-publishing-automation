@@ -11,6 +11,7 @@ import {
   settleAlt, classifyGivenAlt, readImageMetadata, decorativeReason, matchSpecPicture, isPlaceholderAlt,
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
+import { crossChecks } from '../structure/score.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { insertAtMarker } from '../epub/insert.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
@@ -507,6 +508,10 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
     const missing = all.filter((x) => (x.type === 'chapter' || x.type === 'part') && !linked.has(x.stem))
     if (s.type === 'toc' && missing.length) review.push({ level: 'warn', msg: `Contents page does not list: ${missing.map((x) => x.nav).slice(0, 5).join('; ')}${missing.length > 5 ? '…' : ''}. They are still in the navigation menu.`, where: s.stem })
   }
+
+  // book-level sanity checks: a chapter of a few lines, one section that is most of the book, an overlong copyright page
+  const wordCount = (s: Sec) => s.items.reduce((n, b) => n + (b.t === 'p' ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
+  for (const m of crossChecks(all.map((s) => ({ type: s.type, nav: s.nav, words: wordCount(s) })))) review.push({ level: 'warn', msg: m })
 
   // (NAV-03) "Natur" + its listed subtitle → "Natur: Ackerland, Grünfläche, Urban Gardening" in the menu and the <title>
   if (settings().navSubtitle) {

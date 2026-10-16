@@ -1,3 +1,5 @@
+import { decide, evidence, type Evidence } from '../structure/score.ts'
+import { nameRole } from '../structure/dict.ts'
 import { StyleSheet, isOverride, px, em, type Decls } from './css.ts'
 import { type Files, text } from '../zip.ts'
 import { parseXml, resolvePath, tag, classesOf, textOf, pageBreakOf, epubType } from '../xml.ts'
@@ -186,6 +188,9 @@ export interface StyleInfo {
   /** true when the guess is weak and a human should look at it */
   unsure: boolean
   reason: string
+  /** 0-1 from the evidence below (structure/score.ts); under 0.6 a person should look */
+  confidence?: number
+  evidence?: Evidence[]
 }
 
 export type Profile = Record<string, { role: Role; outClass: string }>
@@ -289,9 +294,24 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
   }
 
   const infos: StyleInfo[] = []
+  /** independent signals that agree with the chosen role: the element, the style name, the type */
+  const corroborate = (k: string, role: Role): Evidence[] => {
+    const out: Evidence[] = []
+    const bl = byKey.get(k)!.blocks.filter((b) => b.text)
+    const tg = bl[0] && bl.every((b) => tag(b.el) === tag(bl[0].el)) ? headingRoleOfTag(tag(bl[0].el)) : undefined
+    if (tg === role) out.push(evidence('tag', role, 'paragraphs are heading elements'))
+    if (NAMED_HEAD.some(([r, re]) => r === role && re.test(k)) || nameRole(k)?.[0] === role) out.push(evidence('name', role, `style name “${k}”`))
+    if (role === 'toc' && TOC_NAME.test(k)) out.push(evidence('name', role, `style name “${k}”`))
+    if (role === 'imprint' && IMPRINT_NAME.test(k)) out.push(evidence('name', role, `style name “${k}”`))
+    if (/^(chapter-title|section-title|h2|h3|part-title)$/.test(role) && bl.length && display(k)) out.push(evidence('typography', role, 'large and centred'))
+    return out
+  }
   const roles = new Map<string, [Role, string, boolean]>()
-  const mark = (k: string, role: Role, reason: string, unsure: boolean) => {
-    if (!roles.has(k)) roles.set(k, [role, reason, unsure])
+  const prim = new Map<string, Evidence>() // the signal that made the first-match decision
+  const mark = (k: string, role: Role, reason: string, unsure: boolean, signal: Evidence['signal'] = 'name') => {
+    if (roles.has(k)) return
+    roles.set(k, [role, reason, unsure])
+    prim.set(k, evidence(signal, role, reason, unsure ? 0.45 : undefined))
   }
   const isTocLine = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '') || hasPageSpan(b.el) || (TOC_NAME.test(b.key) && /\d/.test(b.el.textContent ?? ''))
   // the export already tagged the heading, or the style is named h1 / h2 / impressum / toc
@@ -300,9 +320,11 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     if (!bl.length || k === bodyKey) continue
     const tg = tag(bl[0].el)
     const fromTag = bl.every((b) => tag(b.el) === tg) ? headingRoleOfTag(tg) : undefined
-    if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false)
+    if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false, 'tag')
     const named = NAMED_HEAD.find(([, re]) => re.test(k))
     if (named && avgLen(k) < 180) mark(k, named[0], `style name “${k}” is a heading`, false)
+    const dn = nameRole(k)
+    if (dn && k !== bodyKey) mark(k, dn[0], `style name “${k}” is a ${dn[2]}`, false)
     if (TOC_NAME.test(k)) mark(k, 'toc', `style name “${k}” is a contents entry`, false)
     if (IMPRINT_NAME.test(k)) mark(k, 'imprint', `style name “${k}” is the imprint`, false)
   }
@@ -314,6 +336,8 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       const part = share(k, PART_WORD) >= 0.6
       roles.set(k, [part ? 'part-label' : 'chapter-label', 'short centred line always followed by a large title style', false])
       roles.set(f, [part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, false])
+      prim.set(k, evidence('pattern', part ? 'part-label' : 'chapter-label', 'short centred line always followed by a large title style', 0.75))
+      prim.set(f, evidence('pattern', part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, 0.75))
     }
   }
   // pass 1b: no chapter style yet (a book whose chapter heads are one line, "I. Coordenadas…").
@@ -337,7 +361,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       for (const b of nonEmpty.slice(last + 1)) if (!isToc(b) && entries.has(norm(b.text))) hits.set(b.key, (hits.get(b.key) ?? 0) + 1)
       for (const [k, n] of hits) {
         const total = byKey.get(k)!.blocks.length
-        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false)
+        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false, 'contents')
       }
     }
   }
@@ -358,18 +382,25 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     else if (CHAPTER_WORD.test(bl[0]?.text ?? '') && centered(k) && bl.length < 3) r = ['p', 'centred short line', true]
     else r = ['p', k === bodyKey ? 'main body text style' : indent < 0 ? 'hanging indent' : left > 0 ? 'indented block' : 'paragraph', false]
     roles.set(k, r)
+    const typo = r[1].startsWith('large centred') || r[1].startsWith('short, bold')
+    const pat = r[1].startsWith('lines ') || r[1].startsWith('ISBN')
+    prim.set(k, evidence(typo ? 'typography' : pat ? 'pattern' : 'rare', r[0], r[1], r[2] ? 0.45 : r[1].startsWith('large centred') ? 0.6 : typo || pat ? undefined : 0.9))
   }
   for (const k of keys) {
     const [role, reason, unsure] = roles.get(k)!
     const auto = { role, outClass: outClassFor(ex, k, role, decl(k)) }
     const s = saved[k]
+    const ev = s ? [evidence('saved', s.role, 'saved decision for this style')] : [prim.get(k) ?? evidence('rare', role, reason, 0.45), ...corroborate(k, role)]
+    const dec = decide(ev, s ? s.role : role)
     infos.push({
       key: k,
       count: byKey.get(k)!.blocks.length,
       samples: byKey.get(k)!.blocks.slice(0, 3).map((b) => b.text.slice(0, 140)),
       role: s?.role ?? auto.role,
       outClass: s?.outClass || auto.outClass,
-      unsure: s ? false : unsure,
+      unsure: s ? false : unsure || dec.confidence < 0.6,
+      confidence: dec.confidence,
+      evidence: ev,
       reason: s ? 'from saved publisher profile' : reason,
     })
   }

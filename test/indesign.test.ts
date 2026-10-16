@@ -65,3 +65,19 @@ test('InDesign export → house EPUB matches the hand-finished reference', { ski
   if (ec) assert.deepEqual(ec.errors, [], 'EPUBCheck reports no errors')
   else console.log('EPUBCheck not installed in tools/: skipped')
 })
+
+// ---- phase 3: evidence and confidence ------------------------------------------------------------------
+test('detection: every style keeps its evidence; agreeing signals raise the confidence, a lone weak one stays under 0.6', async () => {
+  const { decide, evidence, crossChecks } = await import('../src/engine/structure/score.ts')
+  const { nameRole } = await import('../src/engine/structure/dict.ts')
+  const strong = decide([evidence('tag', 'chapter-title', 'h1'), evidence('name', 'chapter-title', 'Kapitelüberschrift'), evidence('contents', 'chapter-title', 'listed')])
+  assert.equal(strong.action, 'silent')
+  const weak = decide([evidence('typography', 'h3', 'bold sans')])
+  assert.equal(weak.action, 'blocked')
+  const split = decide([evidence('tag', 'chapter-title', 'h1'), evidence('name', 'h3', 'ZT')], 'chapter-title')
+  assert.ok(split.confidence < strong.confidence)
+  assert.equal(nameRole('KT')?.[0], 'drop')
+  assert.equal(nameRole('Kapitelzahl')?.[0], 'chapter-label')
+  assert.equal(nameRole('Grundtext'), undefined)
+  assert.equal(crossChecks([{ type: 'chapter', nav: 'A', words: 20 }, { type: 'chapter', nav: 'B', words: 900 }, { type: 'chapter', nav: 'C', words: 900 }, { type: 'chapter', nav: 'D', words: 900 }]).length, 1)
+})
