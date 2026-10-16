@@ -14,6 +14,7 @@ import { bundledLayer } from '../src/engine/spec/clients.ts'
 import { tocPageOf } from '../src/engine/indesign/inline.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { epubcheck } from './epubcheck.ts'
+import { refdiff } from './refdiff.ts'
 import { synthExport } from './synth.ts'
 import type { PrintPage } from '../src/engine/pdf/pages.ts'
 
@@ -357,4 +358,15 @@ test('Tempelhofer Feld: the twelve points of the client review hold on the real 
   const ec = epubcheck(r.epub)
   if (ec) assert.deepEqual(ec.errors, [])
   assert.deepEqual(checkEpubBytes(r.epub, r.source).groups.flatMap((g) => g.findings.filter((i) => i.level === 'error' && /language|noteref|guide|chapter heading/i.test(i.msg))), [])
+})
+
+// ---- phase 0: reference diff ------------------------------------------------------------------------
+test('refdiff: a build matches itself, and names what differs from a reference with other markup', () => {
+  const a = book()
+  assert.deepEqual(refdiff(a.r.files, a.r.files), [])
+  const plain = book({ chapterTag: 'h1', chapterHeadingClass: '' })
+  const d = refdiff(plain.r.files, a.r.files)
+  assert.ok(d.some((x) => x.startsWith('chapter headings')), d.join('\n'))
+  const ec = epubcheck(a.r.epub)
+  if (ec) assert.deepEqual(ec.errors, [])
 })
