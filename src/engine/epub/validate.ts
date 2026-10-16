@@ -9,7 +9,7 @@ const KNOWN_TYPES = new Set([
   'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'titlepage', 'copyright-page',
   'dedication', 'epigraph', 'endnote', 'toc', 'landmarks', 'page-list', 'introduction', 'preface', 'foreword', 'prologue', 'part',
   'chapter', 'conclusion', 'epilogue', 'afterword', 'glossary', 'appendix', 'bibliography', 'endnotes',
-  'index', 'contributors', 'acknowledgments', 'pagebreak', 'noteref', 'footnote', 'backlink', 'bodymatter',
+  'index', 'loi', 'contributors', 'acknowledgments', 'pagebreak', 'noteref', 'footnote', 'backlink', 'bodymatter',
 ])
 
 export function validateEpub(files: Files): ReviewItem[] {

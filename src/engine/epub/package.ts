@@ -241,7 +241,7 @@ export function packageEpub(p: {
     `<ol class="nav">\n${es.map((e) => `<li><a href="${e.href}">${esc(e.label)}</a>${e.kids.length ? '\n' + ol(e.kids) : ''}</li>`).join('\n')}\n</ol>`
   const tocSec = sections.find((s) => s.type === 'toc')
   const EXTRA_LANDMARKS: [SectionType, string][] = [['list', 'loi'], ['bibliography', 'bibliography'], ['notes', 'endnotes'], ['index', 'index'], ['acknowledgments', 'acknowledgments']]
-  const LOI = /abbildung|illustra|figures|bildverzeichnis|bildnachweis/i
+  const LOI = /abbildung|illustra|figures|bildverzeichnis/i
   const titleSec = sections.find((s) => s.type === 'title')
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
   // every list has a heading that names it. EPUBCheck 5.4 rejects aria-labelledby on <nav> (NAV-04), so by default the
