@@ -15,7 +15,7 @@ const roleOf = (b: Extract<Block, { t: 'p' }>): Role => (b.key === 'h1' ? 'chapt
 function book(blocks: Block[], creators: string[] = [], lang = 'de-DE'): Export {
   return {
     opfPath: 'OEBPS/content.opf', lang, opfTitle: 'Tempelhofer_Feld_Inhalt', opfCreators: creators,
-    css: null as unknown as Export['css'], blocks, footnotes: new Map(), endnotes: new Set(), images: new Map(),
+    css: null as unknown as Export['css'], blocks, footnotes: new Map(), endnotes: new Set(), images: new Map(), nav: [],
   }
 }
 

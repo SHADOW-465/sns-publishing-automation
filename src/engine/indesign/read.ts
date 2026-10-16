@@ -1,5 +1,7 @@
-import { decide, evidence, type Evidence } from '../structure/score.ts'
-import { nameRole } from '../structure/dict.ts'
+import { decide, evidence, findPairs, scoreStyle, type Evidence, type Canon } from '../structure/score.ts'
+import { styleStats, type StyleStats } from '../structure/features.ts'
+import { nameRole, NAMED_HEAD, TOC_NAME, IMPRINT_NAME } from '../structure/dict.ts'
+import { indesignFeatures, CHAPTER_WORD, PART_WORD, BULLET, TOC_LINE, IMPRINT } from './features.ts'
 import { StyleSheet, isOverride, px, em, type Decls } from './css.ts'
 import { type Files, text } from '../zip.ts'
 import { parseXml, resolvePath, tag, classesOf, textOf, pageBreakOf, epubType } from '../xml.ts'
@@ -14,7 +16,7 @@ export type Block =
   | { t: 'pb'; n: string }
   | { t: 'p'; el: Element; key: string; classes: string[]; text: string; page: string; list?: { ordered: boolean; depth: number; start?: number } }
   | { t: 'table'; el: Element; page: string }
-  | { t: 'img'; src: string; page: string; alt: string }
+  | { t: 'img'; src: string; page: string; alt: string; /** in a layout div InDesign made for a frame (position unreliable), or in the text flow where it was anchored */ frame: 'layout' | 'flow' }
 
 export interface Export {
   opfPath: string
@@ -30,6 +32,8 @@ export interface Export {
   /** zip path -> bytes, images only */
   images: Map<string, Uint8Array>
   coverImage?: string
+  /** the entries of the export's own navigation document (InDesign writes one when a contents style is set), with their depth */
+  nav: { text: string; level: number }[]
 }
 
 export function readExport(files: Files): Export {
@@ -63,6 +67,19 @@ export function readExport(files: Files): Export {
     pkg.getAttribute('xml:lang') || pkg.getAttributeNS('http://www.w3.org/XML/1998/namespace', 'lang') || '',
     ...Array.from(opf.getElementsByTagName('dc:language')).map((e) => (e.textContent ?? '').trim()),
   ].filter(Boolean)
+
+  const nav: { text: string; level: number }[] = []
+  for (const it of items.values()) {
+    if (!it.props.includes('nav') || !files.has(it.href)) continue
+    const nd = parseXml(text(files.get(it.href)!), it.href)
+    const root = Array.from(nd.getElementsByTagName('nav')).find((n) => /toc/.test(epubType(n))) ?? nd.getElementsByTagName('nav')[0]
+    for (const a of Array.from(root?.getElementsByTagName('a') ?? [])) {
+      let level = 0
+      for (let n: Element | null = a.parentElement; n && n !== root; n = n.parentElement) if (tag(n) === 'ol') level++
+      const t = textOf(a)
+      if (t) nav.push({ text: t, level: Math.max(1, level) })
+    }
+  }
 
   const blocks: Block[] = []
   const footnotes = new Map<string, Element>()
@@ -130,7 +147,7 @@ export function readExport(files: Files): Export {
         } else if (tg === 'table') {
           blocks.push({ t: 'table', el: c, page })
         } else if (tg === 'img') {
-          blocks.push({ t: 'img', src: resolvePath(it.href, c.getAttribute('src') ?? ''), page, alt: (c.getAttribute('alt') ?? '').trim() })
+          blocks.push({ t: 'img', src: resolvePath(it.href, c.getAttribute('src') ?? ''), page, alt: (c.getAttribute('alt') ?? '').trim(), frame: c.closest('[class*="_idGenObjectLayout"]') ? 'layout' : 'flow' })
         } else if (tg !== 'hr' && tg !== 'script' && tg !== 'style') {
           walk(c)
         }
@@ -143,7 +160,7 @@ export function readExport(files: Files): Export {
 
   const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
   const creators = Array.from(opf.getElementsByTagName('dc:creator')).map((e) => (e.textContent ?? '').trim()).filter(Boolean)
-  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage }
+  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage, nav }
 }
 
 /** Paragraph grouping key: the named paragraph style, or the override classes if it has none. */
@@ -191,18 +208,12 @@ export interface StyleInfo {
   /** 0-1 from the evidence below (structure/score.ts); under 0.6 a person should look */
   confidence?: number
   evidence?: Evidence[]
+  /** silent (≥ 0.85), listed under "check these first" (0.6–0.85), or blocked until a person decides (< 0.6) */
+  action?: 'silent' | 'listed' | 'blocked'
 }
 
 export type Profile = Record<string, { role: Role; outClass: string }>
 
-const CHAPTER_WORD = /^(cap[ií]tulo|chapter|kapitel|chapitre|capitolo|cap[ií]tol|hoofdstuk|ap[ée]ndice|appendix|anhang|annexe|ep[ií]logo|epilogue|pr[óo]logo|prologue)\b/i
-const PART_WORD = /\b(parte|part|teil|partie|deel)\b/i
-const BULLET = /^[•●◦▪■·–—-]\s*\t|^[•●◦▪■]\s/
-const TOC_LINE = /\t\s*\d+\s*$/
-const IMPRINT = /i\.?s\.?b\.?n|©|copyright|dep[óo]sito legal|all rights reserved|todos los derechos|primera edici[óo]n|first published|alle rechte vorbehalten/i
-/** Style names InDesign and other exporters use for structure, in any language. Not a book list. */
-const TOC_NAME = /^(toc|ihv|inhalt|contents|indice|sumario|sommario|table[-_ ]?of[-_ ]?contents)([-_ ]?[0-9ivx]+|[a-z])?$/i
-const IMPRINT_NAME = /impressum|imprint|colophon|copyright|copy-?right|legal/i
 const PAGE_NUM_CLASS = /seitenzahl|pagenum(?:ber)?|page[-_ ]?number|toc[-_ ]?page/i
 
 /** A contents page-number span: a named page-number class, or a trailing optical span that is only the number.
@@ -241,14 +252,6 @@ const hasPageSpan = (el: Element) =>
 const headingRoleOfTag = (tg: string): Role | undefined =>
   tg === 'h1' ? 'chapter-title' : tg === 'h2' ? 'h2' : tg === 'h3' ? 'h3' : tg === 'h4' ? 'h4' : tg === 'h5' || tg === 'h6' ? 'h5' : undefined
 
-/** Named paragraph styles that mean a heading level. h1 opens a chapter; h2–h6 stay inside it. */
-const NAMED_HEAD: [Role, RegExp][] = [
-  ['chapter-title', /^(h1|heading[-_ ]?1|chapter([-_ ]?(title|name|head(ing)?))?|kapitel([-_ ]?titel)?|titulo[-_ ]?capitulo)$/i],
-  ['h2', /^(h2|heading[-_ ]?2)$/i],
-  ['h3', /^(h3|heading[-_ ]?3)$/i],
-  ['h4', /^(h4|heading[-_ ]?4)$/i],
-  ['h5', /^(h5|h6|heading[-_ ]?[56])$/i],
-]
 
 export const cssClassName = (s: string) => s.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^(\d)/, 'c$1')
 
@@ -294,24 +297,10 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
   }
 
   const infos: StyleInfo[] = []
-  /** independent signals that agree with the chosen role: the element, the style name, the type */
-  const corroborate = (k: string, role: Role): Evidence[] => {
-    const out: Evidence[] = []
-    const bl = byKey.get(k)!.blocks.filter((b) => b.text)
-    const tg = bl[0] && bl.every((b) => tag(b.el) === tag(bl[0].el)) ? headingRoleOfTag(tag(bl[0].el)) : undefined
-    if (tg === role) out.push(evidence('tag', role, 'paragraphs are heading elements'))
-    if (NAMED_HEAD.some(([r, re]) => r === role && re.test(k)) || nameRole(k)?.[0] === role) out.push(evidence('name', role, `style name “${k}”`))
-    if (role === 'toc' && TOC_NAME.test(k)) out.push(evidence('name', role, `style name “${k}”`))
-    if (role === 'imprint' && IMPRINT_NAME.test(k)) out.push(evidence('name', role, `style name “${k}”`))
-    if (/^(chapter-title|section-title|h2|h3|part-title)$/.test(role) && bl.length && display(k)) out.push(evidence('typography', role, 'large and centred'))
-    return out
-  }
   const roles = new Map<string, [Role, string, boolean]>()
-  const prim = new Map<string, Evidence>() // the signal that made the first-match decision
-  const mark = (k: string, role: Role, reason: string, unsure: boolean, signal: Evidence['signal'] = 'name') => {
-    if (roles.has(k)) return
-    roles.set(k, [role, reason, unsure])
-    prim.set(k, evidence(signal, role, reason, unsure ? 0.45 : undefined))
+  // the first-match answer: no longer the decision, only one weak vote for the scorer below
+  const mark = (k: string, role: Role, reason: string, unsure: boolean) => {
+    if (!roles.has(k)) roles.set(k, [role, reason, unsure])
   }
   const isTocLine = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '') || hasPageSpan(b.el) || (TOC_NAME.test(b.key) && /\d/.test(b.el.textContent ?? ''))
   // the export already tagged the heading, or the style is named h1 / h2 / impressum / toc
@@ -320,7 +309,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     if (!bl.length || k === bodyKey) continue
     const tg = tag(bl[0].el)
     const fromTag = bl.every((b) => tag(b.el) === tg) ? headingRoleOfTag(tg) : undefined
-    if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false, 'tag')
+    if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false)
     const named = NAMED_HEAD.find(([, re]) => re.test(k))
     if (named && avgLen(k) < 180) mark(k, named[0], `style name “${k}” is a heading`, false)
     const dn = nameRole(k)
@@ -336,8 +325,6 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       const part = share(k, PART_WORD) >= 0.6
       roles.set(k, [part ? 'part-label' : 'chapter-label', 'short centred line always followed by a large title style', false])
       roles.set(f, [part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, false])
-      prim.set(k, evidence('pattern', part ? 'part-label' : 'chapter-label', 'short centred line always followed by a large title style', 0.75))
-      prim.set(f, evidence('pattern', part ? 'part-title' : 'chapter-title', `title that follows "${k}"`, 0.75))
     }
   }
   // pass 1b: no chapter style yet (a book whose chapter heads are one line, "I. Coordenadas…").
@@ -361,7 +348,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       for (const b of nonEmpty.slice(last + 1)) if (!isToc(b) && entries.has(norm(b.text))) hits.set(b.key, (hits.get(b.key) ?? 0) + 1)
       for (const [k, n] of hits) {
         const total = byKey.get(k)!.blocks.length
-        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false, 'contents')
+        if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false)
       }
     }
   }
@@ -382,26 +369,39 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     else if (CHAPTER_WORD.test(bl[0]?.text ?? '') && centered(k) && bl.length < 3) r = ['p', 'centred short line', true]
     else r = ['p', k === bodyKey ? 'main body text style' : indent < 0 ? 'hanging indent' : left > 0 ? 'indented block' : 'paragraph', false]
     roles.set(k, r)
-    const typo = r[1].startsWith('large centred') || r[1].startsWith('short, bold')
-    const pat = r[1].startsWith('lines ') || r[1].startsWith('ISBN')
-    prim.set(k, evidence(typo ? 'typography' : pat ? 'pattern' : 'rare', r[0], r[1], r[2] ? 0.45 : r[1].startsWith('large centred') ? 0.6 : typo || pat ? undefined : 0.9))
+  }
+  // every signal votes (structure/score.ts); the first-match answer is one weak vote among them
+  const feats = indesignFeatures(ex, { bodyKey, decl, isTocLine, tocText: (b) => tocEntryText(b.el), nav: ex.nav })
+  const stats = new Map<string, StyleStats>()
+  for (const k of keys) {
+    const bl = byKey.get(k)!.blocks.filter((b) => b.text)
+    const look = k !== bodyKey && bl.length > 0 && isHeading(ex, k, decl(k), bl, bodySans, avgLen(k))
+    stats.set(k, styleStats(k, bl.map((b) => Object.assign(feats.get(b)!, { headingLook: look }))))
+  }
+  const ctx = {
+    bodyKey, pairs: findPairs(stats),
+    chapters: Math.max(6, ex.nav.filter((n) => n.level === 1).length),
+    fallback: new Map([...roles].map(([k, [role, reason]]) => [k, { role: role as Canon, reason }] as const)),
   }
   for (const k of keys) {
-    const [role, reason, unsure] = roles.get(k)!
+    const [role] = roles.get(k)!
     const auto = { role, outClass: outClassFor(ex, k, role, decl(k)) }
     const s = saved[k]
-    const ev = s ? [evidence('saved', s.role, 'saved decision for this style')] : [prim.get(k) ?? evidence('rare', role, reason, 0.45), ...corroborate(k, role)]
-    const dec = decide(ev, s ? s.role : role)
+    const ev: Evidence<Canon>[] = s ? [evidence<Canon>('saved', s.role, 'saved decision for this style')] : scoreStyle(stats.get(k)!, ctx)
+    const dec = decide(ev)
+    const pick = (dec.role in ROLE_HELP ? dec.role : auto.role) as Role
+    const why = ev.filter((e) => e.role === pick && e.signal !== 'fallback').sort((a, b) => b.weight - a.weight).map((e) => e.note)
     infos.push({
       key: k,
       count: byKey.get(k)!.blocks.length,
       samples: byKey.get(k)!.blocks.slice(0, 3).map((b) => b.text.slice(0, 140)),
-      role: s?.role ?? auto.role,
+      role: s?.role ?? pick,
       outClass: s?.outClass || auto.outClass,
-      unsure: s ? false : unsure || dec.confidence < 0.6,
-      confidence: dec.confidence,
-      evidence: ev,
-      reason: s ? 'from saved publisher profile' : reason,
+      unsure: s ? false : dec.action === 'blocked',
+      action: s ? 'silent' : dec.action,
+      confidence: s ? 1 : dec.confidence,
+      evidence: ev as Evidence[],
+      reason: s ? 'from saved publisher profile' : (why.join('; ') || roles.get(k)![1]),
     })
   }
   return infos.sort((a, b) => b.count - a.count)
