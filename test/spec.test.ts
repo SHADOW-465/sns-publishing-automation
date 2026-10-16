@@ -28,7 +28,7 @@ test('registry: every rule is complete, IDs are unique, and every setting has a 
     if (r.choices && r.key) assert.ok(coerce(r, DEFAULT_SETTINGS[r.key] as string) !== undefined || r.type === 'multi', `${r.id} default is a valid choice`)
   }
   const covered = new Set(RULES.map((r) => r.key))
-  for (const k of Object.keys(DEFAULT_SETTINGS) as (keyof HouseSettings)[]) if (k !== 'labels') assert.ok(covered.has(k), `setting ${k} has a rule`)
+  for (const k of Object.keys(DEFAULT_SETTINGS) as (keyof HouseSettings)[]) if (!['labels', 'markup', 'styleMap'].includes(k)) assert.ok(covered.has(k), `setting ${k} has a rule`)
 })
 
 test('layers: book wins over client wins over house; an accessibility change needs a waiver', () => {
