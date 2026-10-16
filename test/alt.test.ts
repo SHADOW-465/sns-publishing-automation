@@ -117,7 +117,7 @@ test('spec workbook: picture descriptions round-trip and match by file name', ()
   ]
   const wb = specWorkbook({ client: 'BeBra', book: 'Tempelhofer', resolved, pictures })
   const sheets = readXlsx(wb)
-  assert.deepEqual(sheets.map((s) => s.name), ['Spec', 'Picture descriptions', 'About'])
+  assert.deepEqual(sheets.map((s) => s.name), ['Spec', 'Picture descriptions', 'About', 'Markup', 'Styles'])
   const pic = sheets.find((s) => s.name === 'Picture descriptions')!
   assert.deepEqual(pic.rows[0], ['Image file name', 'Alt text', 'Decorative', 'Long description'])
   assert.equal(pic.rows[1][1], 'Karte des Feldes 1923')

@@ -444,3 +444,25 @@ test('review: a style decided "for this client" is applied on the next book with
   assert.ok(next.layers.find((l) => l.level === 'client')!.styleMap?.['style:Inhalt'])
   setStore(new MemoryStore())
 })
+
+// ---- phase 5: the report's expected markup imports as the client layer -----------------------------------
+test('import: the Markup and Styles sheets round-trip, and the report\'s expected samples reproduce bebra.json', async () => {
+  const { parseMarkupSample, layerDataFromWorkbook } = await import('../src/engine/spec/markup.ts')
+  const { specWorkbook, readRequirements } = await import('../src/engine/spec/requirements.ts')
+  const { resolveSpec } = await import('../src/engine/spec/session.ts')
+  const { emptyLayer } = await import('../src/engine/spec/layers.ts')
+  // the "Expected" column of the client's report
+  assert.deepEqual(parseMarkupSample('chapter-title', '<h2 class="chapter-b" id="chap1">Natur</h2>'), { tag: 'h2', class: 'chapter-b' })
+  assert.deepEqual(parseMarkupSample('noteref', '<sup><a epub:type="noteref" href="#fn-01" id="fn_01">1</a></sup>'), { wrap: 'sup' })
+  assert.deepEqual(parseMarkupSample('noteref', '<a epub:type="noteref" href="#fn-01">1</a>'), { wrap: '' })
+  const bebra = bundledLayer('client', 'BeBra Verlag')!
+  const layer = emptyLayer('client', 'X')
+  layer.markup = bebra.markup
+  layer.styleMap = { 'style:BU': { match: 'BU', role: 'p', class: 'caption' } }
+  const resolved = resolveSpec(DEFAULT_SETTINGS, [layer])
+  const xlsx = specWorkbook({ client: 'X', book: 'Y', resolved })
+  const back = readRequirements('spec.xlsx', xlsx)
+  assert.deepEqual(back.layerData?.markup, bebra.markup)
+  assert.deepEqual(back.layerData?.styleMap, layer.styleMap)
+  assert.equal(layerDataFromWorkbook([]), undefined)
+})

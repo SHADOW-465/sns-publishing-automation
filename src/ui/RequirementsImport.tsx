@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RULES, ruleById, show, coerce, type RuleValue } from '../engine/spec/rules.ts'
 import { readRequirements, matchByKeywords, waiverNeeded, type Requirement, type Suggestion, type LabelOverrides } from '../engine/spec/requirements.ts'
+import type { LayerData } from '../engine/spec/markup.ts'
 import type { SpecPicture } from '../engine/epub/alt.ts'
 import { matchWithAi, aiConfig } from '../engine/spec/ai.ts'
 import { writeXlsx } from '../engine/spec/office.ts'
@@ -14,18 +15,21 @@ import { Help } from './wizard.tsx'
 
 type Row = Suggestion & { apply: boolean }
 
-export function RequirementsImport({ levels, onApply, onPictures, onLabels }: {
+export function RequirementsImport({ levels, onApply, onPictures, onLabels, onLayerData }: {
   levels: { level: Level; label: string }[]
   onApply: (level: Level, rows: { ruleId: string; value: RuleValue; req: Requirement; by: Suggestion['by']; file: string }[]) => Promise<void>
   /** picture rows from the spec workbook, matched to images by file name */
   onPictures?: (pictures: SpecPicture[]) => void
   /** reader-facing label overrides from the client's language workbook */
   onLabels?: (level: Level, labels: LabelOverrides, file: string) => Promise<void>
+  /** markup templates and style meanings from the Markup / Styles sheets */
+  onLayerData?: (level: Level, data: LayerData, file: string) => Promise<void>
 }) {
   const [file, setFile] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [items, setItems] = useState<Requirement[]>([])
   const [labels, setLabels] = useState<LabelOverrides | undefined>()
+  const [layerData, setLayerData] = useState<LayerData | undefined>()
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [level, setLevel] = useState<Level>(levels[levels.length - 1]?.level ?? 'book')
@@ -35,9 +39,10 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels }: {
     if (!f) return
     setMsg('')
     try {
-      const { template, items, pictures, labels } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
+      const { template, items, pictures, labels, layerData } = readRequirements(f.name, new Uint8Array(await f.arrayBuffer()))
       setFile(f.name)
       setItems(items)
+      setLayerData(onLayerData ? layerData : undefined)
       setLabels(onLabels && labels && Object.keys(labels).length ? labels : undefined)
       const s = template ?? matchByKeywords(items)
       setRows(s.map((x) => ({ ...x, apply: !!x.ruleId && x.value !== undefined && x.confidence >= 0.5 && !waiverNeeded(x) })))
@@ -114,6 +119,29 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels }: {
             }}
           >
             Apply language labels
+          </button>
+        </div>
+      )}
+      {layerData && (
+        <div className="row">
+          <span className="note small">
+            {Object.keys(layerData.markup).length} markup template{Object.keys(layerData.markup).length === 1 ? '' : 's'} and {Object.keys(layerData.styleMap).length} style meaning{Object.keys(layerData.styleMap).length === 1 ? '' : 's'} read from the sheets.
+          </span>
+          <label className="small">
+            Apply to{' '}
+            <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>
+              {levels.map((l) => (<option key={l.level} value={l.level}>{l.label}</option>))}
+            </select>
+          </label>
+          <button
+            disabled={!!busy}
+            onClick={async () => {
+              await onLayerData!(level, layerData, file)
+              setLayerData(undefined)
+              setMsg('Applied the markup and style sheets.')
+            }}
+          >
+            Apply markup and styles
           </button>
         </div>
       )}

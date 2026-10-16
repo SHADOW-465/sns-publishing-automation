@@ -4,6 +4,7 @@ import { houseSettings, setSettings, DEFAULT_SETTINGS, type HouseSettings } from
 import { ruleById, show, needsWaiver, WAIVER_TEXT, type RuleValue } from './rules.ts'
 import { emptyLayer, layerFromSettings, resolve, specHash, LEVEL_LABEL, type Layer, type Level, type Resolved, type Source } from './layers.ts'
 import { bundledLayer } from './clients.ts'
+import type { LayerData } from './markup.ts'
 import { store, type Decision, type DecisionAction } from './store.ts'
 
 export interface SpecContext {
@@ -68,6 +69,17 @@ export async function applyLabels(spec: Spec, level: Level, labels: Record<strin
   const out = withLayer(spec, next)
   const n = Object.values(labels).reduce((s, m) => s + Object.keys(m).length, 0)
   await log(out, actor, 'import', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: ${n} language label(s) for ${Object.keys(labels).join(', ')}${file ? ` — from ${file}` : ''}`)
+  return out
+}
+
+/** Markup templates and style meanings read from a client's Markup / Styles sheets, onto one layer. */
+export async function applyLayerData(spec: Spec, level: Level, data: LayerData, actor: string, file?: string): Promise<Spec> {
+  const layer = spec.layers.find((l) => l.level === level)
+  if (!layer) throw new Error(`There is no ${LEVEL_LABEL[level].toLowerCase()} layer for this book (name it first).`)
+  const next: Layer = { ...layer, markup: { ...layer.markup, ...data.markup }, styleMap: { ...layer.styleMap, ...data.styleMap } }
+  await store().saveLayer(next)
+  const out = withLayer(spec, next)
+  await log(out, actor, 'import', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: ${Object.keys(data.markup).length} markup template(s), ${Object.keys(data.styleMap).length} style meaning(s)${file ? ` — from ${file}` : ''}`)
   return out
 }
 
