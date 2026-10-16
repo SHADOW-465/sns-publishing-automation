@@ -18,12 +18,21 @@ export interface BookMeta {
   rights: string
   certifiedBy: string
   conformsTo: string
+  /** the series this book belongs to, and its number in it */
+  series?: string
+  seriesPosition?: string
   /** publication date (CCYY-MM-DD), not the build date; left out of the package when unknown */
   published?: string
   /** the blurb; left out of the package when unknown */
   description?: string
   /** accessible = full EPUB accessibility (roles, page list, metadata); standard = clean EPUB 3 for the stores */
   profile?: 'accessible' | 'standard'
+}
+
+/** "Anna Writer" → "Writer, Anna" for sorting (last word is the surname); a name with a comma or a single word is left alone. ponytail: no particles (von, de la) */
+const fileAs = (name: string): string | undefined => {
+  const w = name.trim().split(/\s+/)
+  return w.length > 1 && !name.includes(',') ? `${w[w.length - 1]}, ${w.slice(0, -1).join(' ')}` : undefined
 }
 
 /** Right-to-left scripts: the book reads from the right. */
@@ -227,9 +236,12 @@ export function packageEpub(p: {
     byFile.set(s.file, e)
     ;(s.parent && byFile.get(s.parent) ? byFile.get(s.parent)!.kids : tree).push(e)
   }
+  const depthOf = (es: Entry[]): number => 1 + Math.max(0, ...es.map((e) => depthOf(e.kids)))
   const ol = (es: Entry[]): string =>
     `<ol class="nav">\n${es.map((e) => `<li><a href="${e.href}">${esc(e.label)}</a>${e.kids.length ? '\n' + ol(e.kids) : ''}</li>`).join('\n')}\n</ol>`
   const tocSec = sections.find((s) => s.type === 'toc')
+  const EXTRA_LANDMARKS: [SectionType, string][] = [['list', 'loi'], ['bibliography', 'bibliography'], ['notes', 'endnotes'], ['index', 'index'], ['acknowledgments', 'acknowledgments']]
+  const LOI = /abbildung|illustra|figures|bildverzeichnis|bildnachweis/i
   const titleSec = sections.find((s) => s.type === 'title')
   const bodyStart = sections.find((s) => !FRONT.includes(s.type) && !(s.type === 'other' && s.file.startsWith('fm'))) ?? sections[0]
   // every list has a heading that names it. EPUBCheck 5.4 rejects aria-labelledby on <nav> (NAV-04), so by default the
@@ -253,6 +265,11 @@ export function packageEpub(p: {
     titleSec ? `<li><a epub:type="titlepage" href="${titleSec.file}">${esc(L.title)}</a></li>` : '',
     tocSec ? `<li><a epub:type="toc" href="${tocSec.file}">${esc(tocSec.nav || L.navTitle)}</a></li>` : '',
     bodyStart ? `<li><a epub:type="bodymatter" href="${bodyStart.file}">${esc(L.startReading)}</a></li>` : '',
+    // the other landmarks, when the book has them: list of illustrations, bibliography, notes, index, acknowledgments
+    ...EXTRA_LANDMARKS.flatMap(([type, epubType]) => {
+      const sec = sections.find((s) => s.type === type && s.nav && (type !== 'list' || LOI.test(s.nav)))
+      return sec ? [`<li><a epub:type="${epubType}" href="${sec.file}">${esc(sec.nav)}</a></li>`] : []
+    }),
     `</ol>`,
     `</nav>`,
     settings().langWrapper ? `</div>` : '',
@@ -271,7 +288,7 @@ export function packageEpub(p: {
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${lang}">
 <head>
 <meta name="dtb:uid" content="urn:isbn:${isbnDigits(meta.eisbn)}"/>
-<meta name="dtb:depth" content="${tree.some((e) => e.kids.length) ? 2 : 1}"/>
+<meta name="dtb:depth" content="${depthOf(tree)}"/>
 <meta name="dtb:totalPageCount" content="${maxPage}"/>
 <meta name="dtb:maxPageNumber" content="${maxPage}"/>
 </head>
@@ -335,15 +352,22 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="${lang}"${tdm ? ' prefix="tdm: http://www.w3.org/ns/tdmrep#"' : ''}>
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
 <dc:identifier id="pub-id">urn:isbn:${isbnDigits(meta.eisbn)}</dc:identifier>
-<dc:title id="pub-title">${esc(title)}</dc:title>
+<dc:title id="pub-title">${esc(meta.subtitle.trim() ? meta.title : title)}</dc:title>
+${meta.subtitle.trim() ? `<meta refines="#pub-title" property="title-type">main</meta>
+<dc:title id="pub-subtitle">${esc(meta.subtitle.trim())}</dc:title>
+<meta refines="#pub-subtitle" property="title-type">subtitle</meta>
+<meta refines="#pub-subtitle" property="display-seq">2</meta>` : ''}
 <dc:language>${esc(lang)}</dc:language>
-${authors.map((a, i) => `<dc:creator id="author${i + 1}">${esc(a)}</dc:creator>\n<meta refines="#author${i + 1}" property="role" scheme="marc:relators">aut</meta>`).join('\n')}
+${authors.map((a, i) => `<dc:creator id="author${i + 1}">${esc(a)}</dc:creator>\n<meta refines="#author${i + 1}" property="role" scheme="marc:relators">aut</meta>${fileAs(a) ? `\n<meta refines="#author${i + 1}" property="file-as">${esc(fileAs(a)!)}</meta>` : ''}`).join('\n')}
 ${meta.publisher.trim() ? `<dc:publisher>${esc(meta.publisher.trim())}</dc:publisher>` : ''}
 ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
 ${meta.description?.trim() ? `<dc:description>${esc(meta.description.trim())}</dc:description>` : ''}
 ${meta.published?.trim() ? `<dc:date>${esc(meta.published.trim())}</dc:date>` : ''}
 ${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
 <meta property="dcterms:modified">${modified}</meta>
+${meta.series?.trim() ? `<meta property="belongs-to-collection" id="series">${esc(meta.series.trim())}</meta>
+<meta refines="#series" property="collection-type">series</meta>${meta.seriesPosition?.trim() ? `
+<meta refines="#series" property="group-position">${esc(meta.seriesPosition.trim())}</meta>` : ''}` : ''}
 ${copyrightYear ? `<meta property="dcterms:dateCopyrighted">${copyrightYear}</meta>` : ''}
 ${tdm ? '<meta property="tdm:reservation">1</meta>' : ''}
 ${standard ? '' : a11yMeta}

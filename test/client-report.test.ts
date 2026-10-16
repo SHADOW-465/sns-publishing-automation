@@ -466,3 +466,33 @@ test('import: the Markup and Styles sheets round-trip, and the report\'s expecte
   assert.deepEqual(back.layerData?.styleMap, layer.styleMap)
   assert.equal(layerDataFromWorkbook([]), undefined)
 })
+
+// ---- phase 6: remaining standard defaults ----------------------------------------------------------------
+test('standard defaults: subtitle as a refined title, file-as, series, full landmarks, honest depth; EPUBCheck clean', () => {
+  const { f, r } = book()
+  const opf = f('content.opf')
+  assert.match(opf, /<dc:creator id="author1">Anna Writer<\/dc:creator>\s*<meta refines="#author1" property="role" scheme="marc:relators">aut<\/meta>\s*<meta refines="#author1" property="file-as">Writer, Anna<\/meta>/)
+  assert.doesNotMatch(opf, /belongs-to-collection|<dc:date>/, 'no series or publication date unless given')
+  assert.match(f('nav.xhtml'), /epub:type="landmarks"/)
+  assert.match(f('toc.ncx'), /dtb:depth" content="[12]"/)
+  const ec = epubcheck(r.epub)
+  if (ec) assert.deepEqual(ec.errors, [])
+})
+
+test('standard defaults: a book with a subtitle, a series and more back matter', async () => {
+  setSettings({ ...REVIEW })
+  const a = analyze(synthExport(exportBody(), css, 'de-DE'))
+  const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'Sample Book', subtitle: 'A Subtitle', authors: 'Anna Writer', publisher: 'Example Press', eisbn: '9780306406157', language: 'de-DE', series: 'Reihe Eins', seriesPosition: '2', published: '2026-03-01', description: 'A blurb.' }, cover: { name: 'cover.png', data: cover } })
+  const opf = text(r.files.get('OEBPS/content.opf')!)
+  assert.match(opf, /<dc:title id="pub-title">Sample Book<\/dc:title>\s*<meta refines="#pub-title" property="title-type">main<\/meta>\s*<dc:title id="pub-subtitle">A Subtitle<\/dc:title>\s*<meta refines="#pub-subtitle" property="title-type">subtitle<\/meta>/)
+  assert.match(opf, /<meta property="belongs-to-collection" id="series">Reihe Eins<\/meta>\s*<meta refines="#series" property="collection-type">series<\/meta>\s*<meta refines="#series" property="group-position">2<\/meta>/)
+  assert.match(opf, /<dc:date>2026-03-01<\/dc:date>/)
+  assert.match(opf, /<dc:description>A blurb\.<\/dc:description>/)
+  const ec = epubcheck(r.epub)
+  if (ec) assert.deepEqual(ec.errors, [])
+})
+
+test('German section words: registers, sources, footnotes and the list of figures are recognised', async () => {
+  const { sectionTypeOf } = await import('../src/engine/epub/locale.ts')
+  for (const [w, t] of [['Personenregister', 'index'], ['Sachregister', 'index'], ['Quellenverzeichnis', 'bibliography'], ['Fußnoten', 'notes'], ['Abbildungsverzeichnis', 'list'], ['Anmerkungen', 'notes'], ['Danksagung', 'acknowledgments']] as const) assert.equal(sectionTypeOf(w), t, w)
+})
