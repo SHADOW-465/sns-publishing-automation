@@ -424,3 +424,23 @@ test('rules as data: BeBra is JSON; a second client with other classes builds wi
   assert.match(f('chapter01.xhtml'), /<h3[^>]*>The fields<\/h3>/)
   assert.match(f('css/style.css'), /p\.kapitel-x/)
 })
+
+// ---- phase 4: a decision made once for the client applies to the next book -----------------------------
+test('review: a style decided "for this client" is applied on the next book with no check item', async () => {
+  const { MemoryStore, setStore } = await import('../src/engine/spec/store.ts')
+  const { saveStyleRule } = await import('../src/engine/spec/session.ts')
+  setStore(new MemoryStore())
+  const exp = () => synthExport(exportBody(), css, 'de-DE')
+  const roleOf = (key: string) => analyze(exp()).styles.find((s) => s.key === key)!
+  const before = roleOf('Inhalt')
+  const spec = await openSpec({ client: 'Fresh Verlag', series: '', book: 'one' }, DEFAULT_SETTINGS)
+  const next = await saveStyleRule(spec, 'client', 'Inhalt', before.role === 'drop' ? 'p' : 'drop', '', 'tester')
+  applySpec(await openSpec({ client: 'Fresh Verlag', series: '', book: 'two' }, DEFAULT_SETTINGS))
+  const after = roleOf('Inhalt')
+  setSettings(DEFAULT_SETTINGS)
+  assert.equal(after.role, before.role === 'drop' ? 'p' : 'drop')
+  assert.equal(after.unsure, false)
+  assert.ok(after.evidence?.[0].signal === 'saved' || after.evidence?.some((e) => e.signal === 'saved'))
+  assert.ok(next.layers.find((l) => l.level === 'client')!.styleMap?.['style:Inhalt'])
+  setStore(new MemoryStore())
+})

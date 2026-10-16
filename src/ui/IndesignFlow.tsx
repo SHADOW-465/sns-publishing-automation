@@ -13,7 +13,7 @@ import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
-import { openSpec, applySpec, setRule, type Spec } from '../engine/spec/session.ts'
+import { openSpec, applySpec, setRule, saveStyleRule, type Spec } from '../engine/spec/session.ts'
 import { CheckFirst } from './CheckFirst.tsx'
 import { reviewList } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
@@ -68,9 +68,22 @@ export function IndesignFlow() {
     run('Reading the InDesign export…', async () => {
       const files = unzip(exp!.data)
       let a = analyze(files)
+      // the client's own style decisions (its layer's styleMap) apply before any guess
+      const sp0 = await openSpec({ client: a.meta.publisher, series: '', book: a.meta.title })
+      applySpec(sp0)
+      try {
+        a = analyze(files)
+      } finally {
+        setSettings(houseSettings())
+      }
       const saved = remember<Profile>('profile', a.meta.publisher)
       if (saved) {
-        a = analyze(files, saved)
+        applySpec(sp0)
+        try {
+          a = analyze(files, saved)
+        } finally {
+          setSettings(houseSettings())
+        }
         setNotice(`Applied the style settings saved for “${a.meta.publisher}”.`)
       } else setNotice(undefined)
       setAnalysis(a)
@@ -120,7 +133,15 @@ export function IndesignFlow() {
   const go = (i: number) => (i >= 3 && (stale || !result) ? rebuild(i) : setStep(i))
   const changed = <T,>(set: (v: T) => void) => (v: T) => (set(v), setStale(true))
 
-  const setStyle = (key: string, patch: Partial<StyleInfo>) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, ...patch, unsure: false } : x))), setStale(true))
+  const setStyle = (key: string, patch: Partial<StyleInfo>) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, ...patch, unsure: false, confidence: 1 } : x))), setStale(true))
+  /** "for this client": write the decision to the client layer so the next book of the publisher needs no review */
+  const rememberFor = async (key: string, scope: 'book' | 'client') => {
+    const st = styles.find((x) => x.key === key)
+    if (!st) return
+    const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+    setSpec(await saveStyleRule(sp, scope, key, st.role, st.outClass, actorName()))
+    setNotice(`“${key}” is remembered for ${scope === 'client' ? `every ${meta!.publisher} book` : 'this book'}.`)
+  }
   const setImage = (im: ImageChoice, patch: Partial<ImageChoice>) => (setImages(images.map((x) => (x === im ? { ...x, ...patch } : x))), setStale(true))
   const applyPictures = (pics: { file: string; alt: string; decorative: boolean; longDesc: string }[]) => {
     setImages(images.map((im) => settleAlt({ ...im, spec: matchSpecPicture(im.src, pics) ?? im.spec })))
@@ -151,6 +172,7 @@ export function IndesignFlow() {
     : undefined
   const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0 }
   const structurePending = structureReview.items.length
+  const blocking = styles.filter((x) => x.count > 0 && x.unsure && (x.confidence ?? 1) < 0.6)
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
@@ -274,7 +296,7 @@ export function IndesignFlow() {
               Each InDesign paragraph style and what it becomes. The structure above comes from this table. If a part is wrong, change the meaning of its style here and update
               the preview. Choices are remembered for this publisher.
             </p>
-            <StyleTable styles={styles} setStyle={setStyle} />
+            <StyleTable styles={styles} setStyle={setStyle} onScope={rememberFor} />
             <div className="row">
               <button onClick={() => download(JSON.stringify(toProfile(styles), null, 2), `${meta?.publisher || 'publisher'}-styles.json`, 'application/json')}>Save settings to a file</button>
               <label className="button">
@@ -290,7 +312,8 @@ export function IndesignFlow() {
               {structureReview.auto > 0 ? ` ${structureReview.auto} other change${structureReview.auto === 1 ? ' was' : 's were'} made automatically and ${structureReview.auto === 1 ? 'is' : 'are'} not in that count.` : ''} Check the list, or continue anyway.
             </p>
           )}
-          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy} />
+          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy || blocking.length > 0} />
+          {blocking.length > 0 && <p className="err small" role="status">Choose what {blocking.length === 1 ? `the style “${blocking[0].key}”` : `these ${blocking.length} styles (${blocking.slice(0, 3).map((x) => x.key).join(', ')}…)`} mean{blocking.length === 1 ? 's' : ''} in the list above: the tool is under 60% sure.</p>}
         </section>
       )}
 
@@ -405,7 +428,7 @@ export function IndesignFlow() {
   )
 }
 
-function StyleTable({ styles, setStyle }: { styles: StyleInfo[]; setStyle: (key: string, patch: Partial<StyleInfo>) => void }) {
+function StyleTable({ styles, setStyle, onScope }: { styles: StyleInfo[]; setStyle: (key: string, patch: Partial<StyleInfo>) => void; onScope: (key: string, scope: 'book' | 'client') => void }) {
   return (
     <div className="table-wrap">
       <table className="styles">
@@ -416,6 +439,7 @@ function StyleTable({ styles, setStyle }: { styles: StyleInfo[]; setStyle: (key:
             <th>Example</th>
             <th>Becomes</th>
             <th>CSS class</th>
+            <th>Remember for</th>
           </tr>
         </thead>
         <tbody>
@@ -425,6 +449,14 @@ function StyleTable({ styles, setStyle }: { styles: StyleInfo[]; setStyle: (key:
                 <code>{s.key}</code>
                 {s.unsure && <span className="flag">check</span>}
                 <div className="why">{s.reason}</div>
+                {s.evidence && (
+                  <div className="chips">
+                    {s.evidence.map((e, i) => (
+                      <span key={i} className="badge info" title={e.note}>{e.signal}</span>
+                    ))}
+                    <meter min={0} max={1} low={0.6} high={0.85} optimum={1} value={s.confidence ?? 1} aria-label={`Confidence ${Math.round((s.confidence ?? 1) * 100)}%`} />
+                  </div>
+                )}
               </td>
               <td className="num">{s.count}</td>
               <td className="sample">{s.samples[0] ?? <em>(empty)</em>}</td>
@@ -439,6 +471,13 @@ function StyleTable({ styles, setStyle }: { styles: StyleInfo[]; setStyle: (key:
               </td>
               <td>
                 <input className="cls" value={s.outClass} onChange={(e) => setStyle(s.key, { outClass: e.target.value.replace(/[^\w-]/g, '') })} />
+              </td>
+              <td>
+                <select value="" onChange={(e) => e.target.value && onScope(s.key, e.target.value as 'book' | 'client')} aria-label={`Remember the meaning of ${s.key} for`}>
+                  <option value="">…</option>
+                  <option value="book">This book</option>
+                  <option value="client">This client</option>
+                </select>
               </td>
             </tr>
           ))}

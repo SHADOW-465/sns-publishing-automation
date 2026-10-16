@@ -96,5 +96,16 @@ const withLayer = (spec: Spec, layer: Layer): Spec => {
   return { ...spec, layers, resolved: resolveSpec(spec.house, layers) }
 }
 
+/** Remember what a source style means on the client's (or this book's) layer: the next book of that client applies it with no review item. */
+export async function saveStyleRule(spec: Spec, level: Level, key: string, role: string, outClass: string, actor: string): Promise<Spec> {
+  const layer = spec.layers.find((l) => l.level === level)
+  if (!layer) throw new Error(`There is no ${LEVEL_LABEL[level].toLowerCase()} layer for this book (name it first).`)
+  const next: Layer = { ...layer, styleMap: { ...layer.styleMap, [`style:${key}`]: { match: key, role, ...(outClass ? { class: outClass } : {}) } } }
+  await store().saveLayer(next)
+  const out = withLayer(spec, next)
+  await log(out, actor, 'change', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: style “${key}” means ${role}`)
+  return out
+}
+
 /** Make the resolved spec the settings the engine builds with. */
 export const applySpec = (spec: Spec) => setSettings(spec.resolved.settings)
