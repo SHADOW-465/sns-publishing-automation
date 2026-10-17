@@ -1,0 +1,5 @@
+{
+  "note": "Pinned downloads for tools/ (Windows x64). scripts/fetch-tools.mjs checks every archive against sha256 before it unpacks, and the jar after. The jar hash is the one inside the release zip.",
+  "jre": { "dir": "jdk-17.0.20.1+1-jre", "url": "https://api.adoptium.net/v3/binary/version/jdk-17.0.20.1%2B1/windows/x64/jre/hotspot/normal/eclipse", "sha256": "bc21a93923103cdaac93ee337b0ae4365e739fde36df823dd456bc67c8a9d352" },
+  "epubcheck": { "dir": "epubcheck-5.4.0", "url": "https://github.com/w3c/epubcheck/releases/download/v5.4.0/epubcheck-5.4.0.zip", "sha256": "33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c", "jarSha256": "2146665a124998dc6c908010ffe0d09dc4f4c8014f2c8fd6a1aa11f64c40ac93" }
+}

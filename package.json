@@ -10,25 +10,65 @@
     "sample": "node --import ./test/setup.ts test/run-sample.ts samples-local/out",
     "sample:pdf": "node --import ./test/setup.ts test/run-pdf-sample.ts samples-local/out-pdf",
     "epubcheck": "node test/epubcheck.ts",
-    "test": "node --test --test-concurrency=1 --import ./test/setup.ts \"test/**/*.test.ts\""
-  },
-  "dependencies": {
-    "@fontsource-variable/instrument-sans": "^5.3.0",
-    "@fontsource-variable/newsreader": "^5.3.0",
-    "fflate": "^0.8.3",
-    "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^6.3.289",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "test": "node --test --test-concurrency=1 --import ./test/setup.ts \"test/**/*.test.ts\"",
+    "tools": "node scripts/fetch-tools.mjs",
+    "desktop": "electron .",
+    "desktop:build": "node scripts/fetch-tools.mjs && vite build && electron-builder --win nsis",
+    "desktop:dir": "node scripts/fetch-tools.mjs && vite build && electron-builder --win dir"
   },
   "devDependencies": {
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/newsreader": "^5.3.0",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3",
+    "fflate": "^0.8.3",
     "jsdom": "^29.1.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
-  }
+  },
+  "main": "desktop/main.mjs",
+  "description": "Automation: InDesign, PDF and Word to accessible EPUB",
+  "author": "Automation",
+  "build": {
+    "appId": "com.automation.epub",
+    "productName": "Automation",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "desktop/**",
+      "server/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "tools",
+        "to": "tools",
+        "filter": [
+          "jdk-*/**",
+          "epubcheck-*/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "artifactName": "Automation-Setup-${version}.${ext}"
+  },
+  "//": "Everything the browser needs is bundled by Vite into dist/, so the desktop installer packs no node_modules: all packages are devDependencies."
 }
