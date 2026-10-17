@@ -357,6 +357,8 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
     }
     if (path !== null && o.op === 'n') {
       // a clipping path: no paint, stays inside whatever sequence is open
+      // outside a sequence it would be unmarked content: it opens an artifact one, which the next painting operator reuses or closes
+      if (!open) (out += '\n/Artifact BMC\n'), (open = { key: 'artifact' })
       out += path + gap + raw
       path = null
       continue

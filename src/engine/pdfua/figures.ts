@@ -12,7 +12,7 @@ const union = (a: Box, b: Box): Box => ({ x0: Math.min(a.x0, b.x0), y0: Math.min
 
 export function detectFigures(
   page: { index: number; width: number; height: number; lines: PLine[]; images: { x0: number; y0: number; x1: number; y1: number; jpeg?: Uint8Array | null }[] },
-  paints: (Paint | null)[], bodySize: number,
+  paints: (Paint | null)[], bodySize: number, opts: { logos?: 'artifact' | 'figure' } = {},
 ): Figure[] {
   const H = page.height
   const W = page.width
@@ -45,13 +45,30 @@ export function detectFigures(
   for (const c of clusters) {
     const w = c.box.x1 - c.box.x0
     const h = c.box.y1 - c.box.y0
-    if (c.n < 4 || w < 60 || h < 40) continue
+    // a mark drawn from many small paths (FSC, a publisher's device): a figure only when the client asks for it
+    const logo = opts.logos === 'figure' && c.n >= 8 && w >= 12 && h >= 12 && w <= W * 0.4 && h <= H * 0.4
+    if (!logo && (c.n < 4 || w < 60 || h < 40)) continue
     // a panel behind body text (tip box, table) is not a figure
     const inside = page.lines.filter((l) => l.x0 >= c.box.x0 - 2 && l.x1 <= c.box.x1 + 2 && H - l.base >= c.box.y0 - 2 && H - l.base <= c.box.y1 + 2)
     if (inside.filter((l) => Math.abs(l.size - bodySize) < 0.6).length >= 3) continue
+    if (logo && inside.length) continue
     const hit = figs.find((f) => meets(f.box, c.box))
     if (hit) hit.box = union(hit.box, c.box)
-    else figs.push({ page: page.index, box: c.box, lines: [], caption: '', vector: true })
+    else figs.push({ page: page.index, box: c.box, lines: [], caption: '', vector: true, logo: logo || undefined })
   }
   return figs
+}
+
+/**
+ * A path inside a figure that is furniture, not picture: a hairline rule, a stroke or fill that encloses the whole figure
+ * (frame, border, backdrop), or a page-edge frame. Drawn art (a map, a chart) is not matched, so it stays in the figure.
+ */
+export function isFrameOrRule(path: Box, fig: Box, vector: boolean, page: { width: number; height: number }): boolean {
+  const w = path.x1 - path.x0
+  const h = path.y1 - path.y0
+  const tol = 4
+  const encloses = path.x0 <= fig.x0 + tol && path.x1 >= fig.x1 - tol && path.y0 <= fig.y0 + tol && path.y1 >= fig.y1 - tol
+  const edge = (w >= page.width * 0.9 && h >= page.height * 0.5) || (h >= page.height * 0.9 && w >= page.width * 0.5)
+  const rule = !vector && Math.min(w, h) <= 2.5 && Math.max(w, h) >= 20
+  return encloses || edge || rule
 }
