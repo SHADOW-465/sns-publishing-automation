@@ -2,7 +2,7 @@ import { PDFDocument, PDFName, PDFArray, PDFDict, PDFNumber, PDFString, PDFHexSt
 import { analyzePdf, titleCase, type PdfBook } from '../pdfepub/analyze.ts'
 import type { Raster } from '../pdf/raster.ts'
 import type { ReviewItem } from '../epub/package.ts'
-import { inferUaStyles, buildStructure, imageList, type UaStyle, type Figure, type UaRole, type SNode } from './structure.ts'
+import { inferUaStyles, buildStructure, imageList, type UaOptions, type UaStyle, type Figure, type UaRole, type SNode } from './structure.ts'
 import { detectFigures } from './figures.ts'
 import { readAltDocx, matchAlt, type AltEntry } from './altdocx.ts'
 import { planPages, writeUa, type UaMeta } from './write.ts'
@@ -23,6 +23,8 @@ export interface UaInputs {
   cover?: { data: Uint8Array; png: boolean }
   /** Word file with the alternative texts */
   altDocx?: Uint8Array
+  /** house-style options (heading levels, vector logos) */
+  options?: UaOptions
 }
 
 export interface UaFigure {
@@ -42,6 +44,7 @@ export interface UaAnalysis {
   meta: UaMeta & { isbn: string }
   figures: UaFigure[]
   detected: Map<number, Figure[]>
+  options: UaOptions
   altUnused: AltEntry[]
   review: ReviewItem[]
 }
@@ -92,12 +95,12 @@ export async function analyzeUa(
     if (p) p.lines = p.lines.filter((l) => l.x1 > t.x0 + 2 && l.x0 < t.x1 - 2 && l.base > t.top + 2 && l.y < t.bottom - 2)
   })
   const detected = new Map<number, Figure[]>()
-  plan.pages.forEach((p, i) => detected.set(i, detectFigures(book.pages[i], p.paints, book.bodySize)))
+  plan.pages.forEach((p, i) => detected.set(i, detectFigures(book.pages[i], p.paints, book.bodySize, { logos: inp.options?.logos })))
   const styles = inferUaStyles(book)
 
   // alt texts from the Word file, matched to the figures once to prefill the review
   const alt = inp.altDocx ? readAltDocx(inp.altDocx) : []
-  const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected))
+  const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected), inp.options)
   const pageArea = book.pages[1] ? book.pages[1].width * book.pages[1].height : 1
   // the Word file lists descriptions in the order of the image list: put the figures in that order first
   const il = imageList(st, book)
@@ -145,7 +148,7 @@ export async function analyzeUa(
     }
     await task.destroy()
   }
-  return { merged, book, styles, meta, figures, detected, altUnused: unused, review }
+  return { merged, book, styles, meta, figures, detected, options: inp.options ?? {}, altUnused: unused, review }
 }
 
 /** Bookmark names for front pages without a heading (as in the reference: Cover, Half Title, Title, Copyright). */
@@ -194,6 +197,8 @@ export interface UaBuildInput {
   alt: Record<string, string>
   cropToTrim: boolean
   sourceName?: string
+  /** replaces the options the analysis was made with (the client's layer is known only after reading the book) */
+  options?: UaOptions
   spec?: Record<string, { alt: string; longDesc?: string; decorative?: boolean }>
   ai?: Record<string, { alt: string; approved?: boolean }>
   fileAlt?: Record<string, { alt: string; longDesc?: string }>
@@ -238,7 +243,7 @@ export async function buildUa(
   a: UaAnalysis, input: UaBuildInput,
 ): Promise<{ pdf: Uint8Array; review: ReviewItem[]; stats: Record<string, number>; fileName: string }> {
   const roles = new Map<string, UaRole>(input.styles.map((s) => [s.key, s.role]))
-  const st = buildStructure(a.book, roles, cloneFigs(a.detected))
+  const st = buildStructure(a.book, roles, cloneFigs(a.detected), input.options ?? a.options)
   const extra: ReviewItem[] = []
   let pendingAi = 0
   let decorativeN = 0

@@ -6,6 +6,7 @@
 // =============================================================================================
 import { emptyLayer, type Layer, type Level } from './layers.ts'
 import type { RuleValue } from './rules.ts'
+import type { UaOptions } from '../pdfua/structure.ts'
 
 interface ClientStyle {
   /** matches the publisher name with spaces, case and punctuation ignored, from the start ("BeBra Verlag GmbH") */
@@ -14,6 +15,8 @@ interface ClientStyle {
   /** rule ID → value */
   values: Record<string, RuleValue>
   labels?: Record<string, Record<string, string>>
+  /** accessible-PDF options: heading levels, vector logos */
+  ua?: UaOptions
   /** where the requirement was written down */
   file: string
 }
@@ -49,4 +52,10 @@ export function bundledLayer(level: Level, name: string): Layer | undefined {
   layer.labels = c.labels
   for (const id of Object.keys(c.values)) layer.sources[id] = { file: c.file, where: 'client style', text: `${id} = ${String(c.values[id])}`, by: 'person' }
   return layer
+}
+
+/** Accessible-PDF options shipped for this client (empty: the defaults, H1 title then H2 chapters, logos as artifacts). */
+export function bundledUaOptions(name: string): UaOptions {
+  const key = squash(name)
+  return CLIENT_STYLES.find((x) => key.startsWith(x.match))?.ua ?? {}
 }
