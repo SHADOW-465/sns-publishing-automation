@@ -66,7 +66,10 @@ test('Simple: book + cover image + plates PDF', { skip: !has(D) && 'samples miss
   assert.deepEqual(toc.slice(0, 6), ['Foreword vi', 'Author’s Note viii', 'Glossary ix', 'Images xv', 'Prologue: Anything Rome Can Do, Greeks Can Do Better 1', 'Chapter 1 CSI: Arena 12'])
   assert.equal(count(tags.filter((t) => t.startsWith('p6 ')), 'Link'), toc.length)
   // chapter label joins the chapter heading
-  assert.ok(tags.includes('p29   H1: Chapter 1 Arena'))
+  assert.ok(tags.includes('p29   H2: Chapter 1 Arena')) // H1 is the book title alone; chapters are H2
+  assert.equal(count(tags, 'H1'), 1)
+  assert.ok(count(tags, 'Lbl') > 50, 'bullets are split into Lbl and LBody')
+  assert.ok(tags.some((t) => /^p29 .*Link.*: 12$/.test(t)), 'note calls are links')
   // prose with a line-initial dash is not a list
   assert.equal(tags.filter((t) => /^p(2[0-8]) /.test(t) && /LBody/.test(t)).length, 0)
   // bibliography with hanging indents: one paragraph per entry
