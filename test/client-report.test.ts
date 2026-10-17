@@ -496,3 +496,33 @@ test('German section words: registers, sources, footnotes and the list of figure
   const { sectionTypeOf } = await import('../src/engine/epub/locale.ts')
   for (const [w, t] of [['Personenregister', 'index'], ['Sachregister', 'index'], ['Quellenverzeichnis', 'bibliography'], ['Fußnoten', 'notes'], ['Abbildungsverzeichnis', 'list'], ['Anmerkungen', 'notes'], ['Danksagung', 'acknowledgments']] as const) assert.equal(sectionTypeOf(w), t, w)
 })
+
+// ---- phase 2: the structural rules ----------------------------------------------------------------------
+test('NAV-05/06, PKG-02/03: each rule changes the package and the defaults change nothing', () => {
+  const opf = (b: ReturnType<typeof book>) => text(b.r.files.get('OEBPS/content.opf')!)
+  const nav = (b: ReturnType<typeof book>) => text(b.r.files.get('OEBPS/nav.xhtml')!)
+  const base = book()
+  assert.match(opf(base), /<guide>/)
+  assert.doesNotMatch(opf(base), /linear="no"/)
+  const off = book({ writeGuide: false, coverLinear: false })
+  assert.doesNotMatch(opf(off), /<guide>/)
+  assert.match(opf(off), /<itemref idref="cover" linear="no"\/>/)
+  const none = book({ navFront: 'none' })
+  assert.ok((nav(none).match(/<li>/g) ?? []).length < (nav(base).match(/<li>/g) ?? []).length, 'fewer menu entries')
+  assert.match(nav(none), /Alpha/)
+  const flat = book({ navDepth: 1 })
+  assert.ok((nav(flat).match(/<li>/g) ?? []).length <= (nav(base).match(/<li>/g) ?? []).length)
+})
+
+test('a style profile saved in the browser moves into the client rules once, and then decides before any guess', async () => {
+  const { MemoryStore, setStore } = await import('../src/engine/spec/store.ts')
+  const { migrateProfile } = await import('../src/engine/spec/session.ts')
+  setStore(new MemoryStore())
+  const spec = await openSpec({ client: 'Old Browser Verlag', series: '', book: 'one' }, DEFAULT_SETTINGS)
+  const moved = await migrateProfile(spec, { Inhalt: { role: 'drop', outClass: '' }, text: { role: 'p', outClass: 'text' } }, 'tester')
+  const map = moved.layers.find((l) => l.level === 'client')!.styleMap!
+  assert.deepEqual(Object.keys(map), ['style:Inhalt'], 'a plain paragraph style is not worth a rule')
+  assert.equal(map['style:Inhalt'].role, 'drop')
+  assert.equal(await migrateProfile(moved, { Inhalt: { role: 'p', outClass: '' } }, 'tester'), moved, 'a style the layer has keeps its entry')
+  setStore(new MemoryStore())
+})

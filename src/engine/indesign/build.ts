@@ -549,7 +549,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
   const fnSeen = new Map<string, string>()
   // end notes are collected on the book's notes page when the book has one (Anmerkungen);
   // a book whose hand-finished EPUB keeps them under each chapter (no notes section) stays that way
-  const collectEndnotes = all.some((x) => x.type === 'notes')
+  const collectEndnotes = settings().noteSpot === 'book-end' || (settings().noteSpot === 'auto' && all.some((x) => x.type === 'notes'))
   const endnoteList: { n: string; marker: string; file: string; li: Element }[] = []
   const notesStem = all.find((x) => x.type === 'notes')?.stem ?? SECTION_META.notes.file
   const notesFile = `${notesStem}.xhtml`
@@ -727,7 +727,7 @@ export function build(a: Analysis, input: BuildInput): BuildResult {
         }
         fnNo++
         const marker = footnoteMarker(li)
-        if (collectEndnotes && ex.endnotes?.has(id)) {
+        if (collectEndnotes && (settings().noteSpot === 'book-end' || ex.endnotes?.has(id))) {
           const n = String(fnNo)
           fnSeen.set(id, n)
           endnoteList.push({ n, marker, file, li })
@@ -1340,7 +1340,7 @@ function renderFront(
     use(tg, name, { '@house': base, ...(a ? { 'text-align': align } : {}), ...(sans ? { 'font-family': 'sans-serif' } : {}) })
     return name
   }
-  for (const b of s.type === 'copyright' ? items : s.type === 'title' ? inPrintOrder(s.items, printPage) : s.items) {
+  for (const b of s.type === 'copyright' ? items : s.type === 'title' && settings().titleOrder === 'print' ? inPrintOrder(s.items, printPage) : s.items) {
     if (b.t === 'pb') {
       out.push(ctx.pageMarker(b.n))
       continue

@@ -233,6 +233,15 @@ export const RULES: Rule[] = [
     origin: 'V3 row 20',
   },
 
+  {
+    id: 'NOTE-04', group: 'Notes', title: 'Where the notes go', kind: 'free', type: 'choice', key: 'noteSpot',
+    help: 'Under each chapter, all together on one notes page at the end of the book, or decided by the source: InDesign end notes on the notes page when the book has one, footnotes under their chapter.',
+    choices: [['auto', 'As the source has them'], ['chapter', 'Under each chapter'], ['book-end', 'All on the notes page']],
+    example: (v) => (v === 'chapter' ? '<div class="footnotes"> … </div>  (end of every chapter)' : v === 'book-end' ? '<a epub:type="noteref" href="notes.xhtml#fn-1">1</a>  (notes.xhtml)' : '(end notes on notes.xhtml, footnotes under the chapter)'),
+    keywords: ['note placement', 'notes at the end', 'endnotes', 'notas al final', 'notas al pie', 'footnotes under chapter'],
+    choiceWords: { chapter: ['under each chapter', 'por capítulo'], 'book-end': ['end of the book', 'al final del libro'] },
+    origin: 'EPUB Automation Report 15-10-26 (point 12); design 4.3',
+  },
   // ---- contents pages ----
   {
     id: 'NAV-01', group: 'Contents pages', title: 'Hanging indent of chapter entries', kind: 'free', type: 'number', key: 'tocEntryIndentEm', unit: 'em', min: 0, max: 5,
@@ -266,6 +275,21 @@ export const RULES: Rule[] = [
     origin: 'EPUB Automation Report 15-10-26',
   },
 
+  {
+    id: 'NAV-05', group: 'Contents pages', title: 'Depth of the navigation menu', kind: 'free', type: 'number', key: 'navDepth', min: 1, max: 3,
+    help: '1 lists parts and chapters only; 2 adds the sections inside them; 3 adds the next level. The menu and the NCX follow it.',
+    example: (v) => `<ol class="nav"> … ${v} level${v === 1 ? '' : 's'} … </ol>`,
+    keywords: ['nav depth', 'toc depth', 'navigation levels', 'profundidad del índice', 'niveles del índice'],
+    origin: 'Design 4.3',
+  },
+  {
+    id: 'NAV-06', group: 'Contents pages', title: 'Front and back matter in the menu', kind: 'free', type: 'choice', key: 'navFront',
+    help: 'Every section gets a menu entry; or all except the half-title, title, copyright and contents pages; or none, so the menu lists parts and chapters only.',
+    choices: [['all', 'Every section'], ['named', 'Not the half-title, title, copyright and contents pages'], ['none', 'Parts and chapters only']],
+    example: (v) => (v === 'none' ? '(Cover, chapters)' : v === 'named' ? '(Cover, dedication and other front and back matter, chapters)' : '(Cover, every front and back matter page, chapters)'),
+    keywords: ['front matter in toc', 'back matter in nav', 'frontmatter nav', 'material preliminar en el índice'],
+    origin: 'Design 4.3',
+  },
   // ---- package ----
   {
     id: 'PKG-01', group: 'Package', title: 'Text and data mining reservation', kind: 'free', type: 'choice', key: 'tdmReservation',
@@ -276,6 +300,28 @@ export const RULES: Rule[] = [
     origin: 'EPUB Automation Report 15-10-26',
   },
 
+  {
+    id: 'PKG-02', group: 'Package', title: 'Cover in the reading order', kind: 'free', type: 'bool', key: 'coverLinear',
+    help: 'On: the cover page is the first page of the reading order. Off: it is marked linear="no", so readers open at the first chapter and the cover is reachable from the menu only.',
+    choices: onOff, example: (v) => (v ? '<itemref idref="cover"/>' : '<itemref idref="cover" linear="no"/>'),
+    keywords: ['cover linear', 'linear no', 'cover in spine', 'portada en el orden de lectura'],
+    origin: 'Design 4.3',
+  },
+  {
+    id: 'PKG-03', group: 'Package', title: 'Write the EPUB 2 guide', kind: 'free', type: 'bool', key: 'writeGuide',
+    help: 'The <guide> in the package names the cover and the contents for older readers. EPUB 3 readers use the landmarks instead.',
+    choices: onOff, example: (v) => (v ? '<guide> <reference type="toc" … /> </guide>' : '(no guide)'),
+    keywords: ['guide', 'opf guide', 'reference type toc', 'guía del paquete'],
+    origin: 'EPUB Automation Report 15-10-26 (point 11); design 4.3',
+  },
+  {
+    id: 'FM-02', group: 'Copyright page', title: 'Order of the title page lines', kind: 'free', type: 'choice', key: 'titleOrder',
+    help: 'With the print PDF, the lines of the title page follow the printed page. Choose the source order to keep the export’s order.',
+    choices: [['print', 'As printed (needs the print PDF)'], ['source', 'As in the InDesign export']],
+    example: (v) => (v === 'print' ? '(author, title, subtitle, publisher as on the printed page)' : '(lines in the order of the export)'),
+    keywords: ['title page order', 'orden de la portadilla', 'title page lines'],
+    origin: 'EPUB Automation Report 15-10-26 (point 2); design 4.3',
+  },
   // ---- stylesheet ----
   {
     id: 'CSS-01', group: 'Stylesheet', title: 'Stylesheet layout', kind: 'free', type: 'choice', key: 'cssFormat',

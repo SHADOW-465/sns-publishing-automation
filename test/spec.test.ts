@@ -256,3 +256,14 @@ test('A11Y-01: a picture without a description stops delivery unless the client 
   setSettings({ altRequired: 'warn' })
   assert.equal(settings().altRequired, 'warn')
 })
+
+test('phase 2: plain settings come from one schema; the new structural rules change the package', async () => {
+  const { setSettings, settings } = await import('../src/engine/settings.ts')
+  // a hand-edited file: bad values fall back to the default, good ones stay, numbers are clamped
+  setSettings({ navDepth: 9, navFront: 'bogus' as never, coverLinear: 'yes' as never, writeGuide: false })
+  assert.equal(settings().navDepth, 3)
+  assert.equal(settings().navFront, 'all')
+  assert.equal(settings().coverLinear, true)
+  assert.equal(settings().writeGuide, false)
+  for (const id of ['NOTE-04', 'NAV-05', 'NAV-06', 'FM-02', 'PKG-02', 'PKG-03']) assert.ok(RULES.find((r) => r.id === id)?.key, id)
+})

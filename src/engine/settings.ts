@@ -99,6 +99,18 @@ export interface HouseSettings extends StdOptions {
   navLabelOn: 'section' | 'nav'
   /** text-and-data-mining reservation in the package (W3C TDM reservation protocol) */
   tdmReservation: 'off' | 'reserved'
+  /** NOTE-04: where notes go. auto = InDesign end notes on the notes page when the book has one, footnotes under their chapter */
+  noteSpot: 'auto' | 'chapter' | 'book-end'
+  /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */
+  navDepth: number
+  /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
+  navFront: 'all' | 'named' | 'none'
+  /** FM-02: the title page lines follow the printed page (needs the print PDF) or stay in the order of the export */
+  titleOrder: 'print' | 'source'
+  /** PKG-02: the cover page is part of the reading order (linear) or only reachable from the menu */
+  coverLinear: boolean
+  /** PKG-03: write the EPUB 2 <guide> (cover and contents) */
+  writeGuide: boolean
 
   // ---- stylesheet ----
   /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference;
@@ -119,6 +131,51 @@ export interface HouseSettings extends StdOptions {
   lostWordsErrorPct: number // % of source words missing that counts as an error (below: a warning)
 }
 
+type Field =
+  | { def: boolean; bool: true }
+  | { def: string; choices: readonly string[] }
+  | { def: number; min: number; max: number }
+/** One row per plain setting: its default and what a valid value is. DEFAULT_SETTINGS and sanitize are made from this table,
+ *  so a new plain setting is one row here (plus its rule in the registry), not four edits. */
+const SCHEMA = {
+  roleHeading: { def: true, bool: true },
+  langWrapper: { def: true, bool: true },
+  seriesSmallCaps: { def: true, bool: true },
+  verseLines: { def: true, bool: true },
+  defaultProfile: { def: 'accessible', choices: ['accessible', 'standard'] },
+  htmlLang: { def: 'xml:lang', choices: ['xml:lang', 'both', 'lang'] },
+  styleVariants: { def: 'own', choices: ['own', 'ignore'] },
+  tableHeaders: { def: 'th', choices: ['reference', 'th'] }, // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
+  footnoteRule: { def: 'short', choices: ['short', 'full', 'none'] },
+  footnoteRuleWidth: { def: 25, min: 5, max: 100 },
+  // source / style / no subtitle: an InDesign <h1 class="h1"> stays that way, and the menu shows the chapter title.
+  // A client layer (BeBra: h2.chapter-b, subtitles in the menu) turns the review rules on for that publisher.
+  chapterTag: { def: 'source', choices: ['h2', 'source'] },
+  chapterHeadingClass: { def: 'style', choices: ['chapter-b', 'style'] },
+  tocPageNumbers: { def: 'strip', choices: ['strip', 'show'] },
+  navSubtitle: { def: false, bool: true },
+  navLabelOn: { def: 'section', choices: ['section', 'nav'] },
+  tdmReservation: { def: 'off', choices: ['off', 'reserved'] },
+  noteSpot: { def: 'auto', choices: ['auto', 'chapter', 'book-end'] },
+  navDepth: { def: 3, min: 1, max: 3 },
+  navFront: { def: 'all', choices: ['all', 'named', 'none'] },
+  titleOrder: { def: 'print', choices: ['print', 'source'] },
+  coverLinear: { def: true, bool: true },
+  writeGuide: { def: true, bool: true },
+  cssFormat: { def: 'vertical', choices: ['vertical', 'compact'] },
+  maxSpaceEm: { def: 2, min: 0, max: 10 },
+  blockSpaceEm: { def: 1, min: 0, max: 5 },
+  headingSpaceAboveEm: { def: 2, min: 0, max: 10 },
+  headingSpaceBelowEm: { def: 3, min: 0, max: 10 },
+  headingScalePct: { def: 100, min: 50, max: 200 },
+  footnoteIndentEm: { def: 2, min: 0, max: 5 },
+  tocEntryIndentEm: { def: 1.5, min: 0, max: 5 },
+  blockClass: { def: 'extract1', choices: ['extract1', 'extract'] },
+  altRequired: { def: 'error', choices: ['error', 'warn'] },
+  minCoverPx: { def: 1400, min: 0, max: 10000 },
+  lostWordsErrorPct: { def: 1, min: 0, max: 100 },
+} as const satisfies Record<string, Field>
+
 export const DEFAULT_SETTINGS: HouseSettings = {
   markup: {},
   styleMap: {},
@@ -126,38 +183,9 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   labels: {},
   extraCss: '',
   houseCss: '',
-  roleHeading: true,
-  langWrapper: true,
-  seriesSmallCaps: true,
-  verseLines: true,
-  defaultProfile: 'accessible',
-  ...STD_DEFAULTS,
-  htmlLang: 'xml:lang',
-  styleVariants: 'own',
   variantOn: ['align', 'indent', 'face'],
-  tableHeaders: 'th', // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
-  footnoteRule: 'short',
-  footnoteRuleWidth: 25,
-  // source / style / no subtitle: an InDesign <h1 class="h1"> stays that way, and the menu shows the chapter title.
-  // A client layer (BeBra: h2.chapter-b, subtitles in the menu) turns the review rules on for that publisher.
-  chapterTag: 'source',
-  chapterHeadingClass: 'style',
-  tocPageNumbers: 'strip',
-  navSubtitle: false,
-  navLabelOn: 'section',
-  tdmReservation: 'off',
-  cssFormat: 'vertical',
-  maxSpaceEm: 2,
-  blockSpaceEm: 1,
-  headingSpaceAboveEm: 2,
-  headingSpaceBelowEm: 3,
-  headingScalePct: 100,
-  footnoteIndentEm: 2,
-  tocEntryIndentEm: 1.5,
-  blockClass: 'extract1',
-  altRequired: 'error',
-  minCoverPx: 1400,
-  lostWordsErrorPct: 1,
+  ...STD_DEFAULTS,
+  ...(Object.fromEntries(Object.entries(SCHEMA).map(([k, f]) => [k, f.def])) as unknown as Pick<HouseSettings, keyof typeof SCHEMA>),
 }
 
 let current: HouseSettings = DEFAULT_SETTINGS
@@ -178,44 +206,25 @@ export function setHouseSettings(s: Partial<HouseSettings>) {
 /** A settings file from an older version or edited by hand: unknown values fall back to the default. */
 function sanitize(s: HouseSettings): HouseSettings {
   const d = DEFAULT_SETTINGS
-  const oneOf = <K extends keyof HouseSettings>(k: K, ok: readonly unknown[]) => (ok.includes(s[k]) ? s[k] : d[k])
-  type NumKey = { [K in keyof HouseSettings]: HouseSettings[K] extends number ? K : never }[keyof HouseSettings]
-  const num = (k: NumKey, lo: number, hi: number) =>
-    typeof s[k] === 'number' && isFinite(s[k]) ? Math.min(hi, Math.max(lo, s[k])) : d[k]
+  const raw = s as unknown as Record<string, unknown>
+  const plain = Object.fromEntries(
+    Object.entries(SCHEMA).map(([k, f]) => {
+      const v = raw[k]
+      const ok = 'bool' in f ? typeof v === 'boolean' : 'choices' in f ? (f.choices as readonly unknown[]).includes(v) : typeof v === 'number' && isFinite(v)
+      return [k, !ok ? f.def : 'min' in f ? Math.min(f.max, Math.max(f.min, v as number)) : v]
+    }),
+  )
   return {
     ...s,
+    ...plain,
     printOnly: Array.isArray(s.printOnly) ? s.printOnly.map(String) : d.printOnly,
     labels: s.labels && typeof s.labels === 'object' ? s.labels : d.labels,
     markup: s.markup && typeof s.markup === 'object' ? s.markup : d.markup,
     styleMap: s.styleMap && typeof s.styleMap === 'object' ? s.styleMap : d.styleMap,
     extraCss: typeof s.extraCss === 'string' ? s.extraCss : d.extraCss,
     houseCss: typeof s.houseCss === 'string' ? s.houseCss : d.houseCss,
-    ...(Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, (v as readonly unknown[]).includes((s as unknown as Record<string, unknown>)[k]) ? (s as unknown as Record<string, unknown>)[k] : (d as unknown as Record<string, unknown>)[k]])) as StdOptions),
-    defaultProfile: oneOf('defaultProfile', ['accessible', 'standard']) as HouseSettings['defaultProfile'],
-    htmlLang: oneOf('htmlLang', ['xml:lang', 'both', 'lang']) as HouseSettings['htmlLang'],
-    styleVariants: oneOf('styleVariants', ['own', 'ignore']) as HouseSettings['styleVariants'],
+    ...(Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, (v as readonly unknown[]).includes(raw[k]) ? raw[k] : (d as unknown as Record<string, unknown>)[k]])) as StdOptions),
     variantOn: Array.isArray(s.variantOn) ? s.variantOn.filter((g) => g in VARIANT_GROUPS) : d.variantOn,
-    tableHeaders: oneOf('tableHeaders', ['reference', 'th']) as HouseSettings['tableHeaders'],
-    footnoteRule: oneOf('footnoteRule', ['short', 'full', 'none']) as HouseSettings['footnoteRule'],
-    chapterTag: oneOf('chapterTag', ['h2', 'source']) as HouseSettings['chapterTag'],
-    chapterHeadingClass: oneOf('chapterHeadingClass', ['chapter-b', 'style']) as HouseSettings['chapterHeadingClass'],
-    tocPageNumbers: oneOf('tocPageNumbers', ['strip', 'show']) as HouseSettings['tocPageNumbers'],
-    navSubtitle: typeof s.navSubtitle === 'boolean' ? s.navSubtitle : d.navSubtitle,
-    navLabelOn: oneOf('navLabelOn', ['section', 'nav']) as HouseSettings['navLabelOn'],
-    tdmReservation: oneOf('tdmReservation', ['off', 'reserved']) as HouseSettings['tdmReservation'],
-    cssFormat: oneOf('cssFormat', ['vertical', 'compact']) as HouseSettings['cssFormat'],
-    footnoteRuleWidth: num('footnoteRuleWidth', 5, 100),
-    maxSpaceEm: num('maxSpaceEm', 0, 10),
-    blockSpaceEm: num('blockSpaceEm', 0, 5),
-    headingSpaceAboveEm: num('headingSpaceAboveEm', 0, 10),
-    headingSpaceBelowEm: num('headingSpaceBelowEm', 0, 10),
-    headingScalePct: num('headingScalePct', 50, 200),
-    footnoteIndentEm: num('footnoteIndentEm', 0, 5),
-    tocEntryIndentEm: num('tocEntryIndentEm', 0, 5),
-    blockClass: oneOf('blockClass', ['extract1', 'extract']) as HouseSettings['blockClass'],
-    altRequired: oneOf('altRequired', ['error', 'warn']) as HouseSettings['altRequired'],
-    minCoverPx: num('minCoverPx', 0, 10000),
-    lostWordsErrorPct: num('lostWordsErrorPct', 0, 100),
   }
 }
 

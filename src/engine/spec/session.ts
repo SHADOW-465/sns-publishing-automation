@@ -119,5 +119,22 @@ export async function saveStyleRule(spec: Spec, level: Level, key: string, role:
   return out
 }
 
+/**
+ * The style profile an older version kept in the browser (style → role, class) moves into the client layer's styleMap,
+ * where it has provenance and is shared with the spec workbook. Styles that mean plain paragraphs are not worth a rule.
+ * A style the layer already has keeps its entry.
+ */
+export async function migrateProfile(spec: Spec, profile: Record<string, { role: string; outClass: string }>, actor: string): Promise<Spec> {
+  const layer = spec.layers.find((l) => l.level === 'client')
+  if (!layer) return spec
+  const add = Object.entries(profile).filter(([k, v]) => v.role !== 'p' && !layer.styleMap?.[`style:${k}`])
+  if (!add.length) return spec
+  const next: Layer = { ...layer, styleMap: { ...layer.styleMap, ...Object.fromEntries(add.map(([k, v]) => [`style:${k}`, { match: k, role: v.role, ...(v.outClass ? { class: v.outClass } : {}) }])) } }
+  await store().saveLayer(next)
+  const out = withLayer(spec, next)
+  await log(out, actor, 'change', `Client (${layer.name}): ${add.length} saved style meaning${add.length === 1 ? '' : 's'} moved from this browser into the client rules`)
+  return out
+}
+
 /** Make the resolved spec the settings the engine builds with. */
 export const applySpec = (spec: Spec) => setSettings(spec.resolved.settings)

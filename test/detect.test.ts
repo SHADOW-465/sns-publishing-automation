@@ -112,7 +112,7 @@ test('review: one list sorted by confidence; cross-check failures are the banner
 
 test('PDF footnotes become real notes: the raised number is marked, the foot line leaves the page, an unmatched number stays', async () => {
   const { extractFootnotes } = await import('../src/engine/pdfepub/notes.ts')
-  const run = (text: string, size: number) => ({ text, x0: 0, x1: 5, font: 'F', size, bold: false, italic: false })
+  const run = (text: string, size: number): { text: string; x0: number; x1: number; font: string; size: number; bold: boolean; italic: boolean; noteId?: number } => ({ text, x0: 0, x1: 5, font: 'F', size, bold: false, italic: false })
   const line = (text: string, size: number, y: number, runs = [run(text, size)]) => ({ text, size, y, runs, x0: 0, x1: 100, base: y, font: 'F', marker: false })
   const body = line('Body text 1 here 2', 10, 100, [run('Body text', 10), run('1', 6), run(' here', 10), run('2', 6)])
   const foot1 = line('1 The note text', 8, 700)
@@ -123,4 +123,25 @@ test('PDF footnotes become real notes: the raised number is marked, the foot lin
   assert.equal(body.runs[1].noteId, 1)
   assert.equal(body.runs[3].noteId, undefined, 'number 2 has no note on its page')
   assert.deepEqual(page.lines, [body], 'the foot lines are gone from the page text')
+})
+
+test('NOTE-04: footnotes stay under the chapter, or all go to the notes page', async () => {
+  const { setSettings, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
+  const mk = (noteSpot: 'auto' | 'book-end') => {
+    setSettings({ ...DEFAULT_SETTINGS, noteSpot })
+    const f = synthExport([
+      '<p class="Etiqueta">Chapter 1</p><p class="Titulo">One</p>',
+      `<p class="Cuerpo">${'Una frase. '.repeat(40)}<a class="_idFootnoteLink" href="book.xhtml#footnote-001" id="b1">1</a></p>`,
+      '<div class="_idFootnotes"><aside class="_idFootnote" epub:type="footnote" id="footnote-001"><p class="Cuerpo"><a class="_idFootnoteAnchor" href="book.xhtml#b1">1</a> One note.</p></aside></div>',
+    ].join('\n'), SYNTH_CSS)
+    const a = analyze(f)
+    const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, eisbn: '9780306406157' }, cover: { name: 'cover.png', data: cover } })
+    setSettings(DEFAULT_SETTINGS)
+    return r
+  }
+  const html = (r: ReturnType<typeof mk>) => [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([p, d]) => `${p}\n${new TextDecoder().decode(d)}`).join('\n')
+  assert.match(html(mk('auto')), /class="footnotes"/)
+  const end = html(mk('book-end'))
+  assert.doesNotMatch(end, /class="footnotes"/)
+  assert.match(end, /OEBPS\/notes\.xhtml[^]*One note\./)
 })

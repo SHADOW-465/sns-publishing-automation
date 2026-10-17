@@ -14,7 +14,7 @@ import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
-import { openSpec, applySpec, setRule, saveStyleRule, type Spec } from '../engine/spec/session.ts'
+import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec } from '../engine/spec/session.ts'
 import { CheckFirst } from './CheckFirst.tsx'
 import { reviewList } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
@@ -79,15 +79,18 @@ export function IndesignFlow() {
       } finally {
         setSettings(houseSettings())
       }
+      // style settings an older version kept in this browser move into the client's rules once (they have provenance there)
       const saved = remember<Profile>('profile', a.meta.publisher)
-      if (saved) {
-        applySpec(sp0)
+      if (saved && Object.keys(saved).length) {
+        const moved = await migrateProfile(sp0, saved, actorName())
+        remember('profile', a.meta.publisher, {})
+        applySpec(moved)
         try {
-          a = analyze(files, saved)
+          a = analyze(files)
         } finally {
           setSettings(houseSettings())
         }
-        setNotice(`Applied the style settings saved for “${a.meta.publisher}”.`)
+        setNotice(`Moved the style settings saved in this browser for “${a.meta.publisher}” into the client’s rules.`)
       } else setNotice(undefined)
       setAnalysis(a)
       setStyles(a.styles)
@@ -132,7 +135,6 @@ export function IndesignFlow() {
         setSettings(houseSettings()) // other workflows keep building with the house settings
       }
       setStale(false)
-      remember('profile', meta!.publisher, toProfile(styles))
       if (then !== undefined) setStep(then)
     })
   const go = (i: number) => (i >= 3 && (stale || !result) ? rebuild(i) : setStep(i))

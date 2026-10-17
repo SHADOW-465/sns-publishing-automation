@@ -232,8 +232,15 @@ export function packageEpub(p: {
   type Entry = { label: string; href: string; kids: Entry[] }
   const tree: Entry[] = [{ label: L.coverTitle, href: 'cover.xhtml#cimg', kids: [] }]
   const byFile = new Map<string, Entry>()
+  const level = new Map<string, number>()
+  const { navFront, navDepth } = settings()
+  // NAV-06: which front and back matter has a menu entry; NAV-05: how deep the menu goes
+  const listed = (s: Section) => navFront === 'all' || s.type === 'chapter' || s.type === 'part' || (navFront === 'named' && !['halftitle', 'title', 'copyright', 'toc'].includes(s.type))
   for (const s of sections) {
     if (!s.nav) continue // untitled pages (full-page pictures) are in the spine, not the TOC
+    const depth = (s.parent && level.get(s.parent) ? level.get(s.parent)! : 0) + 1
+    level.set(s.file, depth)
+    if (!listed(s) || depth > navDepth) continue
     const e: Entry = { label: s.nav, href: s.file, kids: [] }
     byFile.set(s.file, e)
     ;(s.parent && byFile.get(s.parent) ? byFile.get(s.parent)!.kids : tree).push(e)
@@ -379,13 +386,13 @@ ${standard ? '' : a11yMeta}
 ${manifest.join('\n')}
 </manifest>
 <spine toc="ncx"${rtl ? ' page-progression-direction="rtl"' : ''}>
-<itemref idref="cover"/>
+<itemref idref="cover"${settings().coverLinear ? '' : ' linear="no"'}/>
 ${sections.map((s) => `<itemref idref="${s.id}"/>`).join('\n')}
 </spine>
-<guide>
+${settings().writeGuide ? `<guide>
 <reference type="cover" title="${esc(L.coverTitle)}" href="cover.xhtml"/>
 <reference type="toc" title="${esc(tocSec?.nav || L.navTitle)}" href="${tocSec?.file ?? 'nav.xhtml'}"/>
-</guide>
+</guide>` : ''}
 </package>
 `.replace(/\n{2,}/g, '\n'))
 
