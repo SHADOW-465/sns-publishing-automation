@@ -6,6 +6,7 @@ import type { ReviewItem, Section } from '../engine/epub/package.ts'
 import { text, type Files } from '../engine/zip.ts'
 import { Preview } from './Preview.tsx'
 import { download } from './shared.tsx'
+import { httpValidator, type ValidatorResult } from '../engine/check/gate.ts'
 import { Icon, type IconName } from './icons.tsx'
 
 // Building blocks of the step-by-step screens: the step bar, inline help, the book outline and
@@ -330,33 +331,30 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
 }
 const order = (f: Finding) => (f.level === 'error' ? 0 : f.level === 'warn' ? 1 : 2)
 
-/** Download with a safety catch: a file with problems needs a separate confirmation before it downloads. */
+/** EPUBCheck from the bundled JRE (the local service at /api/epubcheck). null: it cannot run in this copy of the app. */
+export const runEpubcheck = httpValidator('/api/epubcheck')
+
+export function EpubcheckBox({ result }: { result: ValidatorResult | null | undefined }) {
+  if (result === undefined) return null
+  if (result === null) return <p className="note warnbox small">EPUBCheck did not run: this copy of the app has no EPUBCheck service. Run it from the app on your computer, or check the file in your own EPUBCheck before delivery.</p>
+  if (!result.errors.length) return <p className="note small">EPUBCheck: no errors{result.warnings.length ? `, ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}` : ''}.</p>
+  return (
+    <div className="box err small" role="status">
+      <strong>EPUBCheck found {result.errors.length} error{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but stores may reject it.
+      <ul>{result.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
+      {result.errors.length > 8 && <p className="muted">…and {result.errors.length - 8} more.</p>}
+    </div>
+  )
+}
+
+/** Download button. A file with problems still downloads (the decision is the reviewer's), with the problems stated beside it. */
 export function DeliverButton({ data, name, type, errors, label }: { data: Uint8Array; name: string; type: string; errors: number; label: string }) {
-  const [sure, setSure] = useState(false)
-  if (!errors)
-    return (
+  return (
+    <span className="row" style={{ marginTop: 0 }}>
       <button className="primary big" onClick={() => download(data, name, type)}>
         <Icon name="download" size={17} /> {label}
       </button>
-    )
-  if (!sure)
-    return (
-      <span className="row" style={{ marginTop: 0 }}>
-        <button className="primary big" disabled>
-          <Icon name="download" size={17} /> {label}
-        </button>
-        <button className="link" onClick={() => setSure(true)}>
-          Download anyway for testing
-        </button>
-      </span>
-    )
-  return (
-    <div className="confirm">
-      <p className="err small">This file still has {errors} problem{errors === 1 ? '' : 's'}. It is not ready to publish. Download it only to test.</p>
-      <span className="row" style={{ marginTop: 0 }}>
-        <button className="primary" onClick={() => download(data, name, type)}>Yes, download anyway</button>
-        <button className="ghost" onClick={() => setSure(false)}>Cancel</button>
-      </span>
-    </div>
+      {errors > 0 && <span className="err small">{errors} problem{errors === 1 ? '' : 's'} left: this file is not ready to publish.</span>}
+    </span>
   )
 }

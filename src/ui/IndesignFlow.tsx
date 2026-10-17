@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import type { ValidatorResult } from '../engine/check/gate.ts'
 import { unzip, text } from '../engine/zip.ts'
 import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
 import { ALT_SOURCE_LABEL, decorativeReason, isPlaceholderAlt, matchSpecPicture, needsLongDescription, settleAlt } from '../engine/epub/alt.ts'
@@ -42,6 +43,7 @@ export function IndesignFlow() {
   const [acked, setAcked] = useState<Set<string>>(new Set())
   const [result, setResult] = useState<BuildResult>()
   const [report, setReport] = useState<CheckReport>()
+  const [ec, setEc] = useState<ValidatorResult | null>()
   const [stale, setStale] = useState(true)
   const [types, setTypes] = useState<Record<number, SectionType>>({})
   const [navs, setNavs] = useState<Record<number, string>>({})
@@ -124,6 +126,8 @@ export function IndesignFlow() {
         setProgress({ done: 1, total: 2 })
         await new Promise((r) => setTimeout(r, 30))
         setReport(checkEpub(r.files, r.source))
+        setBusy('Running EPUBCheck…')
+        setEc(await runEpubcheck(r.epub))
       } finally {
         setSettings(houseSettings()) // other workflows keep building with the house settings
       }
@@ -202,7 +206,7 @@ export function IndesignFlow() {
       const failed = drafted.filter((d) => d.error)
       setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt).length} description(s). Each one needs approval.`)
     })
-  const errors = report ? deliveryCounts(report, result?.review ?? []).errors : 0
+  const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0)
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
     { title: 'Book details', hint: 'title, author, ISBN', enabled: !!analysis, done: !!meta && isbn13Valid(meta.eisbn) },
@@ -405,6 +409,7 @@ export function IndesignFlow() {
               Settings changed since this check. <button onClick={() => rebuild()}>Build and check again</button>
             </p>
           )}
+          <EpubcheckBox result={ec} />
           <CheckReportView report={report} review={result.review} />
           <div className="row">
             <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />

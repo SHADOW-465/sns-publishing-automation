@@ -3,7 +3,7 @@ import { FileDrop, type Picked } from './FileDrop.tsx'
 import { Status, Outline, CheckReportView, Help, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { checkEpubBytes, type CheckReport } from '../engine/check/epub.ts'
-import { gate, type GateReport } from '../engine/check/gate.ts'
+import { gate, httpValidator, type GateReport } from '../engine/check/gate.ts'
 import { settings } from '../engine/settings.ts'
 import { text, unzip, type Files } from '../engine/zip.ts'
 import { parseXml, resolvePath, epubType } from '../engine/xml.ts'
@@ -38,8 +38,8 @@ export function CheckFlow() {
       setProgress(undefined)
       const report = checkEpubBytes(epub!.data, { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout })
       const files = unzip(epub!.data)
-      // conformance is for books built here, not for any EPUB dropped in; no EPUBCheck service in the web app yet, so this is never green
-      const verdict = await gate(epub!.data, settings(), { conformance: false })
+      // conformance is for books built here, not for any EPUB dropped in; EPUBCheck comes from the local service when it is there; without it the verdict is never green
+      const verdict = await gate(epub!.data, settings(), { conformance: false, validator: httpValidator('/api/epubcheck') })
       setOut({ verdict, report, files, ...spineOf(files), layout })
     } catch (e) {
       setError((e as Error).message)
