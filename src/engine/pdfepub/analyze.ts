@@ -87,6 +87,8 @@ export interface PdfBook {
   contents?: Contents
   /** the kinds of notes found (a superscript number plus a numbered line at the foot of the page), each reference matched to its note */
   notes: NoteFinding[]
+  /** footnotes turned into real notes by the builder (extractFootnotes), once; the foot lines are then gone from `pages` */
+  footnotes?: import('./notes.ts').FootNote[]
 }
 
 // InDesign slug: file name + print date/time, often doubled ("02-06-202602-06-2026  19:06"): see pdf/slug.ts

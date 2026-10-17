@@ -10,6 +10,8 @@ export interface Run {
   size: number
   bold: boolean
   italic: boolean
+  /** a footnote reference mark that was matched to its note at the foot of the page (pdfepub/notes.ts) */
+  noteId?: number
 }
 
 export interface Line {

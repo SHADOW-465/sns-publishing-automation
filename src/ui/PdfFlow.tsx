@@ -163,7 +163,7 @@ export function PdfFlow() {
   const setRole = (key: string, role: PdfRole) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, role, unsure: false } : x))), setStale(true))
 
   const ready = !!book || !!wordBook
-  const structurePending = result && meta
+  const structureReview = result && meta
     ? reviewList({
         styles: styles.map((s) => ({ ...s, outClass: '', role: 'p' as const, unsure: s.unsure, reason: s.reason, evidence: undefined, action: undefined })),
         sources: {},
@@ -171,8 +171,9 @@ export function PdfFlow() {
         sections: result.sections.map((s, i) => ({ type: s.type, nav: (navs[i] ?? '').trim() || s.nav })),
         notes: [],
         noteFindings: book?.notes,
-      }).items.length
-    : 0
+      })
+    : undefined
+  const structurePending = structureReview?.items.length ?? 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
   const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && !!p.alt.trim() && !isPlaceholderAlt(p.alt)) : []
@@ -306,6 +307,19 @@ export function PdfFlow() {
             <p className="note warnbox">
               Settings changed. <button onClick={() => buildAnd()}>Rebuild</button>
             </p>
+          )}
+          {structureReview && structureReview.items.length > 0 && (
+            <section className="check-first" aria-label="Check these first">
+              <h3>Check these first</h3>
+              <ol>
+                {structureReview.items.map((it) => (
+                  <li key={it.id}>
+                    <span className={`flag ${it.confidence}`}>{it.confidence === 'low' ? 'not sure' : 'please look'}</span> <span className="muted small">{Math.round(it.score * 100)}%</span> <strong>{it.title}</strong>
+                    <div className="muted small">{it.why}</div>
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
           <Outline sections={result.sections} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} />
           {book && (

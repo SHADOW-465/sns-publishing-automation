@@ -109,3 +109,18 @@ test('review: one list sorted by confidence; cross-check failures are the banner
   assert.ok(crossChecks([{ type: 'chapter', nav: 'A', words: 900 }, { type: 'chapter', nav: 'B', words: 900 }, { type: 'chapter', nav: 'C', words: 900 }, { type: 'chapter', nav: 'D', words: 900 }], [{ title: 'A' }, { title: 'B' }, { title: 'C' }]).some((m) => /lists 3 chapters, but 4/.test(m)))
   assert.ok(crossChecks([{ type: 'chapter', nav: 'A', words: 900 }, { type: 'chapter', nav: 'B', words: 900 }, { type: 'chapter', nav: 'C', words: 900 }], [{ title: 'A', printed: '10', first: '12' }, { title: 'B', printed: '20', first: '20' }, { title: 'C', printed: '9', first: '9' }]).some((m) => /puts "A" on page 10, but it starts on page 12/.test(m)))
 })
+
+test('PDF footnotes become real notes: the raised number is marked, the foot line leaves the page, an unmatched number stays', async () => {
+  const { extractFootnotes } = await import('../src/engine/pdfepub/notes.ts')
+  const run = (text: string, size: number) => ({ text, x0: 0, x1: 5, font: 'F', size, bold: false, italic: false })
+  const line = (text: string, size: number, y: number, runs = [run(text, size)]) => ({ text, size, y, runs, x0: 0, x1: 100, base: y, font: 'F', marker: false })
+  const body = line('Body text 1 here 2', 10, 100, [run('Body text', 10), run('1', 6), run(' here', 10), run('2', 6)])
+  const foot1 = line('1 The note text', 8, 700)
+  const foot1b = line('goes on here.', 8, 712)
+  const page = { height: 800, lines: [body, foot1, foot1b] }
+  const notes = extractFootnotes([page as never], 10)
+  assert.deepEqual(notes.map((n) => [n.label, n.text]), [['1', 'The note text goes on here.']])
+  assert.equal(body.runs[1].noteId, 1)
+  assert.equal(body.runs[3].noteId, undefined, 'number 2 has no note on its page')
+  assert.deepEqual(page.lines, [body], 'the foot lines are gone from the page text')
+})

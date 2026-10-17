@@ -70,6 +70,10 @@ table.tbl { border-collapse: collapse; width: 100%; margin: 1em 0; font-family: 
 table.tbl th, table.tbl td { border: 1px solid #000000; padding: 4px; vertical-align: top; text-align: left; }
 table.tbl th, table.tbl td.tbl-h { background-color: #e2e3e4; font-weight: bold; }
 
+/* footnotes */
+div.footnotes { margin-top: 2em; border-top: 1px solid #000000; }
+p.Nota-al-pie { font-family: serif; font-size: 85%; margin: 0.3em 0 0 0; text-indent: 0; text-align: left; }
+
 /* index */
 p.Index1 { font-family: serif; margin: 0 0 0 1.5em; text-indent: -1.5em; text-align: left; }
 p.Index1-t { font-family: serif; margin: 1em 0 0 1.5em; text-indent: -1.5em; text-align: left; }

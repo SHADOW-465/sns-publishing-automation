@@ -1,4 +1,5 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
+import { extractFootnotes } from './notes.ts'
 import type { ImgBox, FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -99,7 +100,8 @@ function autolink(escaped: string) {
   return escaped.replace(URL_RE, (m) => `<a href="${m.includes('@') && !m.startsWith('http') ? 'mailto:' + m : m.startsWith('www.') ? 'https://' + m : m}">${m}</a>`)
 }
 
-const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => ({ t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
+const noteMark = (id: number, label: string) => `<sup><a epub:type="noteref" href="#fn-${id}" id="fnr-${id}" role="doc-noteref">${esc(label)}</a></sup>`
+const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => (r.noteId ? { t: noteMark(r.noteId, r.text.trim()), raw: true } : { t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
 
 /**
@@ -148,6 +150,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const { meta } = input
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = []
+  // matched footnotes become real notes; the foot lines leave the page text (once, however often the book is rebuilt)
+  const footnotes = (book.footnotes ??= extractFootnotes(book.pages, book.bodySize))
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
   const roleOf = (l: PLine): PdfRole => l.forced ?? role.get(l.key) ?? 'text'
@@ -672,6 +676,9 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     if (s.type === 'toc' || s.type === 'list') body += renderToc(s)
     else if (s.type === 'index') body += renderIndex(s)
     else body += renderBlocks(s.blocks)
+    // the notes whose numbers are in this section, at its end
+    const here = [...body.matchAll(/id="fnr-(\d+)"/g)].map((m) => footnotes.find((n) => n.id === Number(m[1]))).filter((n) => !!n)
+    if (here.length) body += `\n<div class="footnotes">\n${here.map((n) => `<div epub:type="footnote" id="fn-${n.id}" role="doc-footnote">\n<p class="Nota-al-pie"><a epub:type="backlink" href="#fnr-${n.id}" role="doc-backlink">${esc(n.label)}</a> ${esc(n.text)}</p>\n</div>`).join('\n')}\n</div>`
     bodyOf.set(s, body)
     for (const m of body.matchAll(/id="page-([^"]+)"/g)) pageFile.set(m[1], `${s.stem}.xhtml`)
   }
