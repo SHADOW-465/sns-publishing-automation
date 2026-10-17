@@ -29,10 +29,18 @@ export interface BookMeta {
   profile?: 'accessible' | 'standard'
 }
 
-/** "Anna Writer" → "Writer, Anna" for sorting (last word is the surname); a name with a comma or a single word is left alone. ponytail: no particles (von, de la) */
-const fileAs = (name: string): string | undefined => {
+const PARTICLES = new Set(['von', 'van', 'de', 'der', 'den', 'del', 'della', 'di', 'da', 'du', 'la', 'le', 'el', 'al', 'bin', 'ibn', 'zu', 'zur', 'zum', 'ter', 'ten', 'dos', 'das', 'do', 'y', 'af', 'av'])
+/** "Anna Writer" → "Writer, Anna" for sorting (last word is the surname); "Alexander von Humboldt" → "Humboldt, Alexander von".
+ *  A name with a comma or a single word is left alone. */
+export const fileAs = (name: string): string | undefined => {
   const w = name.trim().split(/\s+/)
-  return w.length > 1 && !name.includes(',') ? `${w[w.length - 1]}, ${w.slice(0, -1).join(' ')}` : undefined
+  if (w.length < 2 || name.includes(',')) return undefined
+  let k = w.length - 1 // the surname starts at the last word, or at the run of particles in front of it
+  while (k > 1 && PARTICLES.has(w[k - 1].toLowerCase())) k--
+  const given = w.slice(0, k).join(' ')
+  const particles = w.slice(k).findIndex((x) => !PARTICLES.has(x.toLowerCase()))
+  const lead = w.slice(k, k + Math.max(0, particles))
+  return `${w.slice(k + lead.length).join(' ')}, ${[given, ...lead].join(' ')}`
 }
 
 /** Right-to-left scripts: the book reads from the right. */

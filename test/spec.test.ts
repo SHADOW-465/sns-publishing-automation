@@ -267,3 +267,13 @@ test('phase 2: plain settings come from one schema; the new structural rules cha
   assert.equal(settings().writeGuide, false)
   for (const id of ['NOTE-04', 'NAV-05', 'NAV-06', 'FM-02', 'PKG-02', 'PKG-03']) assert.ok(RULES.find((r) => r.id === id)?.key, id)
 })
+
+test('file-as: the surname is the last word, and particles (von, de la) stay with the given names', async () => {
+  const { fileAs } = await import('../src/engine/epub/package.ts')
+  assert.equal(fileAs('Anna Writer'), 'Writer, Anna')
+  assert.equal(fileAs('Alexander von Humboldt'), 'Humboldt, Alexander von')
+  assert.equal(fileAs('Ursula von der Leyen'), 'Leyen, Ursula von der')
+  assert.equal(fileAs('Leonardo da Vinci'), 'Vinci, Leonardo da')
+  assert.equal(fileAs('Weigel, Bjoern'), undefined)
+  assert.equal(fileAs('Plato'), undefined)
+})
