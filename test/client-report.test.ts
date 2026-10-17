@@ -526,3 +526,14 @@ test('a style profile saved in the browser moves into the client rules once, and
   assert.equal(await migrateProfile(moved, { Inhalt: { role: 'p', outClass: '' } }, 'tester'), moved, 'a style the layer has keeps its entry')
   setStore(new MemoryStore())
 })
+
+test('import: the client\'s own report (.docx) gives the expected markup, each row with its source, and only confirmed rows apply', { skip: !existsSync(resolve('..', 'corrections', 'EPUB-Automation-Report_0aff2467-f853-4285-b431-2bf02870b19f.docx')) && 'report missing' }, async () => {
+  const { readRequirements } = await import('../src/engine/spec/requirements.ts')
+  const { selectLayerData } = await import('../src/engine/spec/markup.ts')
+  const name = 'EPUB-Automation-Report_0aff2467-f853-4285-b431-2bf02870b19f.docx'
+  const { layerData } = readRequirements(name, new Uint8Array(readFileSync(resolve('..', 'corrections', name))))
+  assert.deepEqual(layerData?.markup['chapter-title'], { tag: 'h2', class: 'chapter-b' })
+  assert.equal(layerData?.markup.noteref?.wrap, 'sup')
+  assert.match(layerData!.sources!['markup:chapter-title'].where, /^table 1, row \d+$/)
+  assert.deepEqual(Object.keys(selectLayerData(layerData!, new Set(['markup:noteref'])).markup), ['noteref'])
+})

@@ -13,7 +13,7 @@ import { readDocx, readXlsx, writeXlsx, type Sheet } from './office.ts'
 import { text } from '../zip.ts'
 import type { Decision } from './store.ts'
 import { yesNo, type SpecPicture } from '../epub/alt.ts'
-import { layerDataFromWorkbook, markupSheets, type LayerData } from './markup.ts'
+import { layerDataFromWorkbook, layerDataFromReport, markupSheets, type LayerData } from './markup.ts'
 
 export interface Requirement {
   text: string
@@ -46,7 +46,10 @@ export function readRequirements(name: string, data: Uint8Array): { template?: S
     if (pictures.length) return { pictures, items: pictures.map((p) => ({ text: `${p.file}: ${p.alt}`, where: 'Picture descriptions' })), labels }
     return { items: sheets.flatMap((sh) => sh.rows.map((r, i) => ({ text: r.filter(Boolean).join(' | '), where: `${sh.name}, row ${i + 1}` })).filter((x) => x.text.trim())) }
   }
-  if (ext === 'docx') return { items: readDocx(data).map((b) => ({ text: b.text, where: b.where })) }
+  if (ext === 'docx') {
+    const blocks = readDocx(data)
+    return { items: blocks.map((b) => ({ text: b.text, where: b.where })), layerData: layerDataFromReport(blocks) }
+  }
   if (ext === 'csv' || ext === 'tsv') {
     return { items: text(data).split(/\r?\n/).map((l, i) => ({ text: l.split(ext === 'csv' ? ',' : '\t').join(' | ').trim(), where: `line ${i + 1}` })).filter((x) => x.text) }
   }

@@ -1,5 +1,6 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
+import { noteRef } from '../epub/markup.ts'
 import type { ImgBox, FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -100,7 +101,7 @@ function autolink(escaped: string) {
   return escaped.replace(URL_RE, (m) => `<a href="${m.includes('@') && !m.startsWith('http') ? 'mailto:' + m : m.startsWith('www.') ? 'https://' + m : m}">${m}</a>`)
 }
 
-const noteMark = (id: number, label: string) => `<sup><a epub:type="noteref" href="#fn-${id}" id="fnr-${id}" role="doc-noteref">${esc(label)}</a></sup>`
+const noteMark = (id: number, label: string) => noteRef(`#fn-${id}`, `fnr-${id}`, esc(label))
 const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => (r.noteId ? { t: noteMark(r.noteId, r.text.trim()), raw: true } : { t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
 

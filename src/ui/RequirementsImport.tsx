@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { RULES, ruleById, show, coerce, type RuleValue } from '../engine/spec/rules.ts'
 import { readRequirements, matchByKeywords, waiverNeeded, type Requirement, type Suggestion, type LabelOverrides } from '../engine/spec/requirements.ts'
-import type { LayerData } from '../engine/spec/markup.ts'
+import { sampleOf, selectLayerData, type LayerData } from '../engine/spec/markup.ts'
+import type { MarkupRole } from '../engine/settings.ts'
 import type { SpecPicture } from '../engine/epub/alt.ts'
 import { matchWithAi, aiConfig } from '../engine/spec/ai.ts'
 import { writeXlsx } from '../engine/spec/office.ts'
@@ -30,6 +31,7 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels, onLa
   const [items, setItems] = useState<Requirement[]>([])
   const [labels, setLabels] = useState<LabelOverrides | undefined>()
   const [layerData, setLayerData] = useState<LayerData | undefined>()
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
   const [level, setLevel] = useState<Level>(levels[levels.length - 1]?.level ?? 'book')
@@ -43,6 +45,7 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels, onLa
       setFile(f.name)
       setItems(items)
       setLayerData(onLayerData ? layerData : undefined)
+      setConfirmed(new Set(layerData ? [...Object.keys(layerData.markup).map((r) => `markup:${r}`), ...Object.keys(layerData.styleMap)] : []))
       setLabels(onLabels && labels && Object.keys(labels).length ? labels : undefined)
       const s = template ?? matchByKeywords(items)
       setRows(s.map((x) => ({ ...x, apply: !!x.ruleId && x.value !== undefined && x.confidence >= 0.5 && !waiverNeeded(x) })))
@@ -123,26 +126,42 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels, onLa
         </div>
       )}
       {layerData && (
-        <div className="row">
-          <span className="note small">
-            {Object.keys(layerData.markup).length} markup template{Object.keys(layerData.markup).length === 1 ? '' : 's'} and {Object.keys(layerData.styleMap).length} style meaning{Object.keys(layerData.styleMap).length === 1 ? '' : 's'} read from the sheets.
-          </span>
-          <label className="small">
-            Apply to{' '}
-            <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>
-              {levels.map((l) => (<option key={l.level} value={l.level}>{l.label}</option>))}
-            </select>
-          </label>
-          <button
-            disabled={!!busy}
-            onClick={async () => {
-              await onLayerData!(level, layerData, file)
-              setLayerData(undefined)
-              setMsg('Applied the markup and style sheets.')
-            }}
-          >
-            Apply markup and styles
-          </button>
+        <div className="stack">
+          <p className="note small">Confirm each markup template and style meaning before it is written to the rules. The source column says where it was read.</p>
+          <table className="styles req">
+            <thead><tr><th>Use</th><th>What</th><th>Read as</th><th>Source</th></tr></thead>
+            <tbody>
+              {[
+                ...Object.entries(layerData.markup).map(([r, t]) => ({ key: `markup:${r}`, what: `Markup: ${r}`, read: sampleOf(r as MarkupRole, t!) })),
+                ...Object.entries(layerData.styleMap).map(([k, v]) => ({ key: k, what: `Style: ${v.match}`, read: `means ${v.role}${v.class ? `, class ${v.class}` : ''}` })),
+              ].map((e) => (
+                <tr key={e.key}>
+                  <td><input type="checkbox" aria-label={`Use ${e.what}`} checked={confirmed.has(e.key)} onChange={(ev) => setConfirmed(new Set(ev.target.checked ? [...confirmed, e.key] : [...confirmed].filter((x) => x !== e.key)))} /></td>
+                  <td>{e.what}</td>
+                  <td><code>{e.read}</code></td>
+                  <td className="muted small">{layerData.sources?.[e.key] ? `${layerData.sources[e.key].where}: ${layerData.sources[e.key].text.slice(0, 80)}` : file}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="row">
+            <label className="small">
+              Apply to{' '}
+              <select value={level} onChange={(e) => setLevel(e.target.value as Level)}>
+                {levels.map((l) => (<option key={l.level} value={l.level}>{l.label}</option>))}
+              </select>
+            </label>
+            <button
+              disabled={!!busy || !confirmed.size}
+              onClick={async () => {
+                await onLayerData!(level, selectLayerData(layerData, confirmed), file)
+                setLayerData(undefined)
+                setMsg(`Applied ${confirmed.size} confirmed row${confirmed.size === 1 ? '' : 's'}.`)
+              }}
+            >
+              Apply {confirmed.size} confirmed
+            </button>
+          </div>
         </div>
       )}
       {rows.length > 0 && (

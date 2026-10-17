@@ -12,6 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
+import { noteRef } from '../epub/markup.ts'
 import { indesignNotes } from './notes.ts'
 import { type NoteFinding } from '../structure/notes.ts'
 import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
@@ -1100,15 +1101,6 @@ function renderHeading(
   const c = s.type === 'chapter' && !s.label.length && wantClass ? wantClass.replace('{style}', classOf(only[0])) : classOf(only[0])
   use(h, c, declsOf(only[0]))
   return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
-}
-
-/** A note reference, written as the client's noteref template says (default: a link in a <sup>). */
-function noteRef(href: string, id: string, label: string): string {
-  const t = settings().markup.noteref
-  const attrs = Object.entries(t?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-  const a = `<a epub:type="noteref" href="${href}"${id ? ` id="${id}"` : ''} role="doc-noteref"${attrs}>${label}</a>`
-  const wrap = t?.wrap ?? 'sup'
-  return wrap ? `<${wrap}>${a}</${wrap}>` : a
 }
 
 /** Page markers inside a paragraph: before any of its text (the page starts with it) or after. */
