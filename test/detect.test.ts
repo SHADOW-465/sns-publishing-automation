@@ -145,3 +145,18 @@ test('NOTE-04: footnotes stay under the chapter, or all go to the notes page', a
   assert.doesNotMatch(end, /class="footnotes"/)
   assert.match(end, /OEBPS\/notes\.xhtml[^]*One note\./)
 })
+
+test('PDF footnotes: a raised number that pdf.js read as a line of its own still counts, and joins its line', async () => {
+  const { extractFootnotes, pdfNotes } = await import('../src/engine/pdfepub/notes.ts')
+  const run = (text: string, size: number, x0 = 0, x1 = 5): { text: string; x0: number; x1: number; font: string; size: number; bold: boolean; italic: boolean; noteId?: number } => ({ text, x0, x1, font: 'F', size, bold: false, italic: false })
+  const line = (text: string, size: number, y: number, x0 = 40, x1 = 140) => ({ text, size, y, runs: [run(text, size, x0, x1)], x0, x1, base: y, font: 'F', marker: false })
+  const host = line('Text mit Fussnote', 10, 365)
+  const lone = line('1', 6, 363, 141, 144)
+  const foot = line('1 Eine Anmerkung.', 8, 700)
+  const page = { height: 800, label: '3', lines: [host, lone, foot] }
+  assert.equal(pdfNotes([page as never], 10)[0].unmatchedRefs.length, 0)
+  const notes = extractFootnotes([page as never], 10)
+  assert.equal(notes.length, 1)
+  assert.deepEqual(page.lines, [host], 'the lone number and the foot line are gone')
+  assert.equal(host.runs.at(-1)?.noteId, 1, 'the number is now part of its line')
+})

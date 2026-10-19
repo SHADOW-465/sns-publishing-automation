@@ -405,7 +405,7 @@ export function PdfFlow() {
             </p>
           )}
           <EpubcheckBox result={ec} />
-          <CheckReportView report={report} review={result.review} />
+          <CheckReportView report={report} review={result.review} epubcheckErrors={ec?.errors.length ?? 0} />
           <div className="row">
             <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />
           </div>

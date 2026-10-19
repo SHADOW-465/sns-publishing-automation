@@ -65,7 +65,7 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
       )
     }
     if (it.area === 'meta') return <button onClick={onMeta}>Open Book details</button>
-    if ((it.area === 'picture' || it.area === 'note') && onAck) return acked?.has(it.id) ? <span className="muted small">accepted as it is</span> : <button onClick={() => onAck(it.id)}>Accept as it is</button>
+    if ((it.area === 'picture' || it.area === 'note') && !it.id.startsWith('note:') && onAck) return acked?.has(it.id) ? <span className="muted small">accepted as it is</span> : <button onClick={() => onAck(it.id)}>Accept as it is</button>
     return null
   }
   return (

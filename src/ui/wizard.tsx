@@ -263,12 +263,15 @@ export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files
 const ICON: Record<Finding['level'], IconName> = { error: 'x', warn: 'alert', pass: 'check' }
 const WORD: Record<Finding['level'], string> = { error: 'Must fix', warn: 'Check', pass: 'OK' }
 
-export function CheckReportView({ report, review = [] }: { report: CheckReport; review?: ReviewItem[] }) {
+/** `epubcheckErrors`: what the bundled EPUBCheck found, counted with the in-app problems so the verdict says the same as the box above it. */
+export function CheckReportView({ report, review = [], epubcheckErrors = 0 }: { report: CheckReport; review?: ReviewItem[]; epubcheckErrors?: number }) {
   const extras = extraReview(report, review)
   const buildErr = extras.filter((r) => r.level === 'error')
   const buildWarn = extras.filter((r) => r.level === 'warn')
   const done = review.filter((r) => r.level === 'info')
-  const { errors, warnings } = deliveryCounts(report, review)
+  const counts = deliveryCounts(report, review)
+  const errors = counts.errors + epubcheckErrors
+  const warnings = counts.warnings
   return (
     <div className="report">
       <div className={`verdict ${errors ? 'bad' : warnings ? 'meh' : 'good'}`} role="status">
@@ -276,6 +279,7 @@ export function CheckReportView({ report, review = [] }: { report: CheckReport; 
         <span>
           {report.stats.documents} files · {report.stats.words.toLocaleString()} words · {report.stats.pages} page markers · {report.stats.images} pictures
           {report.stats.notes ? ` · ${report.stats.notes} note links` : ''}
+          {epubcheckErrors ? ` · ${epubcheckErrors} of the problems are from EPUBCheck` : ''}
         </span>
       </div>
       {(buildErr.length > 0 || buildWarn.length > 0) && (

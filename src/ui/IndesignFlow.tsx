@@ -180,8 +180,8 @@ export function IndesignFlow() {
   const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0, banner: [] as string[] }
   const structurePending = structureReview.items.length
   // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
-  // (build messages, such as a missing picture description, are fixed on their own step and do not block here)
-  const blocking = structureReview.items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !x.id.startsWith('note:'))
+  // (build messages and an untitled page are not decisions: a picture-only page has no title on purpose, and a missing picture description is fixed on its own step)
+  const blocking = structureReview.items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !/^(note|nav):/.test(x.id))
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
@@ -412,7 +412,7 @@ export function IndesignFlow() {
             </p>
           )}
           <EpubcheckBox result={ec} />
-          <CheckReportView report={report} review={result.review} />
+          <CheckReportView report={report} review={result.review} epubcheckErrors={ec?.errors.length ?? 0} />
           <div className="row">
             <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />
             <button onClick={() => rebuild()} disabled={!!busy}>Build and check again</button>
