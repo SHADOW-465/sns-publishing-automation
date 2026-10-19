@@ -2,7 +2,7 @@
 
 Branch `forge/epub-dynamic`. Nothing was pushed.
 
-**Tests:** `npm test` was 88 passing before this work and is **113 passing, 0 failing, 0 skipped** after it. The 12 Tempelhofer points (`test/client-report.test.ts`) were green after every phase. They include the real-book test, which now runs through the BeBra JSON layer.
+**Tests:** `npm test` was 88 passing before this work and is **114 passing, 0 failing, 0 skipped** after it. The 12 Tempelhofer points (`test/client-report.test.ts`) were green after every phase. They include the real-book test, which now runs through the BeBra JSON layer.
 
 **EPUBCheck:** Java is present in `tools/` (`jdk-17.0.20.1+1-jre`, EPUBCheck 5.4.0). The system `java` is 1.8, so the tests use the bundled JRE. The Tempelhofer EPUB was regenerated after phases 1 to 6 with `test/run-indd.ts` into `corrections/_regen_dynamic/book.epub`. EPUBCheck reports **0 fatals, 0 errors, 0 warnings, 0 infos**. The synthetic review builds in the tests are also EPUBCheck-clean.
 
@@ -51,3 +51,20 @@ No PDF footnotes were found in these three PDFs (none has a superscript with a f
 - The phase 1 commit missed several files because a `git add` failed on a wrong path. The next commit added them (`feat(check): add the gate, honest package claims…`). Both commits are in history.
 - The Tempelhofer log still lists review items that need a person, not engine faults: AI-draft picture descriptions, two pictures with no description, three pages with no page marker (98/169/171), and one picture left on the notes page.
 - Still open from the design: whether BeBra's "Abdeckung" is wanted (it is shipped in their JSON), where the EPUBCheck service runs, and whether clients can send a reference EPUB with each order.
+
+## Offline EPUBCheck proof (20 Oct 2026)
+
+The `tools` folder of `release/win-unpacked/resources` was copied to a temp folder and run with `PATH` reduced to `System32`, no `JAVA_HOME`, and the Java HTTP proxy pointed at a dead port (127.0.0.1:9), so any network use would have failed. The bundled JRE (Temurin 17.0.20.1) ran the bundled `epubcheck.jar` 5.4.0 on `corrections/_regen_dynamic/book.epub` (Tempelhofer Feld):
+
+```
+Validating using EPUB version 3.4 rules.
+No errors or warnings detected.
+Messages: 0 fatals / 0 errors / 0 warnings / 0 infos
+EPUBCheck completed   (exit 0)
+```
+
+The temp copy was deleted afterwards. The installer `.exe` itself was not unpacked; `win-unpacked` is what it installs.
+
+## PDF footnotes (20 Oct 2026)
+
+A raised number that pdf.js reads as a line of its own now counts as a note reference and moves back into its line (`notes.ts`, test in `detect.test.ts`). The three reference PDFs have no footnotes, so the real-book check is the unit test only. There is no screenshot tool for the flow in the repo, so no screenshot was taken. The review list now blocks on any item under 0.6 except build messages (`note:`) and untitled parts (`nav:`); an earlier draft of that filter dropped book-detail and section items by mistake (and/or precedence) and was rewritten.
