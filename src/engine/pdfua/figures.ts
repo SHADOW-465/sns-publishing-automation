@@ -45,9 +45,10 @@ export function detectFigures(
   for (const c of clusters) {
     const w = c.box.x1 - c.box.x0
     const h = c.box.y1 - c.box.y0
-    // a mark drawn from many small paths (FSC, a publisher's device): a figure only when the client asks for it
-    const logo = opts.logos === 'figure' && c.n >= 8 && w >= 12 && h >= 12 && w <= W * 0.4 && h <= H * 0.4
-    if (!logo && (c.n < 4 || w < 60 || h < 40)) continue
+    // a mark drawn from many small paths (FSC, a publisher's device): a figure unless the client asks for artifacts; a chart big enough to be one stays a chart
+    const chart = c.n >= 4 && w >= 60 && h >= 40
+    const logo = !chart && opts.logos !== 'artifact' && c.n >= 8 && w >= 12 && h >= 12 && w <= W * 0.4 && h <= H * 0.4
+    if (!chart && !logo) continue
     // a panel behind body text (tip box, table) is not a figure
     const inside = page.lines.filter((l) => l.x0 >= c.box.x0 - 2 && l.x1 <= c.box.x1 + 2 && H - l.base >= c.box.y0 - 2 && H - l.base <= c.box.y1 + 2)
     if (inside.filter((l) => Math.abs(l.size - bodySize) < 0.6).length >= 3) continue

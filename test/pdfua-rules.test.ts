@@ -114,11 +114,50 @@ test('narrow columns: a 3-column index keeps its starts, indents do not become c
   assert.equal(columnGutters(words).length, 0)
 })
 
-test('a vector logo (many small paths forming a mark) is an artifact unless the client asks for a figure', () => {
+test('a vector logo (many small paths forming a mark) is a figure (the client tags the FSC mark) unless the client asks for artifacts', () => {
   const page = { index: 0, width: 400, height: 560, lines: [], images: [] }
   const paints = Array.from({ length: 12 }, (_, i) => ({ kind: 'path' as const, box: { x0: 40 + (i % 4) * 8, y0: 60 + Math.floor(i / 4) * 8, x1: 46 + (i % 4) * 8, y1: 66 + Math.floor(i / 4) * 8 } }))
-  assert.equal(detectFigures(page, paints, 11).length, 0)
-  const figs = detectFigures(page, paints, 11, { logos: 'figure' })
+  assert.equal(detectFigures(page, paints, 11, { logos: 'artifact' }).length, 0)
+  const figs = detectFigures(page, paints, 11)
   assert.equal(figs.length, 1)
   assert.ok(figs[0].logo && figs[0].vector)
+})
+
+const fig = (page: number, y0: number, y1: number): never => ({ page, box: { x0: 150, x1: 250, y0, y1 }, lines: [], caption: '', vector: false }) as never
+
+test('a figure is read where it stands: a logo at the foot of the title page comes after the author', () => {
+  const book = bookOf([[line(0, 'The Big Book', 100, 300, 100, 30, 'H 30'), line(0, 'A. Author', 150, 250, 200, 11, 'B 11'), line(0, 'More text above the picture.', 40, 340, 260, 11, 'B 11'), line(0, 'Text below the picture.', 40, 340, 440, 11, 'B 11')]], [0])
+  const st = buildStructure(book, roles, new Map([[0, [fig(0, 200, 260)]]])) // PDF space: 300–360 from the top
+  const kids = st.root.kids[0].kids
+  assert.deepEqual(kids.slice(-2).map((k) => k.tag), ['Figure', 'P'])
+  assert.equal(kids[kids.length - 3].lines.at(-1)?.text, 'More text above the picture.')
+  const last = buildStructure(bookOf([[line(0, 'Body text.', 40, 340, 100, 11, 'B 11')]]), roles, new Map([[0, [fig(0, 20, 60)]]]))
+  assert.deepEqual(last.root.kids.map((k) => k.tag), ['P', 'Figure']) // below the last line: after it
+})
+
+test('a figure beside its caption is read figure first, caption next, wherever the page puts them', () => {
+  const cap = (y: number, t: string, x0: number) => line(0, t, x0, x0 + 60, y, 9, 'C 9')
+  const roleC = new Map([...roles, ['C 9', 'Caption' as UaRole]])
+  const figs = [{ page: 0, box: { x0: 40, x1: 140, y0: 400, y1: 500 }, lines: [], caption: '', vector: false }, { page: 0, box: { x0: 260, x1: 360, y0: 400, y1: 500 }, lines: [], caption: '', vector: false }] as never[]
+  const st = buildStructure(bookOf([[cap(190, 'Caption of the right one', 270), cap(180, 'Caption of the left one', 50)]]), roleC, new Map([[0, figs]]))
+  const tagsOf = st.root.kids.map((k) => k.tag)
+  assert.deepEqual(tagsOf, ['Figure', 'P', 'Figure', 'P'])
+  assert.deepEqual(st.root.kids.filter((k) => k.tag === 'P').map((k) => k.text), ['Caption of the left one', 'Caption of the right one'])
+})
+
+test('an index: one paragraph per entry, sub-entries apart, turnover lines stay with their entry', () => {
+  const heading = line(0, 'Index', 40, 100, 40, 18, 'H 18')
+  const e = (y: number, t: string, x0 = 40) => line(0, t, x0, x0 + 120, y, 11, 'B 11', { col: 40 })
+  const book = bookOf([[heading, e(100, 'Abdera, 55'), e(114, 'Achaea (province), 60,'), e(128, '305n.129', 54), e(142, 'Agora, 35–7, 45,'), e(156, '183', 54), e(170, 'of Athens, 100', 54), e(184, 'Aemilius Paullus'), e(198, '‘Macedonicus’, Lucius, 7–8', 54)]])
+  const st = buildStructure(book, new Map([...roles, ['H 18', 'H2' as UaRole]]), new Map())
+  const idx = st.root.kids[0]
+  assert.deepEqual(idx.kids.filter((k) => k.tag === 'P').map((k) => k.lines.map((l) => l.text).join(' ')), ['Abdera, 55', 'Achaea (province), 60, 305n.129', 'Agora, 35–7, 45, 183', 'of Athens, 100', 'Aemilius Paullus ‘Macedonicus’, Lucius, 7–8'])
+})
+
+test('a wrapped line that is flush with its paragraph stays in it on a page that also has hanging items', () => {
+  const body = (y: number, t: string, x0 = 40, x1 = 340) => line(0, t, x0, x1, y, 11, 'B 11')
+  const rows = [body(100, 'Front cover: a relief showing a gladiatorial fight in the stages. Found'), body(114, 'in Kibyra. Image courtesy.', 40, 200)]
+  for (let i = 0; i < 4; i++) rows.push(body(160 + i * 42, `${i + 1}. An entry that is long enough to wrap onto a second line of text here`, 40, 340), body(174 + i * 42, 'turned over and indented', 58, 150))
+  const st = buildStructure(bookOf([rows]), roles, new Map())
+  assert.equal(st.root.kids.filter((k) => k.tag === 'P')[0].lines.length, 2)
 })

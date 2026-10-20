@@ -114,7 +114,7 @@ export interface Structure {
 export interface UaOptions {
   /** heading level of a chapter title when the book has a title heading: 2 (default) puts H1 on the title alone */
   chapterLevel?: 1 | 2
-  /** vector logos (a mark drawn from many paths): 'artifact' (default) or a Figure with alt */
+  /** vector logos (a mark drawn from many paths): a 'figure' with alt (default, the client tags the FSC mark) or 'artifact' */
   logos?: 'artifact' | 'figure'
 }
 
@@ -186,6 +186,8 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let pendingPrefix: PLine[] = [] // chapter numbers wait for their title
   let floats: SNode[] = []
   let inToc = false
+  let inIndex = false
+  let indexLevel = 6
   let tocLevel = 1
   const tocEntries: SNode[] = []
 
@@ -336,9 +338,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (rows) return rows.flatMap(xy)
       return [...cs].sort((a, b) => a.top - b.top || a.x0 - b.x0)
     }
-    figNodes.splice(0, figNodes.length, ...xy(cells).map((c) => c.item))
+    const cellOrder = xy(cells)
+    figNodes.splice(0, figNodes.length, ...cellOrder.map((c) => c.item))
     for (const { f } of figNodes) figures.push(f)
-    for (const { nodes } of figNodes) floats.push(...nodes)
     const taken = new Set([...capOf.values()].flatMap((k) => k.lines))
     if (taken.size) lines.splice(0, lines.length, ...lines.filter((l) => !taken.has(l)))
 
@@ -354,18 +356,42 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     // contents pages are rows (number · title · page), not columns
     const tocPage = inToc || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
     if (tocPage) ordered.push(...[...lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base)))
+    // pictures with their captions are read where they stand: a picture across the columns splits them like a full-width line,
+    // any other picture goes before the first line below its top that sits over it
+    const wide = (c: Cell) => starts.filter((s) => s > c.x0 - 20 && s < c.x1 - 20).length >= 2
+    const seps = [...fulls.map((line) => ({ y: line.y, line, cell: undefined as Cell | undefined })), ...(tocPage ? [] : cellOrder.filter(wide).map((cell) => ({ y: cell.top, line: undefined as PLine | undefined, cell })))].sort((a, b) => a.y - b.y)
+    const before = new Map<PLine, Cell[]>()
+    let carry: Cell[] = []
+    const put = (ls: PLine[]) => {
+      if (ls.length && carry.length) (before.set(ls[0], carry), (carry = []))
+      ordered.push(...ls)
+    }
     let top = -Infinity
-    for (const f of tocPage ? [] : [...fulls, null]) {
+    for (const f of tocPage ? [] : [...seps, null]) {
       const bottom = f ? f.y : Infinity
       const band = lines.filter((l) => !isFull(l) && l.y >= top && l.y < bottom)
-      for (const c of starts) ordered.push(...band.filter((l) => l.col === c).sort((a, b) => a.y - b.y))
-      if (f) ordered.push(f)
+      for (const c of starts) put(band.filter((l) => l.col === c).sort((a, b) => a.y - b.y))
+      if (f?.line) put([f.line])
+      else if (f?.cell) carry.push(f.cell)
       top = bottom
+    }
+    const tail = carry
+    for (const c of cellOrder) {
+      if (!tocPage && wide(c)) continue
+      const at = ordered.find((l) => l.y >= c.top - 2 && l.x0 < c.x1 && l.x1 > c.x0)
+      if (at) before.set(at, [...(before.get(at) ?? []), c])
+      else tail.push(c)
+    }
+    const emit = (cs: Cell[]) => {
+      closePara()
+      closeList()
+      for (const c of cs) container.kids.push(...c.item.nodes)
     }
 
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       flushTables(l.y)
+      if (before.has(l)) emit(before.get(l)!)
       const text = l.text.trim()
       // title pages: the title is the heading; subtitle and author lines in display type are text
       const lastH = headings[headings.length - 1]
@@ -403,6 +429,8 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
           root.kids.push(sect)
         }
         inToc = sectionTypeOf(titleCase(text)) === 'toc'
+        if (sectionTypeOf(titleCase(text)) === 'index') (inIndex = true), (indexLevel = level)
+        else if (level <= indexLevel) inIndex = false
         tocLevel = level
         container = sect
         sect.kids.push(h)
@@ -466,7 +494,11 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (prev && Math.abs(l.x0 - prev.x0) < 2 && !bullet && !gap && !prevShort && para?.kind === 'P') start = false // wrapped text keeps its paragraph
       if (centred && para?.kind === 'P' && !bullet && l.size === prev!.size) start = l.y - prev!.y > prev!.size * 1.9
       // hanging indents (bibliographies): a flush line starts the entry, indented lines continue it
-      if (hanging.has(`${l.page}|${l.key}`) && para?.kind === 'P' && !bullet) start = gap || !indented
+      // (a flush line after a full line that stops mid-sentence is a wrapped line, not a new entry: a cover note beside a hanging list)
+      if (hanging.has(`${l.page}|${l.key}`) && para?.kind === 'P' && !bullet) start = gap || (!indented && !(prev && full(prev) && /\p{Ll}$/u.test(prev.text.trim())))
+      // an index: every entry is a paragraph. A flush line starts one; an indented line continues the entry before it until that
+      // entry ends in a number or a colon, and then it starts a sub-entry
+      if (inIndex && para?.kind === 'P' && !bullet && para.last) start = l.x0 - l.col < 4 || /[\d.:;]$/.test(para.last.text.trim())
       if (para?.kind === 'LI' && para.first && !bullet && !gap && l.x0 > para.first.x0 + 2 && sameFlow) start = false // hanging indent of a list item
       if (!start) {
         own(l, para!.node)
@@ -509,6 +541,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
     }
     flushTables(Infinity)
+    if (tail.length) emit(tail)
   }
   closePara()
 
@@ -548,7 +581,8 @@ export function imageList(st: Structure, book: PdfBook): { heading: SNode; items
     const items: ListItem[] = []
     let open: ListItem | undefined
     scan: for (let pi = first; pi < Math.min(book.pages.length, first + 4); pi++) {
-      for (const l of [...book.pages[pi].lines].sort((a, b) => a.col - b.col || a.y - b.y)) {
+      // top to bottom, the number before its text on the same line: sorting by column first would put every number before every text line
+      for (const l of [...book.pages[pi].lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base))) {
         const node = st.owner.get(l)
         if (node && /^H\d$/.test(node.tag) && node !== heading) break scan
         if (!node || node === heading) continue
