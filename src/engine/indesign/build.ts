@@ -226,7 +226,18 @@ interface Sec {
   firstPage?: string
 }
 
-export function build(a: Analysis, input: BuildInput): BuildResult {
+/** The client's styleMap decides the role and class of the styles it names, whenever the spec was opened (after the analysis, in the app). */
+function withStyleMap<T extends { key: string; role: string; outClass: string }>(styles: T[]): T[] {
+  const rules = Object.values(settings().styleMap)
+  if (!rules.length) return styles
+  return styles.map((s) => {
+    const r = rules.find((x) => x.match === s.key || (() => { try { return new RegExp(x.match, 'i').test(s.key) } catch { return false } })())
+    return r && (ROLES as readonly string[]).includes(r.role) ? { ...s, role: r.role, outClass: r.class || s.outClass } : s
+  })
+}
+
+export function build(a: Analysis, rawInput: BuildInput): BuildResult {
+  const input = { ...rawInput, styles: withStyleMap(rawInput.styles) }
   const { ex } = a
   const { meta } = input
   const L = labelsFor(meta.language)

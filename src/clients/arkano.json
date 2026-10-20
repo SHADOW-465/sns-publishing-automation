@@ -1,0 +1,17 @@
+{
+  "match": "arkanobooks",
+  "name": "Arkano Books",
+  "file": "Cambia tu mente.epub (the client's hand-finished reference), compared class by class",
+  "markup": {
+    "noteref": { "wrap": "" }
+  },
+  "styleMap": {
+    "extract": { "match": "^ParaOverride-21$", "role": "p", "class": "extract" },
+    "extract-1": { "match": "^ParaOverride-46$", "role": "p", "class": "extract1" },
+    "numbered-line": { "match": "^ParaOverride-53$", "role": "p", "class": "num1" },
+    "table-note": { "match": "^ParaOverride-(33|36|40)$", "role": "p", "class": "table-txt" },
+    "table-note-1": { "match": "^ParaOverride-(34|37|41|44)$", "role": "p", "class": "table-txt1" },
+    "web-line": { "match": "^ParaOverride-(2|60)$", "role": "p", "class": "web" }
+  },
+  "css": "p.num1 { font-size: 100%; text-align: left; margin: 0 0 0 1.5em; text-indent: 0; font-family: serif; }\np.web { font-size: 100%; text-align: center; margin: 0; text-indent: 0; font-family: serif; }\np.table-txt, p.table-txt1 { font-size: 100%; text-align: left; margin: 0; text-indent: 1.5em; font-family: serif; }"
+}
