@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName } from 'pdf-lib'
 import { analyzeUa, buildUa } from '../src/engine/pdfua/index.ts'
 import { nodeRaster } from './raster-node.ts'
 import { readTags } from './read-tags.ts'
@@ -44,9 +44,9 @@ test('Simple: book + cover image + plates PDF', { skip: !has(D) && 'samples miss
   assert.equal(a.meta.title, 'Gladiators in the Greek World: How A Roman Blood Sport Took Ancient Greece By Storm')
   assert.equal(a.meta.author, 'Alexandra Sills')
   assert.equal(a.meta.lang, 'en')
-  assert.equal(a.figures.length, 29)
-  // everything but the publisher logo has alt text from the Word file
-  assert.deepEqual(a.figures.filter((f) => !f.alt).map((f) => f.page), [3])
+  assert.equal(a.figures.length, 30)
+  // everything but the two logos (publisher, FSC) has alt text from the Word file
+  assert.deepEqual(a.figures.filter((f) => !f.alt).map((f) => f.page), [3, 4])
   const alt = Object.fromEntries(a.figures.map((f) => [f.key, f.alt || 'Pen & Sword History logo']))
   const r = await buildUa(a, { styles: a.styles, meta: { ...a.meta, isbn: '9781036130527' }, alt, cropToTrim: true, sourceName: 'Gladiators in the Greek World.pdf' })
   assert.equal(r.fileName, 'Gladiators in the Greek World_9781036130527.pdf') // as in the sample output
@@ -54,21 +54,44 @@ test('Simple: book + cover image + plates PDF', { skip: !has(D) && 'samples miss
   assert.equal(r.stats.unmatchedText, 0)
   assert.equal((await PDFDocument.load(r.pdf)).getPageCount(), 361) // cover + 352 + 8 plates
 
-  const tags = await readTags(r.pdf, 1, 361)
-  assert.equal(count(tags, 'Figure'), 29)
+  const tags = await readTags(r.pdf.slice(), 1, 361)
+  assert.equal(count(tags, 'Figure'), 30)
   // title page: one heading, subtitle and author as text; slug notes ("[Page v]") dropped
   const p4 = tags.filter((t) => t.startsWith('p4 '))
   assert.equal(count(p4, 'H\\d'), 1)
   assert.ok(p4.includes('p4   P: How A Roman Blood Sport Took Ancient Greece By Storm') && p4.includes('p4   P: Alexandra Sills'))
   assert.ok(!p4.some((t) => /\[Page|: v$/.test(t)))
+  assert.ok(p4.findIndex((t) => /Figure/.test(t)) > p4.findIndex((t) => /Alexandra Sills/.test(t)), 'the logo is read after the title and author, where it stands')
+  assert.ok(tags.some((t) => /^p5 +Figure/.test(t)), 'the FSC mark is a Figure')
   // contents: roman page numbers end entries, "Chapter 1" joins its title, every entry links
   const toc = tags.filter((t) => t.startsWith('p6 ') && /TOCI:/.test(t)).map((t) => t.split('TOCI: ')[1])
   assert.deepEqual(toc.slice(0, 6), ['Foreword vi', 'Author’s Note viii', 'Glossary ix', 'Images xv', 'Prologue: Anything Rome Can Do, Greeks Can Do Better 1', 'Chapter 1 CSI: Arena 12'])
   assert.equal(count(tags.filter((t) => t.startsWith('p6 ')), 'Link'), toc.length)
   // chapter label joins the chapter heading
-  assert.ok(tags.includes('p29   H1: Chapter 1 Arena'))
+  assert.ok(tags.includes('p29   H2: Chapter 1 Arena')) // H1 is the book title alone; chapters are H2
+  assert.equal(count(tags, 'H1'), 1)
+  assert.ok(count(tags, 'Lbl') > 50, 'bullets are split into Lbl and LBody')
+  assert.ok(tags.some((t) => /^p29 .*Link.*: 12$/.test(t)), 'note calls are links')
   // prose with a line-initial dash is not a list
   assert.equal(tags.filter((t) => /^p(2[0-8]) /.test(t) && /LBody/.test(t)).length, 0)
+  // the list of images links entry n to the n-th plate; each link sits in the entry's own LBody and lands on the page of that picture
+  {
+    const doc = await PDFDocument.load(r.pdf)
+    const pgs = doc.getPages()
+    const plates = tags.filter((t) => /^p\d+ +Figure/.test(t) && Number(t.match(/^p(\d+)/)![1]) >= 354).map((t) => Number(t.match(/^p(\d+)/)![1]))
+    const dests = new Map<number, number>()
+    for (const pg of pgs.slice(15, 17))
+      for (const an of pg.node.Annots()?.asArray() ?? []) {
+        const d = doc.context.lookup(an) as any
+        const m = d?.get?.(PDFName.of('Contents'))?.decodeText?.().match(/^Go to picture (\d+)$/)
+        if (m) dests.set(Number(m[1]), pgs.findIndex((x) => x.ref === (d.lookup(PDFName.of('Dest')) as any).get(0)) + 1)
+      }
+    assert.equal(dests.size, 24)
+    for (const [n, page] of dests) assert.equal(page, plates[n - 1], `entry ${n} lands on its plate`)
+    assert.ok(tags.filter((t) => /^p1[67] .*LBody: /.test(t)).length >= 24, 'entries are LBody under Lbl, one per picture')
+  }
+  // an index: one P per entry
+  assert.ok(tags.includes('p338   P: Abdera, 55') && tags.includes('p338   P: Achaea (province), 60, 305n.129'))
   // bibliography with hanging indents: one paragraph per entry
   assert.ok(tags.includes('p314   P: Vickers, M. (1972) ‘The Hippodrome at Thessaloniki’, The Journal of Roman Studies 62, 25-32'))
 })

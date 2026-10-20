@@ -74,7 +74,8 @@ export function PdfUaFlow() {
   const onBuild = () =>
     run('Tagging the PDF…', async () => {
       const { buildUa } = await import('../engine/pdfua/index.ts')
-      setResult(await buildUa(a!, { styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name }))
+      const { bundledUaOptions } = await import('../engine/spec/clients.ts')
+      setResult(await buildUa(a!, { styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options: bundledUaOptions(a!.book.meta.publisher) }))
       if (a!.book.meta.publisher) remember('uaprofile', a!.book.meta.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     })
 

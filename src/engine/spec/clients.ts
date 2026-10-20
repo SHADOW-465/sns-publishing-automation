@@ -7,6 +7,7 @@
 import { emptyLayer, type Layer, type Level } from './layers.ts'
 import type { RuleValue } from './rules.ts'
 import type { MarkupRole, MarkupTemplate, StyleRule } from '../settings.ts'
+import type { UaOptions } from '../pdfua/structure.ts'
 import { CLIENT_FILES } from '../../clients/index.ts'
 
 export interface ClientFile {
@@ -21,6 +22,8 @@ export interface ClientFile {
   markup?: Partial<Record<MarkupRole, MarkupTemplate>>
   styleMap?: Record<string, StyleRule>
   css?: string
+  /** accessible-PDF options: heading levels, vector logos */
+  ua?: UaOptions
 }
 
 const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
@@ -39,4 +42,10 @@ export function bundledLayer(level: Level, name: string, files: ClientFile[] = C
   layer.css = c.css
   for (const id of Object.keys(layer.values)) layer.sources[id] = { file: c.file, where: 'client style', text: `${id} = ${String(layer.values[id])}`, by: 'person' }
   return layer
+}
+
+/** Accessible-PDF options shipped for this client (empty: the defaults, H1 title then H2 chapters, logos as figures). */
+export function bundledUaOptions(name: string, files: ClientFile[] = CLIENT_FILES): UaOptions {
+  const key = squash(name)
+  return files.find((x) => key.startsWith(x.match))?.ua ?? {}
 }

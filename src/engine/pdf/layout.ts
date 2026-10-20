@@ -2,6 +2,9 @@
 // (visible area after frame clipping) and filled boxes (tinted panels). Coordinates are
 // top-down page points. pdf.js is injected (browser worker build or Node legacy build).
 
+/** A bare list marker: bullet, dash, "12.", "(a)". */
+export const LIST_MARK = /^([•●◦▪■–—-]|\(?\d{1,2}[.)]|\(?[a-z][.)])$/
+
 export interface Run {
   text: string
   x0: number
@@ -25,6 +28,8 @@ export interface Line {
   text: string
   /** line started with a dingbat (Wingdings ▶ caption marker, bullet) that was removed */
   marker: boolean
+  /** the line opens with a list marker drawn as its own text piece ("•", "12."): where it ends and the text begins */
+  lead?: { text: string; x1: number; next: number }
   /** set in small caps: capitals and smaller capitals of one font mixed in the line (the lowercase text reads "cambia tu mente") */
   sc?: boolean
 }
@@ -226,22 +231,10 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
   }
   items.sort((p, q) => p.base - q.base || p.x - q.x)
   const lines: Line[] = []
+  const rows: Item[][] = []
   let row: Item[] = []
   const flushRow = () => {
-    // one baseline can hold several lines (columns): split at wide gaps
-    row.sort((p, q) => p.x - q.x)
-    let cur: Item[] = []
-    const emit = () => {
-      if (cur.length) lines.push(makeLine(cur))
-      cur = []
-    }
-    for (const it of row) {
-      const prev = cur[cur.length - 1]
-      // a gap wider than one em is a column gutter (index columns sit ~1.2em apart), not a word space
-      if (prev && it.x - prev.x1 > Math.max(prev.size, it.size) * 1.0) emit()
-      cur.push(it)
-    }
-    emit()
+    if (row.length) rows.push(row)
     row = []
   }
   for (const it of items) {
@@ -249,6 +242,23 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
     row.push(it)
   }
   flushRow()
+  const gutters = columnGutters(rows)
+  for (const r of rows) {
+    // one baseline can hold several lines (columns): split at wide gaps, and at a gutter the page keeps in every column row
+    r.sort((p, q) => p.x - q.x)
+    let cur: Item[] = []
+    const emit = () => {
+      if (cur.length) lines.push(makeLine(cur))
+      cur = []
+    }
+    for (const it of r) {
+      const prev = cur[cur.length - 1]
+      // a gap wider than one em is a column gutter (index columns sit ~1.2em apart), not a word space
+      if (prev && (it.x - prev.x1 > Math.max(prev.size, it.size) * 1.0 || gutters.some((g) => prev.x1 <= g && it.x >= g))) emit()
+      cur.push(it)
+    }
+    emit()
+  }
 
   return { index, width: vx1 - vx0, height: vy1 - vy0, lines: lines.filter((l) => l.text.trim() || l.marker), images, fills, rules, shades }
 
@@ -286,7 +296,10 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
       if (big) [font, size, sc] = [big[0], big[1], true]
     }
     const sz = Number(size)
+    const shown = its.filter((it) => !DINGBAT.test(it.font) && it.str.replace(PUA, '').trim())
+    const lead = shown.length > 1 && LIST_MARK.test(shown[0].str.trim()) ? { text: shown[0].str.trim(), x1: shown[0].x1, next: shown[1].x } : undefined
     return {
+      lead,
       runs,
       x0: runs[0]?.x0 ?? its[0].x,
       x1: runs[runs.length - 1]?.x1 ?? its[its.length - 1].x1,
@@ -320,4 +333,32 @@ export function splitSpread(l: PageLayout, src: number): PageLayout[] {
       shades: (l.shades ?? []).filter((f) => mine(f.x0, f.x1)).map((f) => ({ ...f, x0: f.x0 - ox, x1: f.x1 - ox })),
     }
   })
+}
+
+/**
+ * Narrow column gutters: a vertical channel that many rows leave empty at the same x, with nothing crossing it.
+ * Columns set close together (a 3-column index) leave gaps below one em, which the plain gap rule reads as word spaces.
+ */
+export function columnGutters(rows: { x: number; x1: number; size: number }[][]): number[] {
+  const gaps: { x: number; row: number }[] = []
+  rows.forEach((r, k) => {
+    const xs = [...r].sort((a, b) => a.x - b.x)
+    for (let i = 1; i < xs.length; i++) {
+      const gap = xs[i].x - xs[i - 1].x1
+      if (gap >= Math.max(xs[i].size, xs[i - 1].size) * 0.45) gaps.push({ x: (xs[i].x + xs[i - 1].x1) / 2, row: k })
+    }
+  })
+  gaps.sort((a, b) => a.x - b.x)
+  const out: number[] = []
+  for (let i = 0; i < gaps.length; ) {
+    let j = i
+    while (j + 1 < gaps.length && gaps[j + 1].x - gaps[i].x < 4) j++
+    const cluster = gaps.slice(i, j + 1)
+    const g = cluster.reduce((t, c) => t + c.x, 0) / cluster.length
+    const nrows = new Set(cluster.map((c) => c.row)).size
+    const crossing = rows.filter((r) => r.some((it) => it.x < g - 1 && it.x1 > g + 1)).length
+    if (nrows >= 8 && crossing <= nrows * 0.2) out.push(g)
+    i = j + 1
+  }
+  return out
 }

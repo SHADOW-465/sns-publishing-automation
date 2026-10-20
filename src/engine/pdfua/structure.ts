@@ -1,6 +1,7 @@
 import { type PdfBook, type PLine, columnStarts, columnOf, titleCase } from '../pdfepub/analyze.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
 import { detectTables } from '../pdf/tables.ts'
+import { LIST_MARK } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
 
 // =============================================================================================
@@ -55,6 +56,8 @@ export interface Figure {
   node?: SNode
   image?: Uint8Array | null // thumbnail for the review screen
   vector: boolean
+  /** a mark drawn from many paths (publisher device, FSC) */
+  logo?: boolean
 }
 
 /** Default tag roles from the analysed font styles. */
@@ -108,7 +111,15 @@ export interface Structure {
   nodes: SNode[]
 }
 
-export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>): Structure {
+export interface UaOptions {
+  /** heading level of a chapter title when the book has a title heading: 2 (default) puts H1 on the title alone */
+  chapterLevel?: 1 | 2
+  /** vector logos (a mark drawn from many paths): a 'figure' with alt (default, the client tags the FSC mark) or 'artifact' */
+  logos?: 'artifact' | 'figure'
+}
+
+export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}): Structure {
+  const chapterLevel = options.chapterLevel ?? 2
   let nextId = 0
   const nodes: SNode[] = []
   const mk = (tag: string, lines: PLine[] = []): SNode => {
@@ -122,8 +133,31 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   const figures: Figure[] = []
   const roleOf = (l: PLine): UaRole => roles.get(l.key) ?? 'P'
   const front = new Set(book.front)
+  // the book title is the heading on the front page with the biggest display type; half titles repeat it as text
+  const headSize = (i: number) => Math.max(0, ...book.pages[i].lines.filter((l) => /^H\d$/.test(roles.get(l.key) ?? '')).map((l) => l.size))
+  const titlePage = [...front].filter((i) => headSize(i) > 0).sort((a, b) => headSize(b) - headSize(a) || b - a)[0]
   const lead = book.lead
   const step = book.step
+
+  // a list marker is its own text piece: split it off its line, then pair each marker with the text beside it (the Lbl of an LI)
+  for (const p of book.pages)
+    for (const l of [...p.lines]) {
+      if (!l.lead) continue
+      const m = { ...l, text: l.lead.text, x1: l.lead.x1, runs: [{ ...l.runs[0], text: l.lead.text, x0: l.x0, x1: l.lead.x1 }], lead: undefined }
+      l.text = l.text.replace(/^\s*\S+\s*/, '')
+      l.runs = [{ ...l.runs[0], text: l.runs[0].text.replace(/^\s*\S+\s*/, ''), x0: l.lead.next }, ...l.runs.slice(1)].filter((r) => r.text)
+      l.x0 = l.lead.next
+      l.lead = undefined
+      p.lines.splice(p.lines.indexOf(l), 0, m)
+    }
+  const labelOf = new Map<PLine, PLine>()
+  for (const p of book.pages)
+    for (const m of p.lines) {
+      if (!LIST_MARK.test(m.text.trim())) continue
+      const body = p.lines.filter((b) => b !== m && Math.abs(b.base - m.base) < 2 && b.x0 >= m.x1 - 1 && b.x0 - m.x1 < m.size * 5 && !LIST_MARK.test(b.text.trim())).sort((a, b) => a.x0 - b.x0)[0]
+      if (body && !labelOf.has(body)) labelOf.set(body, m)
+    }
+  const labels = new Set(labelOf.values())
 
   let sect: SNode = root
   let container: SNode = root // where paragraphs go (Sect, or TOC)
@@ -144,7 +178,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const prev = ls[k - 1]
       const c = col.get(l)!
       if (!prev || col.get(prev) !== c || prev.key !== l.key || l.x0 - c <= step * 0.5) return
-      votes.set(`${p.index}|${l.key}`, (votes.get(`${p.index}|${l.key}`) ?? 0) + (prev.x1 > right.get(c)! - 6 ? 1 : -1))
+      votes.set(`${p.index}|${l.key}`, (votes.get(`${p.index}|${l.key}`) ?? 0) + (prev.x1 > right.get(c)! - 6 || /,$/.test(prev.text.trim()) ? 1 : -1))
     })
   }
   const hanging = new Set([...votes].filter(([, v]) => v >= 3).map(([k]) => k)) // per page: notes and bibliography often share a style
@@ -152,6 +186,8 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let pendingPrefix: PLine[] = [] // chapter numbers wait for their title
   let floats: SNode[] = []
   let inToc = false
+  let inIndex = false
+  let indexLevel = 6
   let tocLevel = 1
   const tocEntries: SNode[] = []
 
@@ -183,6 +219,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         continue
       }
       if (l.imprint && roleOf(l) === 'Artifact') continue
+      if (labels.has(l)) continue // list marker: the Lbl of the item beside it
       if (roleOf(l) !== 'Artifact') lines.push(l)
     }
 
@@ -301,9 +338,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (rows) return rows.flatMap(xy)
       return [...cs].sort((a, b) => a.top - b.top || a.x0 - b.x0)
     }
-    figNodes.splice(0, figNodes.length, ...xy(cells).map((c) => c.item))
+    const cellOrder = xy(cells)
+    figNodes.splice(0, figNodes.length, ...cellOrder.map((c) => c.item))
     for (const { f } of figNodes) figures.push(f)
-    for (const { nodes } of figNodes) floats.push(...nodes)
     const taken = new Set([...capOf.values()].flatMap((k) => k.lines))
     if (taken.size) lines.splice(0, lines.length, ...lines.filter((l) => !taken.has(l)))
 
@@ -311,37 +348,66 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const body = lines.filter((l) => roleOf(l) === 'P')
     const starts = columnStarts(body.length > 3 ? body : lines)
     for (const l of lines) l.col = columnOf(starts, l.x0)
-    const isFull = (l: PLine) => starts.some((s) => s > l.x0 + 20 && l.x1 > s + 10)
+    // a heading centred over the columns (an index title) reads before the columns under it, not as part of one of them
+    const spans = (l: PLine) => /^H\d$/.test(roleOf(l)) && starts.length > 1 && !starts.some((s) => Math.abs(s - l.x0) < 12) && (l.x0 + l.x1) / 2 > starts[0] + (starts[1] - starts[0]) / 2
+    const isFull = (l: PLine) => spans(l) || starts.some((s) => s > l.x0 + 20 && l.x1 > s + 10)
     const fulls = lines.filter(isFull).sort((a, b) => a.y - b.y)
     const ordered: PLine[] = []
     // contents pages are rows (number · title · page), not columns
     const tocPage = inToc || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
     if (tocPage) ordered.push(...[...lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base)))
+    // pictures with their captions are read where they stand: a picture across the columns splits them like a full-width line,
+    // any other picture goes before the first line below its top that sits over it
+    const wide = (c: Cell) => starts.filter((s) => s > c.x0 - 20 && s < c.x1 - 20).length >= 2
+    const seps = [...fulls.map((line) => ({ y: line.y, line, cell: undefined as Cell | undefined })), ...(tocPage ? [] : cellOrder.filter(wide).map((cell) => ({ y: cell.top, line: undefined as PLine | undefined, cell })))].sort((a, b) => a.y - b.y)
+    const before = new Map<PLine, Cell[]>()
+    let carry: Cell[] = []
+    const put = (ls: PLine[]) => {
+      if (ls.length && carry.length) (before.set(ls[0], carry), (carry = []))
+      ordered.push(...ls)
+    }
     let top = -Infinity
-    for (const f of tocPage ? [] : [...fulls, null]) {
+    for (const f of tocPage ? [] : [...seps, null]) {
       const bottom = f ? f.y : Infinity
       const band = lines.filter((l) => !isFull(l) && l.y >= top && l.y < bottom)
-      for (const c of starts) ordered.push(...band.filter((l) => l.col === c).sort((a, b) => a.y - b.y))
-      if (f) ordered.push(f)
+      for (const c of starts) put(band.filter((l) => l.col === c).sort((a, b) => a.y - b.y))
+      if (f?.line) put([f.line])
+      else if (f?.cell) carry.push(f.cell)
       top = bottom
+    }
+    const tail = carry
+    for (const c of cellOrder) {
+      if (!tocPage && wide(c)) continue
+      const at = ordered.find((l) => l.y >= c.top - 2 && l.x0 < c.x1 && l.x1 > c.x0)
+      if (at) before.set(at, [...(before.get(at) ?? []), c])
+      else tail.push(c)
+    }
+    const emit = (cs: Cell[]) => {
+      closePara()
+      closeList()
+      for (const c of cs) container.kids.push(...c.item.nodes)
     }
 
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       flushTables(l.y)
+      if (before.has(l)) emit(before.get(l)!)
       const text = l.text.trim()
       // title pages: the title is the heading; subtitle and author lines in display type are text
       const lastH = headings[headings.length - 1]
       const prevL = ordered[i - 1]
-      const r = /^H\d$/.test(roleOf(l)) && front.has(l.page) && lastH?.lines[0]?.page === l.page && !(prevL && roleOf(prevL) === roleOf(l) && owner.get(prevL) === lastH && l.y - prevL.y < l.size * 2.2) ? 'P' : roleOf(l)
+      const r = /^H\d$/.test(roleOf(l)) && front.has(l.page) && (l.page !== titlePage || lastH?.lines[0]?.page === l.page) && !(prevL && roleOf(prevL) === roleOf(l) && owner.get(prevL) === lastH && l.y - prevL.y < l.size * 2.2) ? 'P' : roleOf(l)
       if (r === 'Inline') {
         if ((/^\d{1,3}$/.test(text) && l.size > book.bodySize * 2) || CHAPTER_LABEL.test(text)) pendingPrefix.push(l) // chapter number / label
         continue // attached to its neighbour line afterwards
       }
-      if (/^H\d$/.test(r) && !(inToc && Number(r[1]) > tocLevel)) {
+      // H1 is the book title alone: chapters and subheads move down by chapterLevel - 1 once a title heading exists
+      const hasTitle = headings.some((h) => front.has(h.lines[0].page))
+      const lvl = /^H\d$/.test(r) ? Math.min(6, Number(r[1]) + (hasTitle && !front.has(l.page) ? chapterLevel - 1 : 0)) : 0
+      if (lvl && !(inToc && lvl > tocLevel)) {
         closePara()
         closeList()
-        let level = Number(r[1])
+        let level = lvl
         const prev = ordered[i - 1]
         const last = headings[headings.length - 1]
         // multi-line heading: same style, directly below
@@ -358,11 +424,13 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         h.text = [...pendingPrefix.map((p) => p.text.trim()), text].join(' ')
         pendingPrefix = []
         headings.push(h)
-        if (level === 1) {
+        if (level === 1 || (hasTitle && level === chapterLevel)) {
           sect = mk('Sect')
           root.kids.push(sect)
         }
         inToc = sectionTypeOf(titleCase(text)) === 'toc'
+        if (sectionTypeOf(titleCase(text)) === 'index') (inIndex = true), (indexLevel = level)
+        else if (level <= indexLevel) inIndex = false
         tocLevel = level
         container = sect
         sect.kids.push(h)
@@ -416,7 +484,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const sameFlow = prev && prev.page === l.page && prev.col === l.col
       const gap = sameFlow && l.y - prev!.y > lead * 1.45
       // a dash that wraps to the start of a line (or page) is prose: the line before is full and mid-sentence
-      const bullet = BULLET.test(text) && !(prev && para?.kind === 'P' && full(prev) && !/[.:;!?]$/.test(prev.text.trim()))
+      const bullet = (labelOf.has(l) || BULLET.test(text)) && !(prev && para?.kind === 'P' && full(prev) && !/[.:;!?]$/.test(prev.text.trim()))
       const indented = off > step * 0.5
       const prevShort = prev && /[.!?:)’”]$/.test(prev.text.trim()) && prev.x1 - prev.col < (Math.max(...ordered.filter((x) => x.col === prev.col).map((x) => x.x1)) - prev.col) * 0.72
       // centred text (title pages, imprints): only vertical space separates paragraphs
@@ -426,7 +494,11 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (prev && Math.abs(l.x0 - prev.x0) < 2 && !bullet && !gap && !prevShort && para?.kind === 'P') start = false // wrapped text keeps its paragraph
       if (centred && para?.kind === 'P' && !bullet && l.size === prev!.size) start = l.y - prev!.y > prev!.size * 1.9
       // hanging indents (bibliographies): a flush line starts the entry, indented lines continue it
-      if (hanging.has(`${l.page}|${l.key}`) && para?.kind === 'P' && !bullet) start = gap || !indented
+      // (a flush line after a full line that stops mid-sentence is a wrapped line, not a new entry: a cover note beside a hanging list)
+      if (hanging.has(`${l.page}|${l.key}`) && para?.kind === 'P' && !bullet) start = gap || (!indented && !(prev && full(prev) && /\p{Ll}$/u.test(prev.text.trim())))
+      // an index: every entry is a paragraph. A flush line starts one; an indented line continues the entry before it until that
+      // entry ends in a number or a colon, and then it starts a sub-entry
+      if (inIndex && para?.kind === 'P' && !bullet && para.last) start = l.x0 - l.col < 4 || /[\d.:;]$/.test(para.last.text.trim())
       if (para?.kind === 'LI' && para.first && !bullet && !gap && l.x0 > para.first.x0 + 2 && sameFlow) start = false // hanging indent of a list item
       if (!start) {
         own(l, para!.node)
@@ -442,6 +514,12 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
           container.kids.push(list)
         }
         const li = mk('LI')
+        if (labelOf.has(l)) {
+          const lbl = mk('Lbl')
+          own(labelOf.get(l)!, lbl)
+          lbl.text = labelOf.get(l)!.text.trim()
+          li.kids.push(lbl)
+        }
         const lb = mk('LBody')
         li.kids.push(lb)
         list.kids.push(li)
@@ -463,6 +541,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
     }
     flushTables(Infinity)
+    if (tail.length) emit(tail)
   }
   closePara()
 
@@ -502,7 +581,8 @@ export function imageList(st: Structure, book: PdfBook): { heading: SNode; items
     const items: ListItem[] = []
     let open: ListItem | undefined
     scan: for (let pi = first; pi < Math.min(book.pages.length, first + 4); pi++) {
-      for (const l of [...book.pages[pi].lines].sort((a, b) => a.col - b.col || a.y - b.y)) {
+      // top to bottom, the number before its text on the same line: sorting by column first would put every number before every text line
+      for (const l of [...book.pages[pi].lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base))) {
         const node = st.owner.get(l)
         if (node && /^H\d$/.test(node.tag) && node !== heading) break scan
         if (!node || node === heading) continue

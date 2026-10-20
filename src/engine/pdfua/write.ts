@@ -2,6 +2,8 @@ import { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFNumber, PDFHexStrin
 import { tokenize, paints, rewrite, stripMarked, type Op, type Paint, type Owner, type Box } from './content.ts'
 import { pageContent, pageResources, streamBytes, latin1, fromLatin1, trimOf } from './pages.ts'
 import { imageList, type SNode, type Structure } from './structure.ts'
+import { endnotePairs } from './notes.ts'
+import { isFrameOrRule } from './figures.ts'
 import type { PdfBook, PLine } from '../pdfepub/analyze.ts'
 import type { ReviewItem } from '../epub/package.ts'
 import { confidentLanguage } from '../lang.ts'
@@ -80,7 +82,7 @@ export function writeUa(
     st.nodes.push(n)
     return n
   }
-  const notePlans: { refLine: PLine; link: SNode; note: SNode; id: string }[] = []
+  const notePlans: { refLine: PLine; link: SNode; note: SNode; noteLine: PLine; backLink?: SNode; id: string }[] = []
   const noteRefLine = new Map<PLine, SNode>()
   const usedNoteRefs = new Set<PLine>()
   const noteEls = st.nodes.filter((n) => n.tag === 'Note' && n.lines.length).sort((a, b) => a.lines[0].page - b.lines[0].page || a.lines[0].y - b.lines[0].y)
@@ -102,8 +104,24 @@ export function writeUa(
     const reference = adopt({ id: -1, tag: 'Reference', kids: [link], lines: [] })
     ref.host.kids.push(reference)
     noteRefLine.set(ref.l, link)
-    notePlans.push({ refLine: ref.l, link, note, id })
+    notePlans.push({ refLine: ref.l, link, note, noteLine: note.lines[0], id })
     usedNoteRefs.add(ref.l)
+  }
+  // end notes: numbered entries of a notes section, wherever it sits in the book
+  for (const pr of endnotePairs(st, book, usedNoteRefs)) {
+    const id = String(pr.entry.n)
+    const link = adopt({ id: -1, tag: 'Link', kids: [], lines: [pr.ref], text: `Note ${id}` })
+    pr.refHost.kids.push(adopt({ id: -1, tag: 'Reference', kids: [link], lines: [] }))
+    noteRefLine.set(pr.ref, link)
+    usedNoteRefs.add(pr.ref)
+    let backLink: SNode | undefined
+    if (pr.entry.own) {
+      // the number is its own piece of text: it becomes the link back
+      backLink = adopt({ id: -1, tag: 'Link', kids: [], lines: [pr.entry.line], text: `Return from note ${id}` })
+      pr.entry.host.kids.push(adopt({ id: -1, tag: 'Reference', kids: [backLink], lines: [] }))
+      noteRefLine.set(pr.entry.line, backLink)
+    }
+    notePlans.push({ refLine: pr.ref, link, note: pr.entry.host, noteLine: pr.entry.line, backLink, id })
   }
   let unmatchedText = 0
   let taggedOps = 0
@@ -156,7 +174,8 @@ export function writeUa(
           if (globalThis.process?.env?.UA_DEBUG) console.log('UNMATCHED', i + 1, p.x.toFixed(0), (H - p.y).toFixed(0), raw.slice(0, 70))
         }
       } else if (p.kind === 'image' || p.kind === 'path' || p.kind === 'form') {
-        node = figs.find((f) => centreIn(p.box, f.box))?.node ?? undefined
+        // frames, borders and rules around a picture are page furniture, not part of it
+        node = figs.find((f) => centreIn(p.box, f.box) && !(p.kind === 'path' && isFrameOrRule(p.box, f.box, f.vector, layout)))?.node ?? undefined
         // a picture-only form wrapped in a page-sized box (placed logos): the figure it contains
         if (!node && p.kind === 'form' && !p.text) node = figs.find((f) => centreIn(f.box, p.box, 0))?.node
         if (!node && p.kind === 'form') {
@@ -298,26 +317,27 @@ export function writeUa(
 
   // The reference number already sits in a Link. The annotation jumps to the note, and the note number jumps back.
   let noteLinks = 0
+  const annotate = (page: number, rect: Box, dest: PDFObject, text: string, link: SNode) => {
+    const annot = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [rect.x0, rect.y0, rect.x1, rect.y1], Border: [0, 0, 0], P: pageRefs[page], Contents: PDFHexString.fromText(text), StructParent: annotKey, Dest: dest }))
+    const arr = pages[page].node.lookupMaybe(PDFName.of('Annots'), PDFArray)
+    if (arr) arr.push(annot)
+    else pages[page].node.set(PDFName.of('Annots'), ctx.obj([annot]))
+    linkNodes.push({ node: link, annot, page, key: annotKey++ })
+    annotKids.set(link, [{ ref: annot, page }])
+  }
   for (const plan of notePlans) {
     const refBox = boxOf([plan.refLine])
-    const nl = plan.note.lines[0]
+    const nl = plan.noteLine
     const Hn = book.pages[nl.page].height
     const numW = Math.min(nl.x1 - nl.x0, Math.max(8, ((nl.x1 - nl.x0) * (plan.id.length + 1)) / Math.max(nl.text.trim().length, plan.id.length + 1)))
     const back = { x0: nl.x0, x1: nl.x0 + numW, y0: Hn - nl.base - 3, y1: Hn - nl.y + 1 }
     if (refBox.x1 - refBox.x0 < 2 || back.x1 - back.x0 < 2) continue
     const refTop = book.pages[plan.refLine.page].height - plan.refLine.y + plan.refLine.size
     const noteTop = Hn - nl.y + nl.size
-    const annot = ctx.register(ctx.obj({
-      Type: 'Annot', Subtype: 'Link', Rect: [refBox.x0, refBox.y0, refBox.x1, refBox.y1], Border: [0, 0, 0],
-      P: pageRefs[plan.refLine.page], Contents: PDFHexString.fromText(`Note ${plan.id}`), StructParent: annotKey,
-      Dest: ctx.obj([pageRefs[nl.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(noteTop), ctx.obj(null)]),
-    }))
-    const arr = pages[plan.refLine.page].node.lookupMaybe(PDFName.of('Annots'), PDFArray)
-    if (arr) arr.push(annot)
-    else pages[plan.refLine.page].node.set(PDFName.of('Annots'), ctx.obj([annot]))
-    linkNodes.push({ node: plan.link, annot, page: plan.refLine.page, key: annotKey++ })
-    annotKids.set(plan.link, [{ ref: annot, page: plan.refLine.page }])
-    addLink(nl.page, back, plan.note, { Dest: ctx.obj([pageRefs[plan.refLine.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(refTop), ctx.obj(null)]) }, `Return from note ${plan.id}`)
+    annotate(plan.refLine.page, refBox, ctx.obj([pageRefs[nl.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(noteTop), ctx.obj(null)]), `Note ${plan.id}`, plan.link)
+    const dest = ctx.obj([pageRefs[plan.refLine.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(refTop), ctx.obj(null)])
+    if (plan.backLink) annotate(nl.page, back, dest, `Return from note ${plan.id}`, plan.backLink)
+    else addLink(nl.page, back, plan.note, { Dest: dest }, `Return from note ${plan.id}`)
     noteLinks++
   }
   if (noteLinks) review.push({ level: 'info', msg: `Linked ${noteLinks} note number(s) to their notes and back.` })

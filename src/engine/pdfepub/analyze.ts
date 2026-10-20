@@ -121,8 +121,19 @@ function imageObject(page: any, id: string): Promise<unknown> {
 /** column starts of a set of lines: clusters of left edges at least 60pt apart */
 export function columnStarts(lines: Line[]): number[] {
   const xs = [...new Set(lines.map((l) => Math.round(l.x0)))].sort((a, b) => a - b)
+  const sizes = lines.map((l) => l.size).sort((a, b) => a - b)
+  // narrow columns (a 3-column index) start closer than 60 pt: accept a start that close when both sides hold a column's worth of lines and nothing runs across
+  const narrow = Math.min(60, Math.max(24, (sizes[sizes.length >> 1] ?? 10) * 3.5))
   const starts: number[] = []
-  for (const x of xs) if (!starts.length || x - starts[starts.length - 1] > 60) starts.push(x)
+  for (const x of xs) {
+    const last = starts[starts.length - 1]
+    if (last === undefined || x - last > 60) starts.push(x)
+    else if (x - last > narrow) {
+      const a = lines.filter((l) => l.x0 >= last - 3 && l.x0 < x - 3)
+      const b = lines.filter((l) => l.x0 >= x - 3 && l.x0 < x + narrow / 2)
+      if (a.length >= 8 && b.length >= 8 && a.filter((l) => l.x1 > x + 3).length <= a.length * 0.1) starts.push(x)
+    }
+  }
   return starts
 }
 export const columnOf = (starts: number[], x0: number) => [...starts].reverse().find((s) => s <= x0 + 3) ?? starts[0] ?? 0
