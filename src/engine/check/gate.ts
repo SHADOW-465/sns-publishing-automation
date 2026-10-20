@@ -1,11 +1,13 @@
 // The validation gate: one verdict for a built EPUB, from the stages below. Green needs EPUBCheck to have run and passed.
-//   1 our structure checks  2 spec conformance  3 accessibility claims  4 EPUBCheck (service)  6 reference diff
-// Stage 3 reads the common axe/Ace findings from the XHTML itself (pageRules); the full Ace run (stage 5) is not wired. EPUBCheck needs Java, so the browser reaches it only through a validator service.
+//   1 our structure checks  2 spec conformance  3 accessibility (claims, pageRules, axe-core per page)  4 EPUBCheck (service)
+//   5 Ace by DAISY (service, accessible books only)  6 reference diff
+// EPUBCheck needs Java and Ace a headless Chrome, so the browser reaches both through a local service. axe-core runs in the browser.
 import { unzip, text, type Files } from '../zip.ts'
 import type { HouseSettings } from '../settings.ts'
 import { checkEpubBytes, type CheckSource } from './epub.ts'
 import { conformance } from './conform.ts'
 import { refdiff } from './refdiff.ts'
+import { axePages, type AxeRunner } from './axe.ts'
 
 export interface ValidatorResult { errors: string[]; warnings: string[] }
 /** Runs EPUBCheck somewhere with Java; resolves null when it cannot run (offline, no service configured). */
@@ -24,7 +26,7 @@ export const httpValidator = (url: string): EpubValidator => async (epub) => {
   }
 }
 
-export interface GateStage { id: 'structure' | 'conformance' | 'accessibility' | 'epubcheck' | 'reference'; title: string; ran: boolean; errors: string[]; warnings: string[] }
+export interface GateStage { id: 'structure' | 'conformance' | 'accessibility' | 'epubcheck' | 'ace' | 'reference'; title: string; ran: boolean; errors: string[]; warnings: string[] }
 export interface GateReport { verdict: 'green' | 'amber' | 'red'; stages: GateStage[]; notes: string[] }
 
 /** Claims in the package that the content does not back up. */
@@ -69,7 +71,8 @@ export function pageRules(files: Files): { errors: string[]; warnings: string[] 
   return { errors, warnings }
 }
 
-export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: CheckSource; validator?: EpubValidator; reference?: Files; conformance?: boolean } = {}): Promise<GateReport> {
+/** `validator` is EPUBCheck, `ace` the Ace service (same answer shape), `axe` runs axe-core on one page. */
+export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: CheckSource; validator?: EpubValidator; ace?: EpubValidator; axe?: AxeRunner; reference?: Files; conformance?: boolean } = {}): Promise<GateReport> {
   const files = unzip(epub)
   const stages: GateStage[] = []
   const notes: string[] = []
@@ -78,10 +81,17 @@ export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: Che
   // conformance only makes sense for a book built under these settings, not for any EPUB dropped into the checker
   if (o.conformance !== false) stages.push({ id: 'conformance', title: 'Spec conformance', ran: true, errors: conformance(files, s), warnings: [] })
   const rules = pageRules(files)
-  stages.push({ id: 'accessibility', title: 'Accessibility claims', ran: true, errors: [...claimsCheck(files), ...rules.errors], warnings: rules.warnings })
+  const axe = o.axe ? await axePages(files, o.axe) : null
+  if (!axe) notes.push('axe-core did not run here, so the pages were checked by the built-in rules only.')
+  stages.push({ id: 'accessibility', title: 'Accessibility', ran: true, errors: [...claimsCheck(files), ...rules.errors, ...(axe?.errors ?? [])], warnings: [...rules.warnings, ...(axe?.warnings ?? [])] })
   const v = await (o.validator ?? noValidator)(epub)
   stages.push({ id: 'epubcheck', title: 'EPUBCheck', ran: !!v, errors: v?.errors ?? [], warnings: v?.warnings ?? [] })
   if (!v) notes.push('EPUBCheck could not run here, so this file is not cleared for delivery.')
+  // Ace judges the accessibility layer, so a standard EPUB (no accessibility metadata) is not sent to it
+  const accessible = /schema:accessMode/.test(text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array()))
+  const ace = accessible ? await (o.ace ?? noValidator)(epub) : null
+  if (accessible) stages.push({ id: 'ace', title: 'Ace by DAISY', ran: !!ace, errors: ace?.errors ?? [], warnings: ace?.warnings ?? [] })
+  if (accessible && !ace) notes.push('Ace by DAISY could not run here; run it before an accessibility certification.')
   if (o.reference) stages.push({ id: 'reference', title: 'Reference diff', ran: true, errors: [], warnings: refdiff(files, o.reference).map((d) => `Differs from your reference: ${d}`) })
   const errors = stages.some((x) => x.errors.length)
   const warned = stages.some((x) => x.warnings.length)

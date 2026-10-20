@@ -3,10 +3,11 @@ import type { PrintPage } from '../engine/pdf/pages.ts'
 import type { CheckReport, Finding } from '../engine/check/epub.ts'
 import { deliveryCounts, extraReview } from '../engine/check/counts.ts'
 import type { ReviewItem, Section } from '../engine/epub/package.ts'
-import { text, type Files } from '../engine/zip.ts'
+import { text, unzip, type Files } from '../engine/zip.ts'
 import { Preview } from './Preview.tsx'
 import { download } from './shared.tsx'
 import { httpValidator, type ValidatorResult } from '../engine/check/gate.ts'
+import { axePages, iframeAxe } from '../engine/check/axe.ts'
 import { Icon, type IconName } from './icons.tsx'
 
 // Building blocks of the step-by-step screens: the step bar, inline help, the book outline and
@@ -263,7 +264,7 @@ export function ComparePrint({ files, pages, pdf, flagged = [] }: { files: Files
 const ICON: Record<Finding['level'], IconName> = { error: 'x', warn: 'alert', pass: 'check' }
 const WORD: Record<Finding['level'], string> = { error: 'Must fix', warn: 'Check', pass: 'OK' }
 
-/** `epubcheckErrors`: what the bundled EPUBCheck found, counted with the in-app problems so the verdict says the same as the box above it. */
+/** `epubcheckErrors`: what the bundled EPUBCheck and the accessibility check found, counted with the in-app problems so the verdict says the same as the boxes above it. */
 export function CheckReportView({ report, review = [], epubcheckErrors = 0 }: { report: CheckReport; review?: ReviewItem[]; epubcheckErrors?: number }) {
   const extras = extraReview(report, review)
   const buildErr = extras.filter((r) => r.level === 'error')
@@ -279,7 +280,7 @@ export function CheckReportView({ report, review = [], epubcheckErrors = 0 }: { 
         <span>
           {report.stats.documents} files · {report.stats.words.toLocaleString()} words · {report.stats.pages} page markers · {report.stats.images} pictures
           {report.stats.notes ? ` · ${report.stats.notes} note links` : ''}
-          {epubcheckErrors ? ` · ${epubcheckErrors} of the problems are from EPUBCheck` : ''}
+          {epubcheckErrors ? ` · ${epubcheckErrors} of the problems are from EPUBCheck or the accessibility check` : ''}
         </span>
       </div>
       {(buildErr.length > 0 || buildWarn.length > 0) && (
@@ -345,6 +346,31 @@ export function EpubcheckBox({ result }: { result: ValidatorResult | null | unde
   return (
     <div className="box err small" role="status">
       <strong>EPUBCheck found {result.errors.length} error{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but stores may reject it.
+      <ul>{result.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
+      {result.errors.length > 8 && <p className="muted">…and {result.errors.length - 8} more.</p>}
+    </div>
+  )
+}
+
+export type A11yResult = ValidatorResult & { by: 'Ace by DAISY' | 'axe-core' }
+/** Ace by DAISY from the local service for an accessible book; where the service is missing, axe-core (the engine inside Ace)
+ *  on each page in the browser. Ace already runs axe, so the two are not added up. null: neither could run. */
+export async function runAccessibility(epub: Uint8Array): Promise<A11yResult | null> {
+  const files = unzip(epub)
+  const opf = text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array())
+  const ace = /schema:accessMode/.test(opf) ? await httpValidator('/api/ace')(epub) : null
+  if (ace) return { ...ace, by: 'Ace by DAISY' }
+  const axe = await axePages(files, iframeAxe)
+  return axe && { ...axe, by: 'axe-core' }
+}
+
+export function AccessibilityBox({ result }: { result: A11yResult | null | undefined }) {
+  if (result === undefined) return null
+  if (result === null) return <p className="note warnbox small">The accessibility check did not run here. Check the file with Ace by DAISY before an accessibility certification.</p>
+  if (!result.errors.length) return <p className="note small">{result.by}: no serious accessibility problems{result.warnings.length ? `, ${result.warnings.length} to look at` : ''}{result.by === 'axe-core' ? ' (the page checks of Ace; the full Ace run needs the app on your computer)' : ''}.</p>
+  return (
+    <div className="box err small" role="status">
+      <strong>{result.by} found {result.errors.length} serious accessibility problem{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but it does not meet the accessibility standard yet.
       <ul>{result.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
       {result.errors.length > 8 && <p className="muted">…and {result.errors.length - 8} more.</p>}
     </div>

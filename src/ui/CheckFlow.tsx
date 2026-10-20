@@ -4,6 +4,7 @@ import { Status, Outline, CheckReportView, Help, ComparePrint, flaggedPages } fr
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { checkEpubBytes, type CheckReport } from '../engine/check/epub.ts'
 import { gate, httpValidator, type GateReport } from '../engine/check/gate.ts'
+import { iframeAxe } from '../engine/check/axe.ts'
 import { settings } from '../engine/settings.ts'
 import { text, unzip, type Files } from '../engine/zip.ts'
 import { parseXml, resolvePath, epubType } from '../engine/xml.ts'
@@ -38,8 +39,10 @@ export function CheckFlow() {
       setProgress(undefined)
       const report = checkEpubBytes(epub!.data, { printPages: layout?.filter((p) => !p.blank).map((p) => p.n), printLayout: layout })
       const files = unzip(epub!.data)
-      // conformance is for books built here, not for any EPUB dropped in; EPUBCheck comes from the local service when it is there; without it the verdict is never green
-      const verdict = await gate(epub!.data, settings(), { conformance: false, validator: httpValidator('/api/epubcheck') })
+      // conformance is for books built here, not for any EPUB dropped in; EPUBCheck and Ace come from the local service when it is there
+      // (without EPUBCheck the verdict is never green); axe-core checks every page here in the browser
+      setBusy('Running EPUBCheck and the accessibility checks…')
+      const verdict = await gate(epub!.data, settings(), { conformance: false, validator: httpValidator('/api/epubcheck'), ace: httpValidator('/api/ace'), axe: iframeAxe })
       setOut({ verdict, report, files, ...spineOf(files), layout })
     } catch (e) {
       setError((e as Error).message)
@@ -68,7 +71,7 @@ export function CheckFlow() {
             <li><strong>Content</strong> — empty or duplicated text, very short chapters, and page markers against the print PDF.</li>
             <li><strong>Book details</strong> — title, author, publisher, ISBN and cover size as stores show them.</li>
           </ul>
-          It is a quick first check. For delivery, EPUBCheck and Ace remain the reference tools.
+          In the app on your computer, EPUBCheck and Ace by DAISY themselves run on the file; in the web copy the pages are checked with axe-core, the engine inside Ace.
         </Help>
         <div className="row">
           <button className="primary" disabled={!epub || !!busy} onClick={onCheck}>
@@ -84,6 +87,13 @@ export function CheckFlow() {
             <strong>{{ green: 'Green: ready for delivery.', amber: 'Amber: no errors found, but not cleared for delivery.', red: 'Red: fix the errors before delivery.' }[out.verdict.verdict]}</strong>{' '}
             {out.verdict.notes.join(' ')}
           </p>
+          {out.verdict.stages.filter((g) => g.id !== 'structure' && g.errors.length > 0).map((g) => (
+            <div key={g.id} className="box err small">
+              <strong>{g.title}: {g.errors.length} error{g.errors.length === 1 ? '' : 's'}</strong>
+              <ul>{g.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
+              {g.errors.length > 8 && <p className="muted">…and {g.errors.length - 8} more.</p>}
+            </div>
+          ))}
           <CheckReportView report={out.report} />
           {out.layout && pdf && out.base === 'OEBPS/' && (
             <>

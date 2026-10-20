@@ -17,6 +17,7 @@
     "desktop:dir": "node scripts/fetch-tools.mjs && vite build && electron-builder --win dir"
   },
   "devDependencies": {
+    "@daisy/axe-core-for-ace": "4.11.2-canary.1",
     "@fontsource-variable/instrument-sans": "^5.3.0",
     "@fontsource-variable/newsreader": "^5.3.0",
     "@types/jsdom": "^30.0.0",

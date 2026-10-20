@@ -1,4 +1,4 @@
-// Desktop shell: serves the built app and the local EPUBCheck service on 127.0.0.1 and opens a window on it.
+// Desktop shell: serves the built app and the local EPUBCheck and Ace services on 127.0.0.1 and opens a window on it.
 // Nothing leaves the machine: EPUBCheck runs from the JRE and jar packaged next to the app (see server/epubcheck-service.mjs).
 //   Self test (no window):  "<app>.exe" --epubcheck-selftest <book.epub> <result.json>
 import { app, BrowserWindow, shell } from 'electron'
@@ -6,6 +6,7 @@ import { createServer } from 'node:http'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, extname, normalize } from 'node:path'
 import { epubcheckHandler, runEpubcheck, toolPaths } from '../server/epubcheck-service.mjs'
+import { aceHandler } from '../server/ace-service.mjs'
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.wasm': 'application/wasm' }
 
@@ -23,6 +24,7 @@ async function main() {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
     if (url.pathname === '/api/epubcheck') return epubcheckHandler(req, res)
+    if (url.pathname === '/api/ace') return aceHandler(req, res)
     const file = join(root, normalize(decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)))
     if (!file.startsWith(root)) return void res.writeHead(403).end()
     try {

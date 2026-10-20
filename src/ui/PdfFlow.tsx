@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { reviewList } from '../engine/review/confidence.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
@@ -53,6 +53,7 @@ export function PdfFlow() {
   const [result, setResult] = useState<PdfBuildResult>()
   const [report, setReport] = useState<CheckReport>()
   const [ec, setEc] = useState<ValidatorResult | null>()
+  const [a11y, setA11y] = useState<A11yResult | null>()
   const [alt, setAlt] = useState<Record<string, string>>({})
   const [ai, setAi] = useState<Record<string, AiDraft>>({})
   const [specPictures, setSpecPictures] = useState<SpecPicture[]>([])
@@ -153,6 +154,7 @@ export function PdfFlow() {
     setProgress({ done: 2, total: 2 })
     setReport(checkEpub(r.files, { ...r.source, printLayout: lay }))
     setEc(await runEpubcheck(r.epub))
+    setA11y(await runAccessibility(r.epub))
     setStale(false)
     if (book) remember('pdfprofile', meta!.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     remember('copyright', meta!.publisher, rules)
@@ -178,7 +180,7 @@ export function PdfFlow() {
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
   const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && !!p.alt.trim() && !isPlaceholderAlt(p.alt)) : []
   const visionOn = !!visionConfig().apiKey.trim()
-  const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0)
+  const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const steps = [
     { title: 'Files', hint: wordBook ? 'Word manuscript and cover' : 'print PDF and cover', enabled: true, done: ready },
     { title: 'Book details', hint: 'title, ISBN, copyright', enabled: ready, done: !!meta && isbn13Valid(meta.eisbn) },
@@ -405,7 +407,8 @@ export function PdfFlow() {
             </p>
           )}
           <EpubcheckBox result={ec} />
-          <CheckReportView report={report} review={result.review} epubcheckErrors={ec?.errors.length ?? 0} />
+          <AccessibilityBox result={a11y} />
+          <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
             <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />
           </div>
