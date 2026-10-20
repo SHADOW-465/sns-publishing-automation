@@ -277,3 +277,17 @@ test('file-as: the surname is the last word, and particles (von, de la) stay wit
   assert.equal(fileAs('Weigel, Bjoern'), undefined)
   assert.equal(fileAs('Plato'), undefined)
 })
+
+test('markup samples keep their extra attributes (aria-*, data-*), and the build writes them', async () => {
+  const { parseMarkupSample, sampleOf } = await import('../src/engine/spec/markup.ts')
+  const h = parseMarkupSample('chapter-title', '<h2 class="chapter-b" id="chap1" data-part="x" aria-label="Capítulo">Natur</h2>')
+  assert.deepEqual(h, { tag: 'h2', class: 'chapter-b', attrs: { 'data-part': 'x', 'aria-label': 'Capítulo' } })
+  assert.equal(sampleOf('chapter-title', h!), '<h2 class="chapter-b" data-part="x" aria-label="Capítulo">Natur</h2>')
+  const n = parseMarkupSample('noteref', '<sup><a epub:type="noteref" href="#fn-01" role="doc-noteref" title="Nota">1</a></sup>')
+  assert.deepEqual(n, { wrap: 'sup', attrs: { title: 'Nota' } })
+  const { noteRef } = await import('../src/engine/epub/markup.ts')
+  const { setSettings, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
+  setSettings({ ...DEFAULT_SETTINGS, markup: { noteref: n! } })
+  assert.match(noteRef('#fn-1', 'fn_1', '1'), /^<sup><a epub:type="noteref" href="#fn-1" id="fn_1" role="doc-noteref" title="Nota">1<\/a><\/sup>$/)
+  setSettings(DEFAULT_SETTINGS)
+})

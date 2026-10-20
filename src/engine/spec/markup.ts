@@ -34,6 +34,11 @@ export function layerDataFromReport(blocks: { text: string; where: string; cells
   return Object.keys(out.markup).length ? out : undefined
 }
 
+/** Attributes of a sample the engine does not own (aria-*, data-*, lang…): they travel with the template. */
+const OWN = new Set(['class', 'id', 'href', 'epub:type', 'role', 'aria-level', 'style'])
+const extraAttrs = (el: Element): Record<string, string> => Object.fromEntries(Array.from(el.attributes).filter((a) => !OWN.has(a.name)).map((a) => [a.name, a.value]))
+const attrText = (a?: Record<string, string>) => Object.entries(a ?? {}).map(([k, v]) => ` ${k}="${v.replace(/"/g, '&quot;')}"`).join('')
+
 export const MARKUP_ROLES: MarkupRole[] = ['chapter-title', 'noteref']
 export const MARKUP_HEAD = ['Element (role)', 'Expected HTML sample']
 export const STYLES_HEAD = ['Source style', 'Means (role)', 'Output class']
@@ -45,22 +50,24 @@ export function parseMarkupSample(role: MarkupRole, html: string): MarkupTemplat
     const a = doc.querySelector('a')
     if (!a) return undefined
     const parent = a.parentElement
-    return { wrap: parent && parent.localName !== 'body' ? parent.localName : '' }
+    const attrs = extraAttrs(a)
+    return { wrap: parent && parent.localName !== 'body' ? parent.localName : '', ...(Object.keys(attrs).length ? { attrs } : {}) }
   }
   const el = doc.querySelector('h1,h2,h3,h4,h5,h6,p')
   if (!el) return undefined
   const cls = el.getAttribute('class')
-  return { tag: el.localName, ...(cls ? { class: cls } : {}) }
+  const attrs = extraAttrs(el)
+  return { tag: el.localName, ...(cls ? { class: cls } : {}), ...(Object.keys(attrs).length ? { attrs } : {}) }
 }
 
 /** A template as the sample a person would write (the Markup sheet). */
 export function sampleOf(role: MarkupRole, t: MarkupTemplate): string {
   if (role === 'noteref') {
-    const a = '<a epub:type="noteref" href="#fn-01">1</a>'
+    const a = `<a epub:type="noteref" href="#fn-01"${attrText(t.attrs)}>1</a>`
     return t.wrap ? `<${t.wrap}>${a}</${t.wrap}>` : a
   }
   const tag = t.tag ?? 'h2'
-  return `<${tag}${t.class ? ` class="${t.class}"` : ''}>Natur</${tag}>`
+  return `<${tag}${t.class ? ` class="${t.class}"` : ''}${attrText(t.attrs)}>Natur</${tag}>`
 }
 
 export function markupSheets(d: LayerData): Sheet[] {

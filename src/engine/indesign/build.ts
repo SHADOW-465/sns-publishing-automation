@@ -1096,6 +1096,7 @@ function renderHeading(
   const want = s.type === 'chapter' ? settings().markup['chapter-title']?.tag ?? (settings().chapterTag === 'h2' ? 'h2' : undefined) : undefined
   const h = want && /^h[1-6]$/.test(want) ? want : s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
+  const extra = s.type === 'chapter' ? Object.entries(settings().markup['chapter-title']?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : ''
   if (s.label.length && s.title.length) {
     const lc = classOf(s.label[0])
     const tc = classOf(s.title[0])
@@ -1104,14 +1105,14 @@ function renderHeading(
     use(h, lc, ld)
     // the title span sits inside the heading: its size is relative to the label's, not to the body text
     use('span', tc, { ...td, 'font-size': `${(em(td['font-size']) / em(ld['font-size'])) * em(bodyDecls['font-size'] || '1em')}em` })
-    return `<${h} class="${lc}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
+    return `<${h} class="${lc}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}${extra}>${html(s.label)} <span class="${tc}">${html(s.title)}</span></${h}>`
   }
   const only = s.label.length ? s.label : s.title
   // (HD-08) a chapter with only a title, no "Chapter 1" label above it, takes the client's class chapter-b
   const wantClass = settings().markup['chapter-title']?.class ?? (settings().chapterHeadingClass === 'chapter-b' ? 'chapter-b' : '')
   const c = s.type === 'chapter' && !s.label.length && wantClass ? wantClass.replace('{style}', classOf(only[0])) : classOf(only[0])
   use(h, c, declsOf(only[0]))
-  return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}>${html(only)}</${h}>`
+  return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}${extra}>${html(only)}</${h}>`
 }
 
 /** Page markers inside a paragraph: before any of its text (the page starts with it) or after. */
