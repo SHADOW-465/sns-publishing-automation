@@ -12,7 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
-import { noteRef, noteLabel } from '../epub/markup.ts'
+import { noteRef, noteLabel, figureWrap } from '../epub/markup.ts'
 import { indesignNotes } from './notes.ts'
 import { type NoteFinding } from '../structure/notes.ts'
 import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
@@ -200,9 +200,10 @@ function textAround(blocks: Block[], at: number): { caption: string; nearby: str
 function pictureHtml(c: ImageChoice, name: string, longId: string): string {
   const described = longId ? ` aria-describedby="${longId}"` : ''
   const long = longId ? `<p id="${longId}" class="longdesc">${esc(c.longDesc.trim())}</p>` : ''
-  if (c.decorative) return `<figure class="fig_group"><img alt="" role="presentation" src="${name}"/></figure>`
+  const f = figureWrap('fig_group')
+  if (c.decorative) return `${f.open}<img alt="" role="presentation" src="${name}"/>${f.close}`
   const alt = c.alt.trim() && !isPlaceholderAlt(c.alt) ? c.alt.trim() : ''
-  return `<figure class="fig_group"><img alt="${esc(alt)}"${described} src="${name}"/>${long}</figure>`
+  return `${f.open}<img alt="${esc(alt)}"${described} src="${name}"/>${long}${f.close}`
 }
 
 export const norm = (s: string) =>
@@ -926,7 +927,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   }
   // a picture still on the notes page was dumped there by the export and no caption led to its printed page
   for (const page of sections.filter((x) => x.type === 'notes'))
-    for (const m of page.body.matchAll(/<figure[^>]*><img[^>]*src="images\/([^"]+)"/g))
+    for (const m of page.body.matchAll(/<(?:figure|div)\b[^>]*><img[^>]*src="images\/([^"]+)"/g))
       (onNotes.add(m[1]), review.push({ level: 'warn', msg: `Picture ${m[1]} is still on the notes page: the export put it there and no caption tells which printed page it belongs to. Move it to its chapter.`, where: page.file }))
   const placedNames = new Set(imgOut.map((i) => i.path))
   const placedImages = new Set(imgOut.map((i) => i.path))
@@ -1094,12 +1095,15 @@ function renderHeading(
   // a chapter the export already marked <h1> stays h1; a chapter typed as a paragraph stays h2 (house style)
   const srcTag = tag((s.title[0] ?? s.label[0]).el)
   // (HD-07) a chapter title is always a heading: h2, whatever the export typed it as
-  const want = s.type === 'chapter' ? settings().markup['chapter-title']?.tag ?? (settings().chapterTag === 'h2' ? 'h2' : undefined) : undefined
+  // the client's template for this kind of heading (chapter-title, part-title): tag, class, extra attributes
+  const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : s.type === 'part' ? settings().markup['part-title'] : undefined
+  const want = tpl?.tag ?? (s.type === 'chapter' && settings().chapterTag === 'h2' ? 'h2' : undefined)
   const h = want && /^h[1-6]$/.test(want) ? want : s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
-  const extra = s.type === 'chapter' ? Object.entries(settings().markup['chapter-title']?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('') : ''
+  const extra = Object.entries(tpl?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+  const partClass = (own: string) => (s.type === 'part' && tpl?.class ? tpl.class.replace('{style}', own) : own)
   if (s.label.length && s.title.length) {
-    const lc = classOf(s.label[0])
+    const lc = partClass(classOf(s.label[0]))
     const tc = classOf(s.title[0])
     const ld = declsOf(s.label[0])
     const td = declsOf(s.title[0])
@@ -1111,7 +1115,7 @@ function renderHeading(
   const only = s.label.length ? s.label : s.title
   // (HD-08) a chapter with only a title, no "Chapter 1" label above it, takes the client's class chapter-b
   const wantClass = settings().markup['chapter-title']?.class ?? (settings().chapterHeadingClass === 'chapter-b' ? 'chapter-b' : '')
-  const c = s.type === 'chapter' && !s.label.length && wantClass ? wantClass.replace('{style}', classOf(only[0])) : classOf(only[0])
+  const c = s.type === 'chapter' && !s.label.length && wantClass ? wantClass.replace('{style}', classOf(only[0])) : partClass(classOf(only[0]))
   use(h, c, declsOf(only[0]))
   return `<${h} class="${c}" id="${s.headId}"${settings().roleHeading ? ` role="heading" aria-level="${h.slice(1)}"` : ''}${extra}>${html(only)}</${h}>`
 }

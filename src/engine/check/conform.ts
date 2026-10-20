@@ -38,6 +38,18 @@ export function conformance(files: Files, s: HouseSettings): string[] {
   if (!/<reference type="toc"/.test(opf)) out.push('The guide has no contents reference')
   // NAV-02: page numbers on the printed contents page
   if (s.tocPageNumbers === 'strip' && /class="toc_pg"/.test(read(files, 'toc.xhtml'))) out.push('NAV-02: the contents page shows page numbers although the rule strips them')
+  // the figure template: every picture wrapper carries its class
+  const fig = s.markup?.figure
+  if (fig?.class) {
+    const tag = fig.tag === 'div' ? 'div' : 'figure'
+    const cls = fig.class.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const wrong = new RegExp(`<${tag}\\b(?![^>]*\\bclass="${cls}")[^>]*>\\s*(<p\\b[^>]*>\\s*)?<img\\b`)
+    for (const [n, h] of pages)
+      if (wrong.test(h)) {
+        out.push(`${n}: a picture's wrapper does not carry the figure template's class "${fig.class}"`)
+        break
+      }
+  }
   // every note reference is a sup link
   const bare = /<a [^>]*epub:type="noteref"/
   for (const [n, h] of pages)

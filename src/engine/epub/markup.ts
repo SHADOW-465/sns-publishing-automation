@@ -1,12 +1,25 @@
 // Roles written out through the client's templates (design §4.2). One function per role, shared by the InDesign and PDF builders,
-// so a client's markup is data in one place. Roles with a template today: chapter-title (indesign/build.ts) and noteref.
+// so a client's markup is data in one place. Roles with a template: chapter-title and part-title (the heading builders),
+// noteref and figure (here).
 import { esc } from '../xml.ts'
 import { settings } from '../settings.ts'
+
+const attrsOf = (a?: Record<string, string>) => Object.entries(a ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+
+/** The wrapper of a picture, as the client's figure template says (default: <figure> with the builder's own class).
+ *  A <div> wrapper has no <figcaption>, so its caption is a paragraph. */
+export function figureWrap(defaultClass: string): { open: string; close: string; caption: (cls: string, html: string) => string } {
+  const t = settings().markup.figure
+  const tag = t?.tag === 'div' ? 'div' : 'figure'
+  const cls = t?.class ?? defaultClass
+  const capTag = tag === 'figure' ? 'figcaption' : 'p'
+  return { open: `<${tag}${cls ? ` class="${esc(cls)}"` : ''}${attrsOf(t?.attrs)}>`, close: `</${tag}>`, caption: (c, html) => `<${capTag} class="${c}">${html}</${capTag}>` }
+}
 
 /** A note reference, written as the client's noteref template says (default: a link in a <sup>). */
 export function noteRef(href: string, id: string, label: string): string {
   const t = settings().markup.noteref
-  const attrs = Object.entries(t?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+  const attrs = attrsOf(t?.attrs)
   const a = `<a epub:type="noteref" href="${href}"${id ? ` id="${id}"` : ''} role="doc-noteref"${attrs}>${label}</a>`
   const wrap = t?.wrap ?? 'sup'
   return wrap ? `<${wrap}>${a}</${wrap}>` : a

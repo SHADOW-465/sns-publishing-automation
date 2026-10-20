@@ -8,6 +8,7 @@ import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
+import { figureWrap } from '../epub/markup.ts'
 import { normTitle, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
 
 export interface WordBuildInput {
@@ -208,7 +209,8 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(path, choice)
-      ensure().chunks.push({ kind: 'raw', html: `<figure>\n${img}${extra}\n</figure>` })
+      const f = figureWrap('')
+      ensure().chunks.push({ kind: 'raw', html: `${f.open}\n${img}${extra}\n${f.close}` })
       continue
     }
     spoken.push(block.text)

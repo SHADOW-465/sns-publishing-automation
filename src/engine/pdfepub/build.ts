@@ -1,6 +1,6 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
-import { noteRef, noteLabel } from '../epub/markup.ts'
+import { noteRef, noteLabel, figureWrap } from '../epub/markup.ts'
 import type { ImgBox, FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -397,10 +397,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       })
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(name, choice)
+      const f = figureWrap('img_cont')
       floats.push({
         page: page.index,
         opener: !page.lines.some((l) => roleOf(l) !== 'caption'),
-        html: `<figure class="img_cont">\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n<figcaption class="caption1">${caption}</figcaption>` : ''}${extra}\n</figure>`,
+        html: `${f.open}\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n${f.caption('caption1', caption)}` : ''}${extra}\n${f.close}`,
       })
     })
     if (pics.length) pageMarker = ''
@@ -578,7 +579,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(path, choice, 'cv')
-      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<figure class="img_cont">\n<p class="image_Container">${mk}${img}</p>${extra}\n</figure>` }], raw: [], nav: '' })
+      const f = figureWrap('img_cont')
+      front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `${f.open}\n<p class="image_Container">${mk}${img}</p>${extra}\n${f.close}` }], raw: [], nav: '' })
     }
   }
 

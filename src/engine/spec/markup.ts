@@ -27,7 +27,7 @@ export function layerDataFromReport(blocks: { text: string; where: string; cells
   for (const b of blocks) {
     const sample = b.cells?.[0]?.trim()
     if (!sample || !/^</.test(sample)) continue
-    const role: MarkupRole | undefined = /epub:type="noteref"/.test(sample) ? 'noteref' : /^<h[1-6][ >]/.test(sample) ? 'chapter-title' : undefined
+    const role = sampleRole(sample)
     const t = role && !out.markup[role] ? parseMarkupSample(role, sample) : undefined
     if (role && t) (out.markup[role] = t), (out.sources![`markup:${role}`] = { where: b.where, text: sample })
   }
@@ -39,9 +39,16 @@ const OWN = new Set(['class', 'id', 'href', 'epub:type', 'role', 'aria-level', '
 const extraAttrs = (el: Element): Record<string, string> => Object.fromEntries(Array.from(el.attributes).filter((a) => !OWN.has(a.name)).map((a) => [a.name, a.value]))
 const attrText = (a?: Record<string, string>) => Object.entries(a ?? {}).map(([k, v]) => ` ${k}="${v.replace(/"/g, '&quot;')}"`).join('')
 
-export const MARKUP_ROLES: MarkupRole[] = ['chapter-title', 'noteref']
+export const MARKUP_ROLES: MarkupRole[] = ['chapter-title', 'part-title', 'noteref', 'figure']
 export const MARKUP_HEAD = ['Element (role)', 'Expected HTML sample']
 export const STYLES_HEAD = ['Source style', 'Means (role)', 'Output class']
+
+/** Which role a report's expected sample shows: a note call, a picture wrapper, a part heading (epub:type or class "part") or a chapter heading. */
+export function sampleRole(sample: string): MarkupRole | undefined {
+  if (/epub:type="noteref"/.test(sample)) return 'noteref'
+  if (/^<(figure|div)\b[^>]*>\s*(<p\b[^>]*>\s*)?<img\b/.test(sample)) return 'figure'
+  if (/^<h[1-6][ >]/.test(sample)) return /^<h[1-6][^>]*(epub:type="part"|class="[^"]*\bpart\b)/.test(sample) ? 'part-title' : 'chapter-title'
+}
 
 /** One expected sample → tag, class and wrapper. Undefined when the sample has no element for that role. */
 export function parseMarkupSample(role: MarkupRole, html: string): MarkupTemplate | undefined {
@@ -53,7 +60,7 @@ export function parseMarkupSample(role: MarkupRole, html: string): MarkupTemplat
     const attrs = extraAttrs(a)
     return { wrap: parent && parent.localName !== 'body' ? parent.localName : '', ...(Object.keys(attrs).length ? { attrs } : {}) }
   }
-  const el = doc.querySelector('h1,h2,h3,h4,h5,h6,p')
+  const el = role === 'figure' ? doc.querySelector('figure') ?? doc.querySelector('img')?.closest('div') : doc.querySelector('h1,h2,h3,h4,h5,h6,p')
   if (!el) return undefined
   const cls = el.getAttribute('class')
   const attrs = extraAttrs(el)
@@ -66,15 +73,19 @@ export function sampleOf(role: MarkupRole, t: MarkupTemplate): string {
     const a = `<a epub:type="noteref" href="#fn-01"${attrText(t.attrs)}>1</a>`
     return t.wrap ? `<${t.wrap}>${a}</${t.wrap}>` : a
   }
-  const tag = t.tag ?? 'h2'
-  return `<${tag}${t.class ? ` class="${t.class}"` : ''}${attrText(t.attrs)}>Natur</${tag}>`
+  if (role === 'figure') {
+    const tag = t.tag ?? 'figure'
+    return `<${tag}${t.class ? ` class="${t.class}"` : ''}${attrText(t.attrs)}><img alt="…" src="images/bild1.jpg"/></${tag}>`
+  }
+  const tag = t.tag ?? (role === 'part-title' ? 'h1' : 'h2')
+  return `<${tag}${t.class ? ` class="${t.class}"` : ''}${attrText(t.attrs)}>${role === 'part-title' ? 'Erster Teil' : 'Natur'}</${tag}>`
 }
 
 export function markupSheets(d: LayerData): Sheet[] {
   const mk = MARKUP_ROLES.filter((r) => d.markup[r]).map((r) => [r, sampleOf(r, d.markup[r]!)])
   const st = Object.values(d.styleMap).map((s) => [s.match, s.role, s.class ?? ''])
   return [
-    { name: 'Markup', rows: [MARKUP_HEAD, ...(mk.length ? mk : [['chapter-title', ''], ['noteref', '']])], widths: [22, 80] },
+    { name: 'Markup', rows: [MARKUP_HEAD, ...(mk.length ? mk : MARKUP_ROLES.map((r) => [r, '']))], widths: [22, 80] },
     { name: 'Styles', rows: [STYLES_HEAD, ...(st.length ? st : [['', '', '']])], widths: [28, 22, 22], lists: [{ ref: 'B2:B200', values: [...ROLES] }] },
   ]
 }

@@ -35,16 +35,17 @@ export const STD_DEFAULTS = Object.fromEntries(Object.entries(STD_CHOICES).map((
 
 /** How a role is written out. Data a client layer can carry; the engine fills in what the template leaves out. */
 export interface MarkupTemplate {
-  /** element: h2 for a chapter title */
+  /** element: h2 for a chapter title, h1 for a part title, figure or div for a figure */
   tag?: string
-  /** class; for a chapter title it is used when the chapter has no label above it ("{style}" = the InDesign style's own class) */
+  /** class; for a chapter title it is used when the chapter has no label above it ("{style}" = the InDesign style's own class).
+   *  For a part title it is the heading's class; for a figure the wrapper's */
   class?: string
   /** wrapper element: "sup" around a note reference; "" for none */
   wrap?: string
   /** extra attributes */
   attrs?: Record<string, string>
 }
-export type MarkupRole = 'chapter-title' | 'noteref'
+export type MarkupRole = 'chapter-title' | 'part-title' | 'noteref' | 'figure'
 /** A source style and what it means. `match` is a style name or a regular expression over it ("^ihv(\d)$"). */
 export interface StyleRule {
   match: string
