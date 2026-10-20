@@ -78,7 +78,13 @@ test('detection: every style keeps its evidence; agreeing signals raise the conf
   assert.ok(split.confidence < strong.confidence)
   assert.equal(nameRole('KT')?.[0], 'drop')
   assert.equal(nameRole('Kapitelzahl')?.[0], 'chapter-label')
-  assert.equal(nameRole('Grundtext'), undefined)
+  // the German abbreviation table: body text, captions, quotations, notes, boxes stay text with their own class
+  for (const k of ['Grundtext', 'GT', 'Fliesstext', 'BU', 'BU-2', 'Bildnachweis', 'Zitat', 'Motto', 'FN-Text', 'Anmerkung', 'Kasten', 'Marginalie', 'Initial', 'Vorspann']) assert.equal(nameRole(k)?.[0], 'p', k)
+  assert.match(nameRole('BU')![2], /caption/)
+  assert.equal(nameRole('ZT2')?.[0], 'h3')
+  assert.equal(nameRole('Zwischentitel-1')?.[0], 'h3')
+  assert.equal(nameRole('Buch'), undefined, 'a name only starts like one is not matched')
+  assert.equal(nameRole('Text'), undefined)
   assert.equal(crossChecks([{ type: 'chapter', nav: 'A', words: 20 }, { type: 'chapter', nav: 'B', words: 900 }, { type: 'chapter', nav: 'C', words: 900 }, { type: 'chapter', nav: 'D', words: 900 }]).length, 1)
 })
 

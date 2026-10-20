@@ -139,8 +139,9 @@ export function scoreStyle(s: StyleStats, c: ScoreCtx): Evidence<Canon>[] {
   if (!body && s.first.headingLook && s.n <= c.chapters * 2) add('rare', 'h3', `used only ${s.n}×`)
   // body text: the absence of structure is itself evidence, weighed by how much like running text the style is.
   // A style that some structural signal already explains (contents lines, an imprint…) does not also count as body text.
+  // A name that says text (BU, Zitat, Grundtext) is not structure: it adds to these votes.
   const plain = s.share((b) => !b.bold && !b.caps) >= 0.8 && s.sizeRatio <= 1.1
-  const structural = ev.some((e) => e.signal !== 'fallback')
+  const structural = ev.some((e) => e.signal !== 'fallback' && e.role !== 'p')
   if (body) add('typography', 'p', 'main body text style', 0.9)
   else if (!structural) {
     if (plain && !s.first.headingLook) add('typography', 'p', `set like body text (${s.sizeRatio.toFixed(2)}×)`, 0.75)

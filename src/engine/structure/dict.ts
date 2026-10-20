@@ -1,13 +1,30 @@
-// Style names typesetters use, as data (design §2.3). Only roles the tool has today are listed;
-// a name with no role yet (BU caption, Zitat quotation, Kasten box) belongs to a later phase.
+// Style names typesetters use, as data (design §2.3, the German abbreviation table). Each row: the role the tool gives the
+// style, the names (whole style name, any case, an optional number or "-1" after it), and what the name means. Names whose
+// meaning has no role of its own yet (caption, quotation, box, note text, drop cap) are kept as text, "p" with their own
+// class, so they are never taken for headings; the meaning shows on the review screen.
 import type { Role } from '../indesign/read.ts'
 
+const N = '([-_ ]?\\d+)?'
+const names = (...alts: string[]) => new RegExp(`^(${alts.join('|')})${N}$`, 'i')
+
 export const STYLE_NAMES: [Role, RegExp, string][] = [
-  ['chapter-label', /^(kapitelzahl|kapnr|kapitelnummer|kapitel[-_ ]?nr)$/i, 'chapter number (German)'],
-  ['chapter-title', /^(kapitel[uü]berschrift|k[uü]|kapitel[-_ ]?[uü]berschrift)$/i, 'chapter title (German)'],
-  ['h3', /^(zt|z[uü]|zwischentitel|zwischen[uü]berschrift|zwischentitel[-_ ]?[12])$/i, 'subheading (German)'],
-  ['drop', /^(kt|kolumnentitel|pagina|lebender[-_ ]?kolumnentitel)$/i, 'running head (German)'],
-  ['imprint', /^impressum/i, 'imprint (German)'],
+  ['chapter-label', names('kapitelzahl', 'kapnr', 'kapitelnummer', 'kapitel[-_ ]?nr'), 'chapter number (German: Kapitelzahl)'],
+  ['chapter-title', names('kapitel[uü]berschrift', 'k[uü]', 'kapitel[-_ ]?[uü]berschrift'), 'chapter title (German: Kapitelüberschrift)'],
+  ['h3', names('zt', 'z[uü]', 'zwischentitel', 'zwischen[uü]berschrift'), 'subheading (German: Zwischentitel)'],
+  ['drop', names('kt', 'kolumnentitel', 'pagina', 'lebender[-_ ]?kolumnentitel'), 'running head or folio (German: Kolumnentitel)'],
+  ['imprint', /^impressum/i, 'imprint (German: Impressum)'],
+  ['p', names('grundtext', 'lauftext', 'flie(ß|ss)text', 'gt'), 'body text (German: Grundtext)'],
+  ['p', names('vorspann', 'lead'), 'lead paragraph (German: Vorspann)'],
+  ['p', names('bu', 'bildunterschrift', 'bildlegende'), 'picture caption (German: Bildunterschrift)'],
+  ['p', names('bn', 'bildnachweis', 'bildquelle'), 'picture credit (German: Bildnachweis)'],
+  ['p', names('zitat', 'blockzitat'), 'quotation (German: Zitat)'],
+  ['p', names('motto'), 'epigraph (German: Motto)'],
+  ['p', names('widmung'), 'dedication (German: Widmung)'],
+  ['p', names('fn', 'fu(ß|ss)note', 'fn[-_ ]?text'), 'footnote text (German: Fußnote)'],
+  ['p', names('anm', 'anmerkung', 'anmerkungen', 'endnote'), 'endnote text (German: Anmerkung)'],
+  ['p', names('kasten', 'info', 'infokasten'), 'box (German: Kasten)'],
+  ['p', names('marginalie', 'randnotiz'), 'margin note (German: Marginalie)'],
+  ['p', names('initial'), 'drop cap paragraph (German: Initial)'],
 ]
 export const nameRole = (key: string) => STYLE_NAMES.find(([, re]) => re.test(key))
 
