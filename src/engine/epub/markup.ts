@@ -3,6 +3,7 @@
 // noteref and figure (here).
 import { esc } from '../xml.ts'
 import { settings } from '../settings.ts'
+import { labelsFor } from './locale.ts'
 
 const attrsOf = (a?: Record<string, string>) => Object.entries(a ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
 
@@ -14,6 +15,14 @@ export function figureWrap(defaultClass: string): { open: string; close: string;
   const cls = t?.class ?? defaultClass
   const capTag = tag === 'figure' ? 'figcaption' : 'p'
   return { open: `<${tag}${cls ? ` class="${esc(cls)}"` : ''}${attrsOf(t?.attrs)}>`, close: `</${tag}>`, caption: (c, html) => `<${capTag} class="${c}">${html}</${capTag}>` }
+}
+
+/** The extended description of a complex figure (chart, map, diagram), linked from the picture by aria-describedby.
+ *  FIG-02: a paragraph (default) or a collapsed <details> whose summary is the language's "Picture description". */
+export function longDescHtml(id: string, desc: string, lang: string): string {
+  const d = esc(desc.trim())
+  if (settings().longDescAs !== 'details') return `<p id="${id}" class="longdesc">${d}</p>`
+  return `<details id="${id}" class="longdesc"><summary>${esc(labelsFor(lang).longDesc)}</summary><p>${d}</p></details>`
 }
 
 /** A note reference, written as the client's noteref template says (default: a link in a <sup>). */

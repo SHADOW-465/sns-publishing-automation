@@ -6,6 +6,9 @@ import { analyze, build } from '../src/engine/indesign/build.ts'
 import { setSettings, DEFAULT_SETTINGS, type HouseSettings } from '../src/engine/settings.ts'
 import { conformance } from '../src/engine/check/conform.ts'
 import { sampleRole, parseMarkupSample, sampleOf, markupSheets, layerDataFromWorkbook, layerDataFromReport } from '../src/engine/spec/markup.ts'
+import { pdfImgHtml } from '../src/engine/pdfepub/build.ts'
+import { longDescHtml } from '../src/engine/epub/markup.ts'
+import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { synthExport, SYNTH_CSS } from './synth.ts'
 import { epubcheck } from './epubcheck.ts'
 
@@ -18,7 +21,7 @@ const css = `${SYNTH_CSS}\np.Teil { font-size:2.5em; text-align:center; font-fam
 p.TeilT { font-size:2em; text-align:center; font-family:"Sans", sans-serif; }\n`
 const long = (t: string) => `<p class="Cuerpo">${`${t} `.repeat(30)}</p>`
 
-function book(s: Partial<HouseSettings>) {
+function book(s: Partial<HouseSettings>, pictures: { file: string; alt: string; decorative: boolean; longDesc: string }[] = []) {
   setSettings({ ...DEFAULT_SETTINGS, ...s, styleMap: { teil: { match: '^Teil$', role: 'part-label' }, teilt: { match: '^TeilT$', role: 'part-title' } } })
   const body = [
     long('Sample front line to keep the front matter alive.'),
@@ -31,7 +34,7 @@ function book(s: Partial<HouseSettings>) {
   const files = synthExport(body, css)
   files.set('OEBPS/images/photo.png', png(800, 600))
   files.set('OEBPS/content.opf', bytes(text(files.get('OEBPS/content.opf')!).replace('</manifest>', '<item id="i1" href="images/photo.png" media-type="image/png"/></manifest>')))
-  const a = analyze(files)
+  const a = analyze(files, {}, pictures)
   const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'Sample', authors: 'A. Writer', eisbn: '9780306406157' }, cover: { name: 'cover.png', data: cover } })
   const all = [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([, d]) => text(d)).join('\n')
   return { r, all }
@@ -75,4 +78,20 @@ test('the spec sheet reads part-title and figure samples, from the Markup sheet 
   assert.deepEqual(back?.markup, markup)
   const rep = layerDataFromReport([{ text: '', where: 'table 1, row 3', cells: ['<figure class="bild"><img src="a.jpg" alt="x"/></figure>', 'tool', 'comment'] }])
   assert.deepEqual(rep?.markup.figure, { tag: 'figure', class: 'bild' })
+})
+
+test('FIG-02: a complex figure’s extended description is a paragraph or a collapsed <details>, linked by aria-describedby either way', () => {
+  const pic = [{ file: 'photo.png', alt: 'Bar chart of visitors per year', decorative: false, longDesc: 'Visitors rose from 10 in 1990 to 90 in 2020.' }]
+  const para = book({}, pic).all
+  assert.match(para, /<img alt="Bar chart of visitors per year" aria-describedby="longdesc-0" src="images\/photo\.png"\/><p id="longdesc-0" class="longdesc">Visitors rose/)
+  const { r, all } = book({ longDescAs: 'details' }, pic)
+  assert.match(all, /<img [^>]*aria-describedby="longdesc-0"[^>]*\/><details id="longdesc-0" class="longdesc"><summary>Picture description<\/summary><p>Visitors rose from 10 in 1990 to 90 in 2020\.<\/p><\/details>/)
+  assert.deepEqual(checkEpubBytes(r.epub, r.source).groups.flatMap((g) => g.findings).filter((f) => f.level === 'error' && /description|longdesc|describedby/i.test(f.msg)), [])
+  const ec = epubcheck(r.epub)
+  if (ec) assert.deepEqual(ec.errors.filter((e) => !/PKG-021/.test(e)), [], ec.output)
+  // the PDF and Word builds share the helper, and the summary follows the book's language
+  setSettings({ ...DEFAULT_SETTINGS, longDescAs: 'details' })
+  const choice = { alt: 'Karte', longDesc: 'Wege und Hallen.', decorative: false, source: 'spec', approved: true } as never
+  assert.match(pdfImgHtml('images/map.png', choice, '', 'de-DE').extra, /<summary>Bildbeschreibung<\/summary><p>Wege und Hallen\.<\/p>/)
+  assert.match(longDescHtml('x', 'a < b', 'es'), /<summary>Descripción de la imagen<\/summary><p>a &lt; b<\/p>/)
 })

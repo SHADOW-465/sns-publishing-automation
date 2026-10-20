@@ -1,6 +1,6 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
-import { noteRef, noteLabel, figureWrap } from '../epub/markup.ts'
+import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
 import type { ImgBox, FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -137,13 +137,13 @@ export function pdfPictureAlt(o: {
 }
 
 /** The <img> for a resolved picture, plus a long-description paragraph when the spec gave one. */
-export function pdfImgHtml(name: string, choice: AltChoice, className = ''): { img: string; extra: string } {
+export function pdfImgHtml(name: string, choice: AltChoice, className = '', lang = 'en'): { img: string; extra: string } {
   const cls = className ? ` class="${className}"` : ''
   const ldId = choice.longDesc ? `ld-${name.replace(/[^\w]+/g, '-')}` : ''
   const img = choice.decorative
     ? `<img alt="" role="presentation"${cls} src="${name}"/>`
     : `<img alt="${esc(choice.alt)}"${ldId ? ` aria-describedby="${ldId}"` : ''}${cls} src="${name}"/>`
-  const extra = ldId ? `\n<p class="longdesc" id="${ldId}">${esc(choice.longDesc)}</p>` : ''
+  const extra = ldId ? `\n${longDescHtml(ldId, choice.longDesc, lang)}` : ''
   return { img, extra }
 }
 
@@ -396,7 +396,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         name, typed: input.alt?.[name], pictures: input.pictures, ai: input.ai?.[name], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capText,
       })
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
-      const { img, extra } = pdfImgHtml(name, choice)
+      const { img, extra } = pdfImgHtml(name, choice, '', meta.language)
       const f = figureWrap('img_cont')
       floats.push({
         page: page.index,
@@ -578,7 +578,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         name: path, typed: input.alt?.[path], pictures: input.pictures, ai: input.ai?.[path], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0,
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
-      const { img, extra } = pdfImgHtml(path, choice, 'cv')
+      const { img, extra } = pdfImgHtml(path, choice, 'cv', meta.language)
       const f = figureWrap('img_cont')
       front.push({ type: 'other', stem: fm++ ? `fm${fm - 1}` : 'fm', title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `${f.open}\n<p class="image_Container">${mk}${img}</p>${extra}\n${f.close}` }], raw: [], nav: '' })
     }

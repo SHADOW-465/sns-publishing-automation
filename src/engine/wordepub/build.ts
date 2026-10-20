@@ -208,7 +208,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
         height: size.height || 200,
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
-      const { img, extra } = pdfImgHtml(path, choice)
+      const { img, extra } = pdfImgHtml(path, choice, '', meta.language || book.language)
       const f = figureWrap('')
       ensure().chunks.push({ kind: 'raw', html: `${f.open}\n${img}${extra}\n${f.close}` })
       continue

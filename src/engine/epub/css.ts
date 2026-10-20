@@ -47,6 +47,7 @@ p.hang { text-align: left; margin: 0 0 0.3em 1.5em; text-indent: -1.5em; font-fa
 p.center { text-align: center; margin: 0; text-indent: 0; font-family: serif; }
 p.img, p.image_Container { text-align: center; margin: 1em auto; text-indent: 0; }
 figure.fig_group, div.fig_group { text-align: center; margin: 1.5em 0 0 0; }
+details.longdesc { font-size: 0.9em; margin: 0.4em 0 0 0; text-indent: 0; }
 figure.fig_group + p, div.fig_group + p { margin-top: 0.5em; margin-bottom: 1.5em; }
 h3.sec1, h4.sec1, h5.sec1 { font-size: 100%; text-align: left; margin: 1em 0; font-family: serif; }
 ul.bull { text-align: justify; margin: 1em 0; font-family: serif; }

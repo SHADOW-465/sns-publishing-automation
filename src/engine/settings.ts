@@ -132,6 +132,8 @@ const SCHEMA = {
   titleOrder: { def: 'print', choices: ['print', 'source', 'rebuilt'] },
   /** PKG-02: the cover page is part of the reading order (linear) or only reachable from the menu */
   coverLinear: { def: true, bool: true },
+  /** FIG-02: the extended description of a complex figure: a visible paragraph under the picture, or a collapsed <details> (both are linked with aria-describedby) */
+  longDescAs: { def: 'paragraph', choices: ['paragraph', 'details'] },
   /** PKG-03: write the EPUB 2 <guide> (cover and contents) */
   writeGuide: { def: true, bool: true },
 

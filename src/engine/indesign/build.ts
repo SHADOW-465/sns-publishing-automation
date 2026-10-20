@@ -12,7 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
-import { noteRef, noteLabel, figureWrap } from '../epub/markup.ts'
+import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
 import { indesignNotes } from './notes.ts'
 import { type NoteFinding } from '../structure/notes.ts'
 import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
@@ -197,9 +197,9 @@ function textAround(blocks: Block[], at: number): { caption: string; nearby: str
 }
 
 /** Alt text written into the e-book. Decorative pictures are empty on purpose. A missing description stays empty: the word "Bild" is not a description. */
-function pictureHtml(c: ImageChoice, name: string, longId: string): string {
+function pictureHtml(c: ImageChoice, name: string, longId: string, lang: string): string {
   const described = longId ? ` aria-describedby="${longId}"` : ''
-  const long = longId ? `<p id="${longId}" class="longdesc">${esc(c.longDesc.trim())}</p>` : ''
+  const long = longId ? longDescHtml(longId, c.longDesc, lang) : ''
   const f = figureWrap('fig_group')
   if (c.decorative) return `${f.open}<img alt="" role="presentation" src="${name}"/>${f.close}`
   const alt = c.alt.trim() && !isPlaceholderAlt(c.alt) ? c.alt.trim() : ''
@@ -823,7 +823,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         if (!filled && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
         const longId = filled && !c.decorative && c.longDesc.trim() ? `longdesc-${longNo++}` : ''
         if (longId) use('p', 'longdesc', { 'font-size': '0.9em', 'margin-top': '0.4em', 'text-indent': '0' })
-        const figure = pictureHtml(c, name, longId)
+        const figure = pictureHtml(c, name, longId, meta.language)
         const target = moveImg.get(b)
         if (target) {
           releaseHold()

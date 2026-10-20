@@ -325,6 +325,15 @@ export const RULES: Rule[] = [
     origin: 'Design 4.3',
   },
   {
+    id: 'FIG-02', group: 'Paragraphs and classes', title: 'Extended description of complex figures', kind: 'free', type: 'choice', key: 'longDescAs',
+    help: 'A chart, map or diagram can carry a long description besides its short one. Shown as a paragraph under the picture, or tucked into a collapsed "Picture description" that opens on tap. Screen readers get it either way.',
+    choices: [['paragraph', 'A paragraph under the picture'], ['details', 'Collapsed, opens on tap']],
+    example: (v) => (v === 'details' ? '<details class="longdesc"><summary>Picture description</summary><p>…</p></details>' : '<p class="longdesc">…</p>'),
+    keywords: ['long description', 'extended description', 'complex figure', 'langbeschreibung', 'descripción larga', 'aria-describedby'],
+    choiceWords: { details: ['collapsed', 'details', 'summary', 'aufklappbar'] },
+    origin: 'Design 2.2 (complex figures)',
+  },
+  {
     id: 'PKG-03', group: 'Package', title: 'Write the EPUB 2 guide', kind: 'free', type: 'bool', key: 'writeGuide',
     help: 'The <guide> in the package names the cover and the contents for older readers. EPUB 3 readers use the landmarks instead.',
     choices: onOff, example: (v) => (v ? '<guide> <reference type="toc" … /> </guide>' : '(no guide)'),

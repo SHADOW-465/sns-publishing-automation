@@ -27,6 +27,8 @@ export interface Labels {
   publisherWord: string
   imageAlt: string
   decorativeAlt: string
+  /** the summary line of an extended picture description (FIG-02 "details") */
+  longDesc: string
   /** heading of the notes page, for books whose end notes are collected there */
   notes: string
   /** the <title> of the cover page, its guide entry, and the cover entry in the menu and NCX; defaults to `cover` */
@@ -52,7 +54,7 @@ const es: Base = {
   dedication: 'Dedicatoria',
   epigraph: 'Epígrafe',
   front: 'Preliminares',
-  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editorial', imageAlt: 'imagen', decorativeAlt: 'decorativa', notes: 'Notas',
+  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editorial', longDesc: 'Descripción de la imagen', imageAlt: 'imagen', decorativeAlt: 'decorativa', notes: 'Notas',
 }
 
 const en: Base = {
@@ -72,7 +74,7 @@ const en: Base = {
   dedication: 'Dedication',
   epigraph: 'Epigraph',
   front: 'Front matter',
-  chapter: 'Chapter', titleWord: 'Title', authorWord: 'Author', publisherWord: 'Publisher', imageAlt: 'image', decorativeAlt: 'decorative', notes: 'Notes',
+  chapter: 'Chapter', titleWord: 'Title', authorWord: 'Author', publisherWord: 'Publisher', longDesc: 'Picture description', imageAlt: 'image', decorativeAlt: 'decorative', notes: 'Notes',
 }
 
 const de: Base = {
@@ -83,7 +85,7 @@ const de: Base = {
   coverAlt: ({ title, authors, publisher }) => `Titel: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Verlagslogo: ${publisher}` : ''),
   a11ySummary: 'Die Barrierefreiheit dieser Publikation wurde nicht zertifiziert.',
   dedication: 'Widmung', epigraph: 'Motto', front: 'Titelei',
-  chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', imageAlt: 'Bild', decorativeAlt: 'dekorativ', notes: 'Anmerkungen',
+  chapter: 'Kapitel', titleWord: 'Titel', authorWord: 'Autor', publisherWord: 'Verlag', longDesc: 'Bildbeschreibung', imageAlt: 'Bild', decorativeAlt: 'dekorativ', notes: 'Anmerkungen',
 }
 
 const fr: Base = {
@@ -94,7 +96,7 @@ const fr: Base = {
   coverAlt: ({ title, authors, publisher }) => `Titre : ${title}.` + (authors ? ` Auteur : ${authors}.` : '') + (publisher ? ` Logo de l'éditeur : ${publisher}` : ''),
   a11ySummary: 'L’accessibilité de cette publication n’a pas été certifiée.',
   dedication: 'Dédicace', epigraph: 'Épigraphe', front: 'Pages liminaires',
-  chapter: 'Chapitre', titleWord: 'Titre', authorWord: 'Auteur', publisherWord: 'Éditeur', imageAlt: 'image', decorativeAlt: 'décorative',
+  chapter: 'Chapitre', titleWord: 'Titre', authorWord: 'Auteur', publisherWord: 'Éditeur', longDesc: 'Description de l’image', imageAlt: 'image', decorativeAlt: 'décorative',
 }
 
 const it: Base = {
@@ -106,7 +108,7 @@ const it: Base = {
   coverAlt: ({ title, authors, publisher }) => `Titolo: ${title}.` + (authors ? ` Autore: ${authors}.` : '') + (publisher ? ` Logo dell'editore: ${publisher}` : ''),
   a11ySummary: 'L’accessibilità di questa pubblicazione non è stata certificata.',
   dedication: 'Dedica', epigraph: 'Epigrafe', front: 'Pagine iniziali',
-  chapter: 'Capitolo', titleWord: 'Titolo', authorWord: 'Autore', publisherWord: 'Editore', imageAlt: 'immagine', decorativeAlt: 'decorativa',
+  chapter: 'Capitolo', titleWord: 'Titolo', authorWord: 'Autore', publisherWord: 'Editore', longDesc: 'Descrizione dell’immagine', imageAlt: 'immagine', decorativeAlt: 'decorativa',
 }
 
 const pt: Base = {
@@ -117,13 +119,14 @@ const pt: Base = {
   coverAlt: ({ title, authors, publisher }) => `Título: ${title}.` + (authors ? ` Autor: ${authors}.` : '') + (publisher ? ` Logótipo da editora: ${publisher}` : ''),
   a11ySummary: 'A acessibilidade desta publicação não foi certificada.',
   dedication: 'Dedicatória', epigraph: 'Epígrafe', front: 'Pré-textuais',
-  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editora', imageAlt: 'imagem', decorativeAlt: 'decorativa',
+  chapter: 'Capítulo', titleWord: 'Título', authorWord: 'Autor', publisherWord: 'Editora', longDesc: 'Descrição da imagem', imageAlt: 'imagem', decorativeAlt: 'decorativa',
 }
 
 
 const nl: Base = {
   ...en,
   notes: 'Noten',
+  longDesc: 'Beschrijving van de afbeelding',
   cover: 'Omslag', halftitle: 'Voortitel', title: 'Titelpagina', copyright: 'Colofon',
   navTitle: 'Inhoudsopgave', landmarks: 'Oriëntatiepunten', pageList: 'Paginalijst',
   startReading: 'Begin met lezen', page: 'pagina', eisbn: 'E-book ISBN', logoAlt: 'Logo van de uitgever',
@@ -135,6 +138,7 @@ const nl: Base = {
 const pl: Base = {
   ...en,
   notes: 'Przypisy',
+  longDesc: 'Opis obrazu',
   cover: 'Okładka', halftitle: 'Strona przedtytułowa', title: 'Strona tytułowa', copyright: 'Strona redakcyjna',
   navTitle: 'Spis treści', landmarks: 'Punkty orientacyjne', pageList: 'Lista stron',
   startReading: 'Zacznij czytać', page: 'strona', eisbn: 'ISBN e-booka', logoAlt: 'Logo wydawcy',
@@ -241,7 +245,7 @@ export const labelsFor = (lang: string): Labels => {
 }
 
 /** Label keys the Settings screen lets a house reword. */
-export const LABEL_KEYS = ['cover', 'coverTitle', 'halftitle', 'title', 'copyright', 'navTitle', 'landmarks', 'pageList', 'startReading', 'page', 'eisbn', 'logoAlt', 'a11ySummary', 'dedication', 'epigraph', 'front'] as const
+export const LABEL_KEYS = ['cover', 'coverTitle', 'halftitle', 'title', 'copyright', 'navTitle', 'landmarks', 'pageList', 'startReading', 'page', 'eisbn', 'logoAlt', 'a11ySummary', 'dedication', 'epigraph', 'front', 'longDesc'] as const
 export const builtInLabels = (code: string): Labels => {
   const b = TABLE[code] ?? en
   return { ...b, coverTitle: b.cover }
