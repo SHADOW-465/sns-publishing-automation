@@ -117,7 +117,10 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
   const L = labelsFor(meta.language || book.language)
   const review: ReviewItem[] = []
   const page = (n: string) => `<span aria-label="${esc(L.page)} ${esc(n)}" epub:type="pagebreak" id="page-${esc(n)}" role="doc-pagebreak" title="${esc(L.page)} ${esc(n)}"/>`
-  const tocKeys = new Set(book.toc.filter(Boolean))
+  // the contents list, at every level, decides which headings start a section; a wrapped heading still matches as part of its entry
+  const tocKeys = new Set([...book.toc, ...book.tocEntries.map((e) => normTitle(e.text))].filter(Boolean))
+  const tocBlob = ` ${[...tocKeys].join(' ')} `
+  const inContents = (key: string) => tocKeys.has(key) || (key.length >= 6 && tocBlob.includes(` ${key} `))
   const gated = tocKeys.size > 0
   const images: ImageOut[] = []
   const pictures: WordBuildResult['pictures'] = []
@@ -152,13 +155,21 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     if (block.role === 'heading') {
       const key = normTitle(block.text)
       const known = sectionTypeOf(block.text)
-      const startsChapter = block.level === 1 && (!gated || tocKeys.has(key))
+      // level 1 starts a section; so does a level 2 heading that the contents names, or that is a chapter or part by its own words
+      const startsChapter = block.level === 1 ? !gated || inContents(key) || (!!known && known !== 'chapter') : block.level === 2 && (gated ? inContents(key) : known === 'chapter' || known === 'part')
       if (startsChapter) {
         start(block.text, known && known !== 'chapter' ? known : 'chapter')
         spoken.push(block.text)
       } else {
         ensure().chunks.push({ kind: 'h', html: headingHtml(block.level === 1 ? 2 : block.level, block.text) })
         spoken.push(block.text)
+      }
+      continue
+    }
+    if (block.role === 'tocmark') {
+      if ((cur as Draft | null)?.type !== 'toc') {
+        start(L.navTitle, 'toc')
+        spoken.push(L.navTitle)
       }
       continue
     }
@@ -231,6 +242,25 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     }
   })
 
+  // the printed contents page: every entry links to the section it names
+  const tocSection = sections.find((s) => s.type === 'toc')
+  if (tocSection && book.tocEntries.length) {
+    const targets = sections.filter((s) => s.type !== 'toc' && s.nav)
+    const find = (text: string) => {
+      const k = normTitle(text)
+      return targets.find((t) => normTitle(t.nav) === k) ?? targets.find((t) => k.length >= 6 && (normTitle(t.nav).includes(k) || k.includes(normTitle(t.nav))))
+    }
+    let loose = 0
+    const lines = book.tocEntries.map((e) => {
+      const hit = find(e.text)
+      if (!hit) loose++
+      const cls = hit?.type === 'chapter' ? 'toc_1a' : hit?.type === 'part' || e.level >= 2 ? 'toc_2' : 'toc_1'
+      return `<p class="${cls}">${hit ? `<a href="${esc(hit.file)}">${esc(e.text)}</a>` : esc(e.text)}</p>`
+    })
+    if (loose) review.push({ level: 'warn', msg: `${loose} entr${loose === 1 ? 'y' : 'ies'} of the contents page match no section, so they are not links.` })
+    tocSection.body = tocSection.body.replace(/\n<\/section>$/, `\n${lines.join('\n')}\n</section>`)
+  }
+
   const cover: ImageOut = { path: withRealExt('images/cover.jpg', input.cover.data), data: input.cover.data }
   const noAlt = pictures.filter((p) => !p.alt && !p.decorative)
   const draft = pictures.filter((p) => p.alt && p.source === 'ai' && !p.approved)
@@ -264,7 +294,8 @@ function tableHtml(t: WordTable, page: (n: string) => string): string {
     const inner = cells.map((c) => `<${tag}${tag === 'th' ? ' scope="col"' : ''}>${inlinesHtml(c, page)}</${tag}>`).join('')
     return `<tr>${inner}</tr>`
   })
+  const caption = t.caption ? `<caption>${esc(t.caption)}</caption>\n` : ''
   const head = t.header[0] ? `<thead>\n${rows[0]}\n</thead>` : ''
   const body = (t.header[0] ? rows.slice(1) : rows).join('\n')
-  return `<table>\n${head}${body ? `<tbody>\n${body}\n</tbody>` : ''}\n</table>`
+  return `<table>\n${caption}${head}${body ? `<tbody>\n${body}\n</tbody>` : ''}\n</table>`
 }

@@ -6,7 +6,7 @@ import { unzip, text } from '../zip.ts'
 import { languageFromBook } from '../lang.ts'
 
 export interface WordInline {
-  t: 'text' | 'page'
+  t: 'text' | 'page' | 'br'
   text: string
   bold?: boolean
   italic?: boolean
@@ -25,6 +25,8 @@ export interface WordPara {
 
 export interface WordTable {
   role: 'table'
+  /** a short bold line right above the table: its caption */
+  caption?: string
   /** true when this row is a header (Word's header flag, or a first row that is entirely bold) */
   header: boolean[]
   rows: WordInline[][][]
@@ -38,7 +40,18 @@ export interface WordImage {
   data: Uint8Array
 }
 
-export type WordBlock = WordPara | WordTable | WordImage
+/** where the book's own contents list stood: the builder puts a linked contents page here */
+export interface WordTocMark {
+  role: 'tocmark'
+}
+
+export type WordBlock = WordPara | WordTable | WordImage | WordTocMark
+
+/** One entry of the book's own contents list, wrapped lines joined, dot leaders and page number removed. */
+export interface WordTocEntry {
+  level: number
+  text: string
+}
 
 export interface WordBook {
   title: string
@@ -50,6 +63,8 @@ export interface WordBook {
   toc: string[]
   /** contents lines left out of the body, so the checker does not call them lost */
   tocLines: string[]
+  /** every level of the contents list, in order */
+  tocEntries: WordTocEntry[]
 }
 
 const HEADING = /(?:^|[^a-z])(?:heading|u?berschrift|titre|titulo|intestazione|kop|rubrik|encabezado|titolo)\s*(\d)/i
@@ -222,7 +237,7 @@ function inlinesOf(p: Element, nos: PageNos): WordInline[] {
     }
     if (name === 'br') {
       if (attr(el, 'type') === 'page') pagePending = true
-      else emit(' ', bold, italic)
+      else if (out.length) out.push({ t: 'br', text: ' ' })
       return
     }
     if (name === 'lastRenderedPageBreak' || name === 'pageBreakBefore') {
@@ -293,7 +308,7 @@ function plainText(el: Element): string {
 
 function plainOf(inlines: WordInline[]): string {
   return inlines
-    .filter((i) => i.t === 'text')
+    .filter((i) => i.t !== 'page')
     .map((i) => i.text)
     .join('')
     .replace(/\s+/g, ' ')
@@ -311,6 +326,48 @@ function blipIds(el: Element): string[] {
   }
   walk(el)
   return ids
+}
+
+/** A typed bullet at the start of a line. (A dash or asterisk is not one: dialogue and note marks begin that way.) */
+const BULLET_GLYPH = /^\s*[•●◦▪■‣∙·○]\s*/
+
+function splitAtBreaks(inlines: WordInline[]): WordInline[][] {
+  const out: WordInline[][] = [[]]
+  for (const i of inlines) {
+    if (i.t === 'br') out.push([])
+    else out[out.length - 1].push(i)
+  }
+  return out.filter((seg) => seg.length)
+}
+
+function withoutGlyph(inlines: WordInline[]): WordInline[] {
+  const out = inlines.map((i) => ({ ...i }))
+  const k = out.findIndex((i) => i.t === 'text' && i.text.trim())
+  if (k >= 0) out[k].text = out[k].text.replace(BULLET_GLYPH, '')
+  return out
+}
+
+const TOC_END = /(?:\s|\.{2,}|…+)\s*(\d{1,4}|[ivxlc]{1,6})\s*$/i
+
+/** Contents lines to entries. A manuscript's contents often wraps one entry over several lines: the entry ends where the page number is. */
+function tocEntriesOf(raw: { level: number; text: string }[]): WordTocEntry[] {
+  const numbered = raw.filter((e) => TOC_END.test(e.text)).length * 2 >= raw.length
+  const clean = (t: string) => t.replace(/[\s.…·]*(\d{1,4}|[ivxlc]{1,6})\s*$/i, '').replace(/\s+/g, ' ').trim()
+  const out: WordTocEntry[] = []
+  let open: { level: number; text: string } | undefined
+  for (const e of raw) {
+    if (!numbered) {
+      out.push({ level: e.level, text: e.text })
+      continue
+    }
+    open = open ? { level: open.level, text: `${open.text} ${e.text}` } : { ...e }
+    if (TOC_END.test(e.text)) {
+      out.push({ level: open.level, text: clean(open.text) })
+      open = undefined
+    }
+  }
+  if (open) out.push({ level: open.level, text: clean(open.text) })
+  return out.filter((e) => e.text)
 }
 
 function cellInlines(tc: Element, nos: PageNos): WordInline[] {
@@ -388,6 +445,8 @@ export function readWordBook(data: Uint8Array): WordBook {
   const blocks: WordBlock[] = []
   const toc: string[] = []
   const tocLines: string[] = []
+  const tocRaw: { level: number; text: string }[] = []
+  let tocMarked = false
   let prevBody = ''
 
   const pushPara = (p: Element) => {
@@ -413,7 +472,8 @@ export function readWordBook(data: Uint8Array): WordBook {
     const tocLevel = facts.toc
     if (tocLevel === 1 && plain) toc.push(normTitle(plain))
     if (tocLevel > 0) {
-      if (plain) tocLines.push(plain)
+      if (plain) (tocLines.push(plain), tocRaw.push({ level: tocLevel, text: plain }))
+      if (!tocMarked) (blocks.push({ role: 'tocmark' }), (tocMarked = true))
       return
     }
     const heading = facts.heading || (paraOutline !== '' && Number(paraOutline) >= 0 && Number(paraOutline) <= 5 ? Number(paraOutline) + 1 : 0)
@@ -428,6 +488,21 @@ export function readWordBook(data: Uint8Array): WordBook {
       level = Number(ilvl) || 0
       ordered = nums.get(numId)?.get(ilvl)?.ordered ?? false
     }
+    // lines typed with their own bullet, joined by line breaks or one paragraph each, are a list
+    if (role === 'body') {
+      const segs = splitAtBreaks(inlines)
+      if (segs.some((seg) => BULLET_GLYPH.test(plainOf(seg)))) {
+        for (const seg of segs) {
+          const t = plainOf(seg)
+          if (BULLET_GLYPH.test(t)) {
+            const item = withoutGlyph(seg)
+            blocks.push({ role: 'list', level: 0, ordered: false, runOn: false, inlines: item, text: plainOf(item) })
+          } else if (t || seg.some((i) => i.t === 'page')) blocks.push({ role: 'body', level: 0, ordered: false, runOn: false, inlines: seg, text: t })
+        }
+        prevBody = ''
+        return
+      }
+    }
     const styleRun = facts.runOn
     const startsLower = /^\p{Ll}/u.test(plain)
     const prevOpen = !!prevBody && !/[.!?…:;]$/.test(prevBody)
@@ -437,28 +512,40 @@ export function readWordBook(data: Uint8Array): WordBook {
     if (role === 'heading') prevBody = ''
   }
 
+  let lastPara: WordBlock | undefined
   for (const el of kids(body)) {
     const name = local(el)
-    if (name === 'p') pushPara(el)
+    if (name === 'p') (pushPara(el), (lastPara = blocks[blocks.length - 1]))
     else if (name === 'tbl') {
       const rows: WordInline[][][] = []
       const header: boolean[] = []
+      const shaded: boolean[] = []
       for (const tr of kids(el).filter((c) => local(c) === 'tr')) {
-        const cells = kids(tr).filter((c) => local(c) === 'tc').map((tc) => cellInlines(tc, nos))
+        const tcs = kids(tr).filter((c) => local(c) === 'tc')
+        const cells = tcs.map((tc) => cellInlines(tc, nos))
         const flagged = !!child(child(tr, 'trPr') ?? tr, 'tblHeader')
         rows.push(cells)
         header.push(flagged)
+        shaded.push(tcs.length > 0 && tcs.every((tc) => { const f = attr(child(child(tc, 'tcPr') ?? tc, 'shd'), 'fill').toLowerCase(); return !!f && f !== 'auto' && f !== 'ffffff' }))
       }
-      if (rows.length && !header.some(Boolean) && rows[0].every(allBold)) header[0] = true
-      const text = rows.map((r) => r.map(plainOf).join(' ')).join('\n')
-      if (text.trim()) blocks.push({ role: 'table', header, rows, text })
+      // a header row: Word's flag, a first row that is all bold, or a shaded first row above unshaded ones
+      if (rows.length && !header.some(Boolean) && (rows[0].every(allBold) || (shaded[0] && !shaded[1]))) header[0] = true
+      // a short bold line directly above the table is its caption
+      let caption = ''
+      const last = blocks[blocks.length - 1]
+      if (last && last.role === 'body' && lastPara === last && allBold(last.inlines) && last.text.length <= 120 && !/[.:;!?]$/.test(last.text)) {
+        caption = last.text
+        blocks.pop()
+      }
+      const text = [caption, ...rows.map((r) => r.map(plainOf).join(' '))].filter(Boolean).join('\n')
+      if (text.trim()) blocks.push({ role: 'table', caption: caption || undefined, header, rows, text })
     }
   }
 
   const core = files.get('docProps/core.xml')
   const coreDoc = core ? new DOMParser().parseFromString(text(core), 'application/xml') : undefined
   const firstHeading = blocks.find((b): b is WordPara => b.role === 'heading')?.text ?? ''
-  const spoken = blocks.map((b) => (b.role === 'image' ? '' : b.text)).join('\n')
+  const spoken = blocks.map((b) => (b.role === 'image' || b.role === 'tocmark' ? '' : b.text)).join('\n')
   return {
     title: (coreDoc && dcText(coreDoc, 'title')) || firstHeading,
     authors: coreDoc ? dcText(coreDoc, 'creator') : '',
@@ -467,5 +554,6 @@ export function readWordBook(data: Uint8Array): WordBook {
     blocks,
     toc,
     tocLines,
+    tocEntries: tocEntriesOf(tocRaw),
   }
 }

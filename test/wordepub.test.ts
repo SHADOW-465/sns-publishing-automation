@@ -187,3 +187,55 @@ test('Word heading detection uses style names and outline levels, not one langua
   assert.match(first, /<h2[^>]*aria-level="2"[^>]*>Ein Unterkapitel<\/h2>/)
   assert.doesNotMatch(first, /<h1[^>]*>Ein Unterkapitel<\/h1>/)
 })
+
+test('Word, Cambia shape: parts and chapters get their own files, the contents page links to them, typed bullets become a list, a captioned table has a header; EPUBCheck clean', async () => {
+  const { epubcheck } = await import('./epubcheck.ts')
+  const stylesX = `<?xml version="1.0"?>
+<w:styles xmlns:w="${W}">
+  <w:docDefaults><w:rPrDefault><w:rPr><w:lang w:val="es-ES"/></w:rPr></w:rPrDefault></w:docDefaults>
+  <w:style w:styleId="Heading1"><w:name w:val="heading 1"/></w:style>
+  <w:style w:styleId="Heading2"><w:name w:val="heading 2"/></w:style>
+  <w:style w:styleId="TOC1"><w:name w:val="toc 1"/></w:style>
+  <w:style w:styleId="TOC2"><w:name w:val="toc 2"/></w:style>
+</w:styles>`
+  const br = '<w:r><w:br/></w:r>'
+  const shade = (t: string) => `<w:tc><w:tcPr><w:shd w:val="clear" w:fill="D9D9D9"/></w:tcPr>${p(run(t))}</w:tc>`
+  const docXml = `<?xml version="1.0"?>
+<w:document xmlns:w="${W}"><w:body>
+  ${p(run('Índice'), style('Heading1'))}
+  ${p(run('Introducción 13'), style('TOC1'))}
+  ${p(run('PRIMERA PARTE'), style('TOC2'))}
+  ${p(run('Identifica tu programación subconsciente 25'), style('TOC2'))}
+  ${p(run('Capítulo 1. ¿Qué es la mente'), style('TOC1'))}
+  ${p(run('subconsciente? ........ 27'), style('TOC1'))}
+  ${p(run('Capítulo 2. Hábitos del falso yo 40'), style('TOC1'))}
+  ${p(run('Introducción'), style('Heading1'))}
+  ${p(`${run('¿Conocías los siguientes datos?')}${br}${run('• El 84 por ciento sufre estrés.')}${br}${run('• El 47 por ciento sufre ansiedad.')}${br}${run('• El 44 por ciento sufre tristeza.')}`)}
+  ${p(run('PRIMERA PARTE Identifica tu programación subconsciente'), style('Heading1'))}
+  ${p(run('Capítulo 1. ¿Qué es la mente subconsciente?'), style('Heading2'))}
+  ${p(run('Texto del primer capítulo que los lectores leen con calma.'))}
+  ${p(run('Lista de control/puntuación', '<w:rPr><w:b/></w:rPr>'))}
+  <w:tbl>
+    <w:tr>${shade('Sí')}${shade('No')}${shade('Pregunta')}</w:tr>
+    <w:tr><w:tc>${p(run(''))}</w:tc><w:tc>${p(run(''))}</w:tc><w:tc>${p(run('¿Me siento vacío?'))}</w:tc></w:tr>
+  </w:tbl>
+  ${p(run('Capítulo 2. Hábitos del falso yo'), style('Heading2'))}
+  ${p(run('Texto del segundo capítulo que los lectores leen con calma.'))}
+</w:body></w:document>`
+  const book = readWordBook(docx({ 'word/document.xml': docXml, 'word/styles.xml': stylesX, 'docProps/core.xml': core }))
+  assert.deepEqual(book.tocEntries.map((e) => e.text), ['Introducción', 'PRIMERA PARTE Identifica tu programación subconsciente', 'Capítulo 1. ¿Qué es la mente subconsciente?', 'Capítulo 2. Hábitos del falso yo'], 'a wrapped entry is one entry, without leaders or page number')
+  const built = buildWordEpub(book, { meta: { ...meta, certifiedBy: '', conformsTo: '' }, cover: { name: 'cover.png', data: png } })
+  assert.deepEqual(built.sections.map((s) => s.file), ['toc.xhtml', 'intro.xhtml', 'part.xhtml', 'chapter01.xhtml', 'chapter02.xhtml'])
+  const toc = text(built.files.get('OEBPS/toc.xhtml')!)
+  assert.match(toc, /<p class="toc_1"><a href="intro\.xhtml">Introducción<\/a><\/p>/)
+  assert.match(toc, /<p class="toc_2"><a href="part\.xhtml">PRIMERA PARTE Identifica/)
+  assert.match(toc, /<p class="toc_1a"><a href="chapter01\.xhtml">Capítulo 1\./)
+  assert.doesNotMatch(toc, /\.{3}|>\d+</, 'no dot leaders or page numbers in the links')
+  const intro = text(built.files.get('OEBPS/intro.xhtml')!)
+  assert.match(intro, /<p>¿Conocías los siguientes datos\? ?<\/p>\s*<ul>\s*<li>El 84 por ciento sufre estrés\.<\/li>\s*<li>El 47[^<]*<\/li>\s*<li>El 44[^<]*<\/li>/)
+  assert.doesNotMatch(intro, /•/)
+  const ch1 = text(built.files.get('OEBPS/chapter01.xhtml')!)
+  assert.match(ch1, /<caption>Lista de control\/puntuación<\/caption>\s*<thead>\s*<tr><th scope="col">Sí<\/th>/)
+  const ec = epubcheck(built.epub)
+  if (ec) assert.deepEqual(ec.errors, [], ec.output)
+})
