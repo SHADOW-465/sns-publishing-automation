@@ -287,6 +287,17 @@ test('2: the title page follows the printed page: author on top, lines flush rig
   assert.deepEqual(unordered, ['Sample Book', 'EXAMPLE PRESS', 'ANNA WRITER'])
 })
 
+test('FM-02 rebuilt: the house order and classes without the print PDF; a line the page lacks comes from Book details', () => {
+  const { f } = book({ titleOrder: 'rebuilt' })
+  const t = f('title.xhtml')
+  const order = [...t.matchAll(/<(h1|p) [^>]*class="([^"]+)"[^>]*>([^<]+)</g)].map((m) => `${m[2]}:${m[3]}`)
+  assert.deepEqual(order, ['title-3:ANNA WRITER', 'title_1:Sample Book', 'title-2:EXAMPLE PRESS'], 'author, title, publisher; no flush-right or sans variants')
+  // a page with only the title still gets its author and publisher
+  const body = () => synthExport(exportBody().replace(/<p class="text ParaOverride-2"><span class="CharOverride-4">(Example Press|Anna Writer)<\/span><\/p>/g, ''), css, 'de-DE')
+  const bare = book({ titleOrder: 'rebuilt' }, body).f('title.xhtml')
+  assert.deepEqual([...bare.matchAll(/<(?:h1|p) [^>]*>([^<]+)</g)].map((m) => m[1]), ['Anna Writer', 'Sample Book', 'Example Press'])
+})
+
 test('2: inPrintOrder only reorders when every line is found on the printed page', () => {
   const p = (t: string) => ({ t: 'p', text: t }) as never
   const items = [p('B line'), p('A line'), p('Nowhere')]

@@ -333,10 +333,11 @@ export const RULES: Rule[] = [
   },
   {
     id: 'FM-02', group: 'Copyright page', title: 'Order of the title page lines', kind: 'free', type: 'choice', key: 'titleOrder',
-    help: 'With the print PDF, the lines of the title page follow the printed page. Choose the source order to keep the export’s order.',
-    choices: [['print', 'As printed (needs the print PDF)'], ['source', 'As in the InDesign export']],
-    example: (v) => (v === 'print' ? '(author, title, subtitle, publisher as on the printed page)' : '(lines in the order of the export)'),
-    keywords: ['title page order', 'orden de la portadilla', 'title page lines'],
+    help: 'With the print PDF, the lines of the title page follow the printed page. Choose the source order to keep the export’s order, or rebuilt for the house layout: author, title, subtitle, publisher, in the house styles, with any missing line taken from Book details.',
+    choices: [['print', 'As printed (needs the print PDF)'], ['source', 'As in the InDesign export'], ['rebuilt', 'Rebuilt in the house order']],
+    example: (v) => (v === 'print' ? '(author, title, subtitle, publisher as on the printed page)' : v === 'rebuilt' ? '<p class="title-3">Author</p>\n<h1 class="title_1">Title</h1>\n<p class="title-4">Subtitle</p>\n<p class="title-2">Publisher</p>' : '(lines in the order of the export)'),
+    keywords: ['title page order', 'orden de la portadilla', 'title page lines', 'rebuild title page', 'titelei neu'],
+    choiceWords: { rebuilt: ['rebuilt', 'rebuild', 'house order', 'neu aufgebaut'], source: ['export order', 'source order'] },
     origin: 'EPUB Automation Report 15-10-26 (point 2); design 4.3',
   },
   // ---- stylesheet ----

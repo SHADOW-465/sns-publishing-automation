@@ -126,8 +126,9 @@ const SCHEMA = {
   navDepth: { def: 3, min: 1, max: 3 },
   /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
   navFront: { def: 'all', choices: ['all', 'named', 'none'] },
-  /** FM-02: the title page lines follow the printed page (needs the print PDF) or stay in the order of the export */
-  titleOrder: { def: 'print', choices: ['print', 'source'] },
+  /** FM-02: the title page lines follow the printed page (needs the print PDF), stay in the order of the export,
+   *  or are rebuilt in the house order (author, title, subtitle, publisher) from the page and Book details */
+  titleOrder: { def: 'print', choices: ['print', 'source', 'rebuilt'] },
   /** PKG-02: the cover page is part of the reading order (linear) or only reachable from the menu */
   coverLinear: { def: true, bool: true },
   /** PKG-03: write the EPUB 2 <guide> (cover and contents) */

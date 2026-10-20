@@ -1345,7 +1345,13 @@ function renderFront(
     use(tg, name, { '@house': base, ...(a ? { 'text-align': align } : {}), ...(sans ? { 'font-family': 'sans-serif' } : {}) })
     return name
   }
-  for (const b of s.type === 'copyright' ? items : s.type === 'title' && settings().titleOrder === 'print' ? inPrintOrder(s.items, printPage) : s.items) {
+  // FM-02 rebuilt: the house order (author, title, subtitle, other lines, publisher) in the house classes; a line the page lacks comes from Book details
+  const rebuilt = s.type === 'title' && settings().titleOrder === 'rebuilt'
+  const isAuthor = (t: string) => eq(t, meta.authors) || authors.some((a) => eq(t, a))
+  const rank = (t: string) => (isAuthor(t) ? 0 : eq(t, meta.title) ? 1 : eq(t, meta.subtitle) ? 2 : meta.publisher && eq(t, meta.publisher) ? 4 : 3)
+  const buckets: string[][] = [[], [], [], [], []]
+  const lines = s.type === 'copyright' ? items : s.type === 'title' && settings().titleOrder === 'print' ? inPrintOrder(s.items, printPage) : s.items
+  for (const b of lines) {
     if (b.t === 'pb') {
       out.push(ctx.pageMarker(b.n))
       continue
@@ -1358,6 +1364,11 @@ function renderFront(
     if (s.type === 'title') {
       // the title page keeps the look of the printed one: its order (above), the alignment the export gave each line, sans or serif
       const inner = inlineHtml(b.el, ctx, { heading: true })
+      if (rebuilt) {
+        const r = rank(b.text)
+        buckets[r].push(r === 0 ? `<p aria-label="${esc(L.authorWord)}" class="title-3">${inner}</p>` : r === 1 ? `<h1 aria-label="${esc(L.titleWord)}" class="title_1">${inner}</h1>` : r === 2 ? `<p class="title-4">${inner}</p>` : r === 4 ? `<p aria-label="${esc(L.publisherWord)}" class="title-2">${inner}</p>` : `<p class="title-2">${inner}</p>`)
+        continue
+      }
       if (eq(b.text, meta.title)) out.push(`<h1 aria-label="${esc(L.titleWord)}" class="${titleLook(b, 'h1', 'title_1')}">${inner}</h1>`)
       else if (authors.some((a) => eq(b.text, a))) out.push(`<p aria-label="${esc(L.authorWord)}" class="${titleLook(b, 'p', 'title-3')}">${inner}</p>`)
       else if (meta.publisher && eq(b.text, meta.publisher)) out.push(`<p aria-label="${esc(L.publisherWord)}" class="${titleLook(b, 'p', 'title-2')}">${inner}</p>`)
@@ -1383,6 +1394,13 @@ function renderFront(
     out.push(`<p class="${cls}">${html(b)}</p>`)
   }
   if (s.type === 'copyright' && !isbnDone && meta.eisbn) out.push(`<p class="copy1">${esc(L.eisbn)}: ${esc(eisbnShown)}</p>`)
+  if (rebuilt) {
+    if (!buckets[0].length && meta.authors) buckets[0].push(`<p aria-label="${esc(L.authorWord)}" class="title-3">${esc(meta.authors)}</p>`)
+    if (!buckets[1].length && meta.title) buckets[1].push(`<h1 aria-label="${esc(L.titleWord)}" class="title_1">${esc(meta.title)}</h1>`)
+    if (!buckets[2].length && meta.subtitle) buckets[2].push(`<p class="title-4">${esc(meta.subtitle)}</p>`)
+    if (!buckets[4].length && meta.publisher) buckets[4].push(`<p aria-label="${esc(L.publisherWord)}" class="title-2">${esc(meta.publisher)}</p>`)
+    out.push(...buckets.flat())
+  }
   if (s.type === 'title') {
     if (!out.some((h) => h.includes('class="title_1'))) review.push({ level: 'warn', msg: `Title page: no line matches the book title "${meta.title}", so no <h1> was set.`, where: 'title.xhtml' })
     for (const l of logos) {
