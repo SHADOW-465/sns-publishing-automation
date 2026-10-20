@@ -1,6 +1,6 @@
 // The validation gate: one verdict for a built EPUB, from the stages below. Green needs EPUBCheck to have run and passed.
 //   1 our structure checks  2 spec conformance  3 accessibility claims  4 EPUBCheck (service)  6 reference diff
-// Stage 5 (Ace) and axe-core are not wired yet. EPUBCheck needs Java, so the browser reaches it only through a validator service.
+// Stage 3 reads the common axe/Ace findings from the XHTML itself (pageRules); the full Ace run (stage 5) is not wired. EPUBCheck needs Java, so the browser reaches it only through a validator service.
 import { unzip, text, type Files } from '../zip.ts'
 import type { HouseSettings } from '../settings.ts'
 import { checkEpubBytes, type CheckSource } from './epub.ts'
@@ -41,6 +41,34 @@ export function claimsCheck(files: Files): string[] {
   return bad
 }
 
+/** What axe-core / Ace report most often, read straight from the XHTML (no browser needed): empty links, repeated ids, a table with no header cell, a skipped heading level. */
+export function pageRules(files: Files): { errors: string[]; warnings: string[] } {
+  const errors: string[] = []
+  const warnings: string[] = []
+  for (const [path, data] of files) {
+    if (!path.endsWith('.xhtml')) continue
+    const doc = new DOMParser().parseFromString(text(data), 'application/xhtml+xml')
+    if (doc.getElementsByTagName('parsererror').length) continue
+    const name = path.replace(/^.*\//, '')
+    const seen = new Set<string>()
+    for (const el of Array.from(doc.getElementsByTagName('*'))) {
+      const id = el.getAttribute('id')
+      if (id && seen.has(id)) errors.push(`${name}: the id "${id}" is used twice`)
+      if (id) seen.add(id)
+    }
+    for (const a of Array.from(doc.getElementsByTagName('a')).filter((x) => x.hasAttribute('href')))
+      if (!(a.textContent ?? '').trim() && !a.getAttribute('aria-label') && !a.querySelector('img[alt]:not([alt=""])')) errors.push(`${name}: a link to "${a.getAttribute('href')}" has no text`)
+    for (const t of Array.from(doc.getElementsByTagName('table'))) if (!t.getElementsByTagName('th').length) warnings.push(`${name}: a table has no header cells`)
+    let level = 0
+    for (const h of Array.from(doc.getElementsByTagName('*')).filter((x) => /^h[1-6]$/i.test(x.localName))) {
+      const n = Number(h.localName[1])
+      if (level && n > level + 1) warnings.push(`${name}: heading level jumps from h${level} to h${n} ("${(h.textContent ?? '').trim().slice(0, 40)}")`)
+      level = n
+    }
+  }
+  return { errors, warnings }
+}
+
 export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: CheckSource; validator?: EpubValidator; reference?: Files; conformance?: boolean } = {}): Promise<GateReport> {
   const files = unzip(epub)
   const stages: GateStage[] = []
@@ -49,7 +77,8 @@ export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: Che
   stages.push({ id: 'structure', title: 'Structure checks', ran: true, errors: flat.filter((f) => f.level === 'error').map((f) => f.msg), warnings: flat.filter((f) => f.level === 'warn').map((f) => f.msg) })
   // conformance only makes sense for a book built under these settings, not for any EPUB dropped into the checker
   if (o.conformance !== false) stages.push({ id: 'conformance', title: 'Spec conformance', ran: true, errors: conformance(files, s), warnings: [] })
-  stages.push({ id: 'accessibility', title: 'Accessibility claims', ran: true, errors: claimsCheck(files), warnings: [] })
+  const rules = pageRules(files)
+  stages.push({ id: 'accessibility', title: 'Accessibility claims', ran: true, errors: [...claimsCheck(files), ...rules.errors], warnings: rules.warnings })
   const v = await (o.validator ?? noValidator)(epub)
   stages.push({ id: 'epubcheck', title: 'EPUBCheck', ran: !!v, errors: v?.errors ?? [], warnings: v?.warnings ?? [] })
   if (!v) notes.push('EPUBCheck could not run here, so this file is not cleared for delivery.')
