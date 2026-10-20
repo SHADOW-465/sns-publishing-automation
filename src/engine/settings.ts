@@ -118,6 +118,8 @@ const SCHEMA = {
   tdmReservation: { def: 'off', choices: ['off', 'reserved'] },
   /** NOTE-04: where notes go. auto = InDesign end notes on the notes page when the book has one, footnotes under their chapter */
   noteSpot: { def: 'auto', choices: ['auto', 'chapter', 'book-end'] },
+  /** NOTE-05: the number a note shows: the source's own mark, counted through the whole book, or starting again in each chapter */
+  noteNumbers: { def: 'source', choices: ['source', 'continuous', 'per-chapter'] },
   /** HD-09: subheads the book styles only by their look: all h3, or a level by size (the biggest h3, the next h4, then h5) */
   headingLevels: { def: 'one', choices: ['one', 'size'] },
   /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */

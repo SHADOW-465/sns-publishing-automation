@@ -69,3 +69,17 @@ test('the client’s chapter-title template (tag, class, attributes) shapes the 
     setSettings(DEFAULT_SETTINGS)
   }
 })
+
+test('NOTE-05 in the PDF build: per chapter, the second chapter’s notes are 1 and 2 again, in the text and in front of the note', async () => {
+  const book = await analyzePdf(pdfjs, await bookWithFootnotes(), nodeRaster)
+  setSettings({ ...DEFAULT_SETTINGS, noteNumbers: 'per-chapter' })
+  try {
+    const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, title: 'Das Feld', authors: 'A. Autor', eisbn: '9780306406157', language: 'de-DE' }, rules: rulesFor('de'), cover: { name: 'cover.png', data: COVER } }, nodeRaster)
+    const ch2 = text([...r.files].find(([p]) => /chapter02\.xhtml$/.test(p))![1])
+    assert.deepEqual([...ch2.matchAll(/role="doc-noteref">([^<]+)<\/a>/g)].map((m) => m[1]), ['1', '2'])
+    assert.deepEqual([...ch2.matchAll(/role="doc-backlink">([^<]+)<\/a>/g)].map((m) => m[1]), ['1', '2'])
+    assert.match(ch2, /role="doc-backlink">1<\/a> Anmerkung 3 zum Kapitel 2/)
+  } finally {
+    setSettings(DEFAULT_SETTINGS)
+  }
+})

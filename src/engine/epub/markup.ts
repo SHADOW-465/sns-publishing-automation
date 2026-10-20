@@ -11,3 +11,9 @@ export function noteRef(href: string, id: string, label: string): string {
   const wrap = t?.wrap ?? 'sup'
   return wrap ? `<${wrap}>${a}</${wrap}>` : a
 }
+
+/** NOTE-05: the number a note shows: the source's own mark, its place in the book, or its place in its chapter. */
+export function noteLabel(source: string, inBook: number, inSection: number): string {
+  const m = settings().noteNumbers
+  return m === 'continuous' ? String(inBook) : m === 'per-chapter' ? String(inSection) : source
+}

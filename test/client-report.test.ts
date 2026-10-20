@@ -260,6 +260,18 @@ test('5: a footnote (not an end note) stays under its chapter, and its reference
   assert.match(ch1, /<div class="footnotes">[\s\S]*<div epub:type="footnote" id="fn-01" role="doc-footnote">/)
 })
 
+test('NOTE-05: a note shows the source mark, its number in the book, or its number in its chapter', () => {
+  // the second note is marked "†" in the source
+  const body = () => synthExport(exportBody().replace('<span>2</span></a>&#9;Second', '<span>†</span></a>&#9;Second'), css, 'de-DE')
+  const ref = (f: (n: string) => string) => f('chapter02.xhtml').match(/role="doc-noteref">([^<]+)<\/a>/)?.[1]
+  const back = (f: (n: string) => string) => f('notes.xhtml').match(/href="chapter02\.xhtml#fn_2" role="doc-backlink">([^<]+)<\/a>/)?.[1]
+  for (const [mode, want] of [['source', '†'], ['continuous', '2'], ['per-chapter', '1']] as const) {
+    const { f } = book({ noteNumbers: mode }, body)
+    assert.equal(ref(f), want, mode)
+    assert.equal(back(f), want, `${mode}: the note on the notes page shows the same number`)
+  }
+})
+
 // ---- 2: title page -------------------------------------------------------------------------------
 test('2: the title page follows the printed page: author on top, lines flush right as exported, sans where the font is sans', () => {
   const { f, css } = book({}, undefined, pages)

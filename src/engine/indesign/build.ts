@@ -12,7 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
-import { noteRef } from '../epub/markup.ts'
+import { noteRef, noteLabel } from '../epub/markup.ts'
 import { indesignNotes } from './notes.ts'
 import { type NoteFinding } from '../structure/notes.ts'
 import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
@@ -724,6 +724,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   for (const s of all) {
     const file = `${s.stem}.xhtml`
     const notes: string[] = []
+    let secNo = 0 // notes in this section, for NOTE-05 per chapter
     const ctx = inlineCtx(
       ex, meta.language, L,
       (n) => {
@@ -738,7 +739,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
           return ''
         }
         fnNo++
-        const marker = footnoteMarker(li)
+        const marker = noteLabel(footnoteMarker(li), fnNo, ++secNo)
         if (collectEndnotes && (settings().noteSpot === 'book-end' || ex.endnotes?.has(id))) {
           const n = String(fnNo)
           fnSeen.set(id, n)

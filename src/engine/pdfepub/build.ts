@@ -1,6 +1,6 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
-import { noteRef } from '../epub/markup.ts'
+import { noteRef, noteLabel } from '../epub/markup.ts'
 import type { ImgBox, FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -661,6 +661,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const sections: Section[] = []
   const pageFile = new Map<string, string>()
   const bodyOf = new Map<PSec, string>()
+  let pdfNoteNo = 0
   for (const s of all) {
     const meta0 = SECTION_META[s.type]
     const headId = s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem
@@ -683,7 +684,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     else body += renderBlocks(s.blocks)
     // the notes whose numbers are in this section, at its end
     const here = [...body.matchAll(/id="fnr-(\d+)"/g)].map((m) => footnotes.find((n) => n.id === Number(m[1]))).filter((n) => !!n)
-    if (here.length) body += `\n<div class="footnotes">\n${here.map((n) => `<div epub:type="footnote" id="fn-${n.id}" role="doc-footnote">\n<p class="Nota-al-pie"><a epub:type="backlink" href="#fnr-${n.id}" role="doc-backlink">${esc(n.label)}</a> ${esc(n.text)}</p>\n</div>`).join('\n')}\n</div>`
+    // NOTE-05: the number shown in the text and in front of the note
+    const shown = new Map(here.map((n, i) => [n.id, noteLabel(n.label, ++pdfNoteNo, i + 1)]))
+    body = body.replace(/(<a epub:type="noteref" href="#fn-(\d+)"[^>]*>)[^<]*(<\/a>)/g, (m, a, id, c) => (shown.has(Number(id)) ? `${a}${esc(shown.get(Number(id))!)}${c}` : m))
+    if (here.length) body += `\n<div class="footnotes">\n${here.map((n) => `<div epub:type="footnote" id="fn-${n.id}" role="doc-footnote">\n<p class="Nota-al-pie"><a epub:type="backlink" href="#fnr-${n.id}" role="doc-backlink">${esc(shown.get(n.id)!)}</a> ${esc(n.text)}</p>\n</div>`).join('\n')}\n</div>`
     bodyOf.set(s, body)
     for (const m of body.matchAll(/id="page-([^"]+)"/g)) pageFile.set(m[1], `${s.stem}.xhtml`)
   }

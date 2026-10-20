@@ -250,6 +250,15 @@ export const RULES: Rule[] = [
     choiceWords: { chapter: ['under each chapter', 'por capítulo'], 'book-end': ['end of the book', 'al final del libro'] },
     origin: 'EPUB Automation Report 15-10-26 (point 12); design 4.3',
   },
+  {
+    id: 'NOTE-05', group: 'Notes', title: 'Note numbers', kind: 'free', type: 'choice', key: 'noteNumbers',
+    help: 'The number each note shows, in the text and in front of the note: as the source numbers them, counted 1, 2, 3… through the whole book, or starting again at 1 in each chapter.',
+    choices: [['source', 'As the source numbers them'], ['continuous', 'Through the whole book'], ['per-chapter', 'From 1 in each chapter']],
+    example: (v) => (v === 'source' ? '<sup><a …>*</a></sup>  (the mark the source has)' : v === 'continuous' ? 'chapter 1: 1, 2 · chapter 2: 3, 4' : 'chapter 1: 1, 2 · chapter 2: 1, 2'),
+    keywords: ['note numbering', 'footnote numbering', 'numeración de notas', 'notes numbered', 'fußnotennummerierung', 'continuous numbering', 'restart numbering'],
+    choiceWords: { continuous: ['continuous', 'whole book', 'durchgehend', 'correlativa'], 'per-chapter': ['per chapter', 'each chapter', 'restart', 'por capítulo', 'pro kapitel'] },
+    origin: 'Design 4.3',
+  },
   // ---- contents pages ----
   {
     id: 'NAV-01', group: 'Contents pages', title: 'Hanging indent of chapter entries', kind: 'free', type: 'number', key: 'tocEntryIndentEm', unit: 'em', min: 0, max: 5,
