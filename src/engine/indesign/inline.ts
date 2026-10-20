@@ -287,7 +287,7 @@ function render(segs: Seg[], base: Face, lang: string, heading: boolean): string
   // one small-caps run per word: "Ca<span class="small-caps">PÍTULO</span>" (a word split between
   // faces over several spans) → "C<span class="small-caps">APÍTULO</span>"; neighbouring runs join
   html = html.replace(/(\p{Ll}+)<span class="small-caps">/gu, (_, low: string) => `<span class="small-caps">${low.toLocaleUpperCase(lang)}`)
-  for (let prev = ''; prev !== html; ) (prev = html), (html = html.replace(/(<span class="small-caps">[^<]*)<\/span><span class="small-caps">/g, '$1'))
+  for (let prev = ''; prev !== html; ) (prev = html), (html = html.replace(/(<span class="small-caps">[^<]*)<\/span>( ?)<span class="small-caps">/g, '$1$2'))
   if (heading) html = html.trim()
   return html
 }
