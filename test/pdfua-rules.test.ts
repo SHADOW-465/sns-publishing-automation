@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { columnStarts, type PdfBook, type PLine } from '../src/engine/pdfepub/analyze.ts'
 import { columnGutters } from '../src/engine/pdf/layout.ts'
-import { buildStructure, type SNode, type UaRole } from '../src/engine/pdfua/structure.ts'
+import { buildStructure, inferUaStyles, type SNode, type UaRole } from '../src/engine/pdfua/structure.ts'
 import { endnotePairs } from '../src/engine/pdfua/notes.ts'
 import { isFrameOrRule, detectFigures } from '../src/engine/pdfua/figures.ts'
 import { tokenize, rewrite } from '../src/engine/pdfua/content.ts'
@@ -160,4 +160,12 @@ test('a wrapped line that is flush with its paragraph stays in it on a page that
   for (let i = 0; i < 4; i++) rows.push(body(160 + i * 42, `${i + 1}. An entry that is long enough to wrap onto a second line of text here`, 40, 340), body(174 + i * 42, 'turned over and indented', 58, 150))
   const st = buildStructure(bookOf([rows]), roles, new Map())
   assert.equal(st.root.kids.filter((k) => k.tag === 'P')[0].lines.length, 2)
+})
+
+test('a "Chapter 1" label in display type is not a heading level: levels do not depend on how the label was classified', () => {
+  const st = (key: string, role: string, samples: string[]) => ({ key, role, samples, count: 5 })
+  const pages = [0, 1, 2].map((i) => [line(i, 'x', 40, 100, 50, 18, 'F 18'), line(i, 'Chapter 1', 40, 100, 90, 14, 'F 14'), line(i, 'y', 40, 100, 130, 13, 'F 13'), line(i, 'body', 40, 300, 170, 11, 'F 11')])
+  const book = { ...bookOf(pages), bodyKey: 'F 11', styles: [st('F 18', 'title', ['Alpha beta']), st('F 14', 'title', ['Chapter 1', 'Chapter 2']), st('F 13', 'subhead', ['A subhead']), st('F 11', 'body', ['text'])] } as unknown as PdfBook
+  const r = Object.fromEntries(inferUaStyles(book).map((s) => [s.key, s.role]))
+  assert.deepEqual([r['F 18'], r['F 13'], r['F 14']], ['H1', 'H2', 'Inline'])
 })

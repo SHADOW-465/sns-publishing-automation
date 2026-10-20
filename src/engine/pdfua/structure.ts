@@ -63,7 +63,8 @@ export interface Figure {
 /** Default tag roles from the analysed font styles. */
 export function inferUaStyles(book: PdfBook): UaStyle[] {
   const heads = book.styles
-    .filter((s) => ['chapter-number', 'title', 'subhead', 'subhead2'].includes(s.role) && s.role !== 'chapter-number')
+    // a "Chapter 1" label in display type is part of the chapter heading, never a level of its own
+    .filter((s) => ['chapter-number', 'title', 'subhead', 'subhead2'].includes(s.role) && s.role !== 'chapter-number' && !(s.samples.length && s.samples.every((x) => CHAPTER_LABEL.test(x.trim()))))
     .map((s) => ({ s, size: Number(s.key.split(' ').pop()) }))
   // heading levels: heading styles used across the book (3+ pages) ranked by size; display type
   // that only appears on the title pages joins the nearest level
