@@ -98,3 +98,16 @@ test('Cambia with the Arkano client layer: the reference’s own class names and
   const ec = epubcheck(r.epub)
   if (ec) assert.deepEqual(ec.errors, [], ec.output)
 })
+
+test('HD-09: styles that only look like headings take h3 by default, or a level by size rank', { skip: !has(input) && 'samples missing' }, async () => {
+  const { setSettings, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
+  const levels = (m: 'one' | 'size') => {
+    setSettings({ ...DEFAULT_SETTINGS, headingLevels: m })
+    return Object.fromEntries(analyze(unzip(read(input))).styles.filter((s) => /^h\d/.test(s.role)).map((s) => [s.key, s.role]))
+  }
+  assert.deepEqual(Object.values(levels('one')), ['h3', 'h3', 'h3'])
+  const by = levels('size')
+  assert.equal(by['Ladillo-1'], 'h3', 'the biggest')
+  assert.ok(by['Ladillo-2'] > by['Ladillo-1'], 'the smallest sits deeper')
+  setSettings(DEFAULT_SETTINGS)
+})

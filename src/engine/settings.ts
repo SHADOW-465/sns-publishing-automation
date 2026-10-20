@@ -101,6 +101,8 @@ export interface HouseSettings extends StdOptions {
   tdmReservation: 'off' | 'reserved'
   /** NOTE-04: where notes go. auto = InDesign end notes on the notes page when the book has one, footnotes under their chapter */
   noteSpot: 'auto' | 'chapter' | 'book-end'
+  /** HD-09: subheads the book styles only by their look: all h3, or a level by size (the biggest h3, the next h4, then h5) */
+  headingLevels: 'one' | 'size'
   /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */
   navDepth: number
   /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
@@ -157,6 +159,7 @@ const SCHEMA = {
   navLabelOn: { def: 'section', choices: ['section', 'nav'] },
   tdmReservation: { def: 'off', choices: ['off', 'reserved'] },
   noteSpot: { def: 'auto', choices: ['auto', 'chapter', 'book-end'] },
+  headingLevels: { def: 'one', choices: ['one', 'size'] },
   navDepth: { def: 3, min: 1, max: 3 },
   navFront: { def: 'all', choices: ['all', 'named', 'none'] },
   titleOrder: { def: 'print', choices: ['print', 'source'] },

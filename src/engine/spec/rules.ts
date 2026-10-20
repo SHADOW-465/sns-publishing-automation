@@ -127,6 +127,14 @@ export const RULES: Rule[] = [
   },
 
   {
+    id: 'HD-09', group: 'Headings', title: 'Levels of subheads', kind: 'free', type: 'choice', key: 'headingLevels',
+    help: 'A style that only looks like a heading (bold, short, space around it) has no level in the export. One level puts them all at h3, as before. By size gives the biggest h3, the next h4, the next h5, so the outline follows the print hierarchy. A style the export already tagged h2 to h5 keeps its level.',
+    choices: [['one', 'All at h3'], ['size', 'By size: h3, h4, h5']],
+    example: (v) => (v === 'size' ? '<h3>Large subhead</h3> … <h4>Smaller subhead</h4>' : '<h3>Large subhead</h3> … <h3>Smaller subhead</h3>'),
+    keywords: ['heading levels', 'subhead levels', 'h3 h4', 'outline', 'niveles de título', 'jerarquía de títulos', 'überschriftenebene'],
+    origin: 'Design 3.2',
+  },
+  {
     id: 'HD-07', group: 'Headings', title: 'Chapter title element', kind: 'free', type: 'choice', key: 'chapterTag',
     help: 'Every chapter title is a heading (h2), never a classed paragraph. "As the source" keeps an h1 when the InDesign export already typed the title so.',
     choices: [['h2', 'h2 for every chapter title'], ['source', 'The element the export used']],

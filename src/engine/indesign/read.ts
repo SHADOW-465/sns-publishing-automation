@@ -352,6 +352,8 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       }
     }
   }
+  const typo: string[] = []
+  const levelBySize = new Map<string, Role>()
   for (const k of keys) {
     if (roles.has(k)) continue
     const bl = byKey.get(k)!.blocks
@@ -369,6 +371,12 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     else if (CHAPTER_WORD.test(bl[0]?.text ?? '') && centered(k) && bl.length < 3) r = ['p', 'centred short line', true]
     else r = ['p', k === bodyKey ? 'main body text style' : indent < 0 ? 'hanging indent' : left > 0 ? 'indented block' : 'paragraph', false]
     roles.set(k, r)
+    if (r[0] === 'h3' && r[1].startsWith('short, bold')) typo.push(k)
+  }
+  // HD-09: styles that only look like headings take a level by size rank (the biggest h3, then h4, h5)
+  if (settings().headingLevels === 'size' && typo.length > 1) {
+    const sizes = [...new Set(typo.map((k) => Math.round(em(decl(k)['font-size']) * 100)))].sort((a, b) => b - a)
+    for (const k of typo) levelBySize.set(k, (['h3', 'h4', 'h5'] as const)[Math.min(2, sizes.indexOf(Math.round(em(decl(k)['font-size']) * 100)))])
   }
   // every signal votes (structure/score.ts); the first-match answer is one weak vote among them
   const feats = indesignFeatures(ex, { bodyKey, decl, isTocLine, tocText: (b) => tocEntryText(b.el), nav: ex.nav })
@@ -389,7 +397,8 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     const s = saved[k]
     const ev: Evidence<Canon>[] = s ? [evidence<Canon>('saved', s.role, 'saved decision for this style')] : scoreStyle(stats.get(k)!, ctx)
     const dec = decide(ev)
-    const pick = (dec.role in ROLE_HELP ? dec.role : auto.role) as Role
+    let pick = (dec.role in ROLE_HELP ? dec.role : auto.role) as Role
+    if (pick === 'h3' && !s && levelBySize.has(k)) pick = levelBySize.get(k)!
     const why = ev.filter((e) => e.role === pick && e.signal !== 'fallback').sort((a, b) => b.weight - a.weight).map((e) => e.note)
     infos.push({
       key: k,
