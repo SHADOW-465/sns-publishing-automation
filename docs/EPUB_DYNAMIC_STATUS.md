@@ -68,3 +68,13 @@ The temp copy was deleted afterwards. The installer `.exe` itself was not unpack
 ## PDF footnotes (20 Oct 2026)
 
 A raised number that pdf.js reads as a line of its own now counts as a note reference and moves back into its line (`notes.ts`, test in `detect.test.ts`). The three reference PDFs have no footnotes, so the real-book check is the unit test only. There is no screenshot tool for the flow in the repo, so no screenshot was taken. The review list now blocks on any item under 0.6 except build messages (`note:`) and untitled parts (`nav:`); an earlier draft of that filter dropped book-detail and section items by mistake (and/or precedence) and was rewritten.
+
+## Branch forge/epub-next (21 Oct 2026)
+
+- **Phase 1:** gate stage 3 now reads the common axe/Ace findings from the XHTML (`pageRules`: empty links, repeated ids, headerless tables, skipped heading levels). A GitHub Actions workflow runs the type check and tests (sample-based tests skip there). Still not wired: the full Ace run and axe-core in a browser frame.
+- **Phase 2:** the PDF builder writes chapter headings through the client's `chapter-title` template; the client `styleMap` is applied in `build()` (it was only read at analysis, before the spec was open). Arkano Books (Cambia) is a client file made from the reference EPUB. Still open: `HouseSettings` type next to the schema, NOTE-05, FM-02 "rebuilt".
+- **Phase 5:** extra attributes (aria-*, data-*) in a markup sample are read into the template and written. Still only `chapter-title` and `noteref` are templated roles.
+- **Phase 6:** German and Dutch printer lines join the print-only rules. Not done: the abbreviation table, extended descriptions for complex figures.
+- **Heading levels:** rule HD-09 (`one` = all h3, as before; `size` = h3/h4/h5 by size rank).
+- **PDF footnotes:** already notes from `a08cb22`; `77d1200` adds an in-memory PDF with 16 footnotes through the whole PDF to EPUB build (links both ways, foot lines out of the page text, EPUBCheck clean).
+
