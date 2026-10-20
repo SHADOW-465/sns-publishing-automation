@@ -95,3 +95,34 @@ test('FIG-02: a complex figure’s extended description is a paragraph or a coll
   assert.match(pdfImgHtml('images/map.png', choice, '', 'de-DE').extra, /<summary>Bildbeschreibung<\/summary><p>Wege und Hallen\.<\/p>/)
   assert.match(longDescHtml('x', 'a < b', 'es'), /<summary>Descripción de la imagen<\/summary><p>a &lt; b<\/p>/)
 })
+
+test('a client’s content rules match unnamed one-off paragraphs by what they say and how they are set, whatever the export numbered them', async () => {
+  const { CLIENT_FILES } = await import('../src/clients/index.ts')
+  const ark = CLIENT_FILES.find((c) => c.match === 'arkanobooks')!
+  assert.ok(!JSON.stringify(ark.styleMap).includes('ParaOverride'), 'no export numbers in the client file')
+  const run = (n: (k: number) => string) => {
+    const css = `${SYNTH_CSS}
+p.${n(1)} { margin-left:17px; text-indent:0; text-align:justify; }
+p.${n(2)} { margin-left:51px; text-indent:-17px; }
+p.${n(3)} { margin-left:34px; text-indent:-17px; }
+p.${n(4)} { text-align:center; }
+p.${n(5)} { text-indent:17px; margin-top:9px; }
+p.${n(6)} { margin-left:17px; text-indent:0; }`
+    const body = [long('Front line to keep the front matter alive.'),
+      `<p class="Etiqueta">Chapter 1</p>\n<p class="Titulo">Title</p>`, long('Body of the chapter.'),
+      `<p class="${n(1)}">Pregunta: ¿Quién soy?</p>`, `<p class="${n(2)}">Respuesta: «Yo».</p>`,
+      `<p class="${n(3)}">1: Pensar.</p>`, `<p class="${n(4)}">Instagram: www.example.com/x</p>`,
+      `<p class="${n(5)}">Sí = 1 punto</p>`, `<p class="${n(5)}">Suma tus puntuaciones:</p>`,
+      `<p class="${n(6)}">Un párrafo cualquiera con sangría que no es pregunta ni respuesta alguna.</p>`, long('The end of the chapter.')].join('\n')
+    setSettings({ ...DEFAULT_SETTINGS, styleMap: ark.styleMap })
+    const a = analyze(synthExport(body, css, 'es'))
+    const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'Sample', authors: 'A. Writer', eisbn: '9780306406157' }, cover: { name: 'cover.png', data: cover } })
+    const html = [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([, d]) => text(d)).join('\n')
+    const cls = (t: string) => html.match(new RegExp(`<p class="([^"]+)">${t}`))?.[1]
+    return ['Pregunta', 'Respuesta', '1: Pensar', 'Instagram', 'Sí = 1', 'Suma tus', 'Un párrafo'].map(cls)
+  }
+  const want = ['extract', 'extract1', 'num1', 'web', 'table-txt', 'table-txt1']
+  assert.deepEqual(run((k) => `ParaOverride-${k}`).slice(0, 6), want)
+  assert.deepEqual(run((k) => `ParaOverride-${k * 7 + 3}`).slice(0, 6), want, 'other numbers, same classes')
+  assert.ok(!want.includes(run((k) => `ParaOverride-${k}`)[6]!), 'an inset paragraph that is no question or answer keeps its own class')
+})

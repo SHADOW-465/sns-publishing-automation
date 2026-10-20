@@ -102,7 +102,7 @@ function styleMapProfile(ex: Export): Profile {
   const rules = Object.values(settings().styleMap)
   if (!rules.length) return out
   for (const k of new Set(ex.blocks.flatMap((b) => (b.t === 'p' ? [b.key] : [])))) {
-    const r = rules.find((x) => x.match === k || (() => { try { return new RegExp(x.match, 'i').test(k) } catch { return false } })())
+    const r = rules.filter((x) => !x.text).find((x) => x.match === k || (() => { try { return new RegExp(x.match, 'i').test(k) } catch { return false } })())
     if (r && (ROLES as readonly string[]).includes(r.role)) out[k] = { role: r.role as Role, outClass: r.class ?? '' }
   }
   return out
@@ -227,9 +227,22 @@ interface Sec {
   firstPage?: string
 }
 
+/** The class a client's content rule gives a paragraph: its text matches, its style is only an override, and it has the shape the rule asks for. */
+export function contentClass(b: { key: string; text: string }, d: Decls): string | undefined {
+  if (!isOverride(b.key)) return undefined
+  for (const r of Object.values(settings().styleMap)) {
+    if (!r.text || !r.class) continue
+    let hit = false
+    try { hit = new RegExp(r.text, 'iu').test(b.text.trim()) } catch { /* a bad pattern matches nothing */ }
+    const hang = px(d['text-indent']) < 0
+    const left = px(d['margin-left'])
+    if (hit && (r.layout !== 'block' || (!hang && left > 0)) && (r.layout !== 'hanging' || (hang && left > 0)) && left >= (r.minInset ?? 0)) return r.class
+  }
+}
+
 /** The client's styleMap decides the role and class of the styles it names, whenever the spec was opened (after the analysis, in the app). */
 function withStyleMap<T extends { key: string; role: string; outClass: string }>(styles: T[]): T[] {
-  const rules = Object.values(settings().styleMap)
+  const rules = Object.values(settings().styleMap).filter((x) => !x.text)
   if (!rules.length) return styles
   return styles.map((s) => {
     const r = rules.find((x) => x.match === s.key || (() => { try { return new RegExp(x.match, 'i').test(s.key) } catch { return false } })())
@@ -246,7 +259,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const prof = new Map(input.styles.map((s) => [s.key, s]))
   const roleOf = (b: PBlock): Role => prof.get(b.key)?.role ?? 'p'
-  const classOf = (b: PBlock) => prof.get(b.key)?.outClass ?? 'noindent'
+  const classOf = (b: PBlock) => (roleOf(b) === 'p' && contentClass(b, declsOf(b))) || (prof.get(b.key)?.outClass ?? 'noindent')
   const kindOf = (b: PBlock) => (/^h[1-6]$/.test(tag(b.el)) ? tag(b.el) : 'p')
   const declsOf = (b: PBlock): Decls => ex.css.decls(kindOf(b), b.classes)
   // a style's own definition, without the one-off overrides of a particular paragraph: the epigraph's

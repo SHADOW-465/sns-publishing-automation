@@ -48,8 +48,17 @@ export interface MarkupTemplate {
 export type MarkupRole = 'chapter-title' | 'part-title' | 'noteref' | 'figure'
 /** A source style and what it means. `match` is a style name or a regular expression over it ("^ihv(\d)$"). */
 export interface StyleRule {
+  /** the style name; empty for a content rule */
   match: string
   role: string
+  /** a content rule: a regular expression over the paragraph's text. It applies to paragraphs whose style is only a
+   *  one-off override (no named style: "ParaOverride-21"), whatever number the export gave that override, and sets the class */
+  text?: string
+  /** content rules only: the paragraph's shape. block = set in from the margin (margin-left > 0, no hanging indent);
+   *  hanging = a negative first-line indent; omitted = any */
+  layout?: 'block' | 'hanging'
+  /** content rules only: the margin-left in px must be at least this (a deeper inset than the plain block) */
+  minInset?: number
   /** output class for this style only */
   class?: string
 }

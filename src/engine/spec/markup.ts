@@ -83,7 +83,8 @@ export function sampleOf(role: MarkupRole, t: MarkupTemplate): string {
 
 export function markupSheets(d: LayerData): Sheet[] {
   const mk = MARKUP_ROLES.filter((r) => d.markup[r]).map((r) => [r, sampleOf(r, d.markup[r]!)])
-  const st = Object.values(d.styleMap).map((s) => [s.match, s.role, s.class ?? ''])
+  // ponytail: content rules (text patterns) live in the client file; the Styles sheet lists style names only
+  const st = Object.values(d.styleMap).filter((s) => !s.text).map((s) => [s.match, s.role, s.class ?? ''])
   return [
     { name: 'Markup', rows: [MARKUP_HEAD, ...(mk.length ? mk : MARKUP_ROLES.map((r) => [r, '']))], widths: [22, 80] },
     { name: 'Styles', rows: [STYLES_HEAD, ...(st.length ? st : [['', '', '']])], widths: [28, 22, 22], lists: [{ ref: 'B2:B200', values: [...ROLES] }] },
