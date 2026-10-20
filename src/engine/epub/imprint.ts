@@ -7,12 +7,12 @@
 import { isHousePrintOnly } from '../settings.ts'
 
 export const PRINT_ONLY =
-  /dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt|imprim[ée] (en|au|par)|stampato|impresso (em|no)|printed by|typeset by|typesetting by|composici[óo]n|maquetaci[óo]n|papel (utilizado|empleado)|para la impresi[óo]n de este libro|paper (used|in this book|from responsible)|printed on (acid|recycled|fsc|paper)|\bfsc\b|papier (utilis|issu|aus)|carta (utilizzata|certificata)|papel (certificado|reciclado)|bosques (y plantaciones )?gestionad|se termin[óo] de imprimir|terminó de imprimirse|acab[óo]se de imprimir|achev[ée] d.imprimer|finito di stampare|this book was printed/i
+  /druck und bindung|gesamtherstellung|^\s*(satz|druck|herstellung|schrift)\s*:|gedruckt auf|printed in (germany|austria|switzerland)|gedrukt (door|op)|drukwerk|bedrukt|dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt|imprim[ée] (en|au|par)|stampato|impresso (em|no)|printed by|typeset by|typesetting by|composici[óo]n|maquetaci[óo]n|papel (utilizado|empleado)|para la impresi[óo]n de este libro|paper (used|in this book|from responsible)|printed on (acid|recycled|fsc|paper)|\bfsc\b|papier (utilis|issu|aus)|carta (utilizzata|certificata)|papel (certificado|reciclado)|bosques (y plantaciones )?gestionad|se termin[óo] de imprimir|terminó de imprimirse|acab[óo]se de imprimir|achev[ée] d.imprimer|finito di stampare|this book was printed/i
 /** The built-in print-only rules in words, for the Settings screen. */
 export const PRINT_ONLY_EXAMPLES = [
   'Legal deposit — “Depósito legal…”',
   'Printer — “Impreso en…”, “Printed in / by…”, “Gedruckt…”, “Imprimé en…”, “Stampato…”',
-  'Typesetting — “Typeset by…”, “Composición…”, “Maquetación…”',
+  'Typesetting — “Typeset by…”, “Composición…”, “Maquetación…”, “Satz:”, “Druck und Bindung…”, “Gesamtherstellung…”, “Gedrukt door…”',
   'Paper and forest notices — “El papel utilizado…”, “FSC”, “printed on recycled paper”',
   'Printer’s colophon — “Se terminó de imprimir…”, “Achevé d’imprimer…”, “Finito di stampare…”',
 ]
