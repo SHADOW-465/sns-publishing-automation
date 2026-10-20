@@ -10,6 +10,7 @@ import { buildPdfEpub } from '../src/engine/pdfepub/build.ts'
 import { rulesFor } from '../src/engine/epub/imprint.ts'
 import { nodeRaster } from './raster-node.ts'
 import { epubcheck } from './epubcheck.ts'
+import { setSettings, DEFAULT_SETTINGS } from '../src/engine/settings.ts'
 
 const COVER = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
 
@@ -54,4 +55,17 @@ test('PDF footnotes become real notes with links both ways, and the EPUB is vali
   assert.equal([...all.matchAll(/Anmerkung 3 zum Kapitel 2/g)].length, 1, 'the foot line is not repeated in the page text')
   const ec = epubcheck(r.epub)
   if (ec) assert.deepEqual(ec.errors, [], ec.output)
+})
+
+test('the client’s chapter-title template (tag, class, attributes) shapes the PDF build’s chapter headings too', async () => {
+  const book = await analyzePdf(pdfjs, await bookWithFootnotes(), nodeRaster)
+  setSettings({ ...DEFAULT_SETTINGS, markup: { 'chapter-title': { tag: 'h2', class: 'chapter-b', attrs: { 'data-kind': 'chapter' } } } })
+  try {
+    const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, title: 'Das Feld', authors: 'A. Autor', eisbn: '9780306406157', language: 'de-DE' }, rules: rulesFor('de'), cover: { name: 'cover.png', data: COVER } }, nodeRaster)
+    const chap = [...r.files].find(([p]) => /chapter01\.xhtml$/.test(p))
+    assert.ok(chap, 'a chapter file')
+    assert.match(text(chap![1]), /<h2 class="chapter-b" id="chap1" data-kind="chapter">/)
+  } finally {
+    setSettings(DEFAULT_SETTINGS)
+  }
 })

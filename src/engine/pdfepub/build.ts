@@ -667,10 +667,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     let heading = ''
     if (s.title.length) {
       const t = s.title.map(segHtml).join(' ')
-      const cls = s.type === 'chapter' ? 'ch-head1' : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
+      // the client's chapter-title template (tag, class, extra attributes) applies to chapter titles, as in the InDesign build
+      const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : undefined
+      const h = tpl?.tag && /^h[1-6]$/.test(tpl.tag) ? tpl.tag : 'h1'
+      const extra = Object.entries(tpl?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+      const cls = tpl?.class ? tpl.class : s.type === 'chapter' ? 'ch-head1' : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
       heading = s.number !== undefined
-        ? `<h1 class="${cls}" id="${headId}"><span class="ch-num">${esc(s.number)}</span> <span class="ch2">${t}</span></h1>`
-        : `<h1 class="${cls}" id="${headId}">${t}</h1>`
+        ? `<${h} class="${cls}" id="${headId}"${extra}><span class="ch-num">${esc(s.number)}</span> <span class="ch2">${t}</span></${h}>`
+        : `<${h} class="${cls}" id="${headId}"${extra}>${t}</${h}>`
     }
     // page markers that arrived before the heading text go in front of it
     let body = (s.lead ? `${s.lead}\n` : '') + (heading ? `${heading}\n` : '')
