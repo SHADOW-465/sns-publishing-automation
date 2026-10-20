@@ -122,6 +122,12 @@ test('settings from an older or hand-edited file fall back to the defaults', () 
   assert.equal(settings().htmlLang, 'xml:lang')
   assert.equal(settings().maxSpaceEm, DEFAULT_SETTINGS.maxSpaceEm)
   assert.deepEqual(settings().variantOn, ['align'])
+  // the type comes from the same schema row as the default and the check (tsc reads the tests too)
+  const spot: HouseSettings['noteSpot'] = 'book-end'
+  // @ts-expect-error not one of the schema's choices
+  const bad: HouseSettings['noteSpot'] = 'nowhere'
+  const depth: HouseSettings['navDepth'] = 2
+  assert.deepEqual([spot, bad, depth], ['book-end', 'nowhere', 2])
 })
 
 test('column widths add up to 100%, narrow columns get at least 10%', () => {

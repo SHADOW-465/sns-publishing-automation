@@ -53,7 +53,8 @@ export interface StyleRule {
   class?: string
 }
 
-export interface HouseSettings extends StdOptions {
+/** The settings that are data, not one plain value: templates, style meanings, lists, CSS. */
+interface StructuredSettings {
   /** role → output template, from the client layers (resolved) */
   markup: Partial<Record<MarkupRole, MarkupTemplate>>
   /** source style → meaning, from the client layers (resolved); decides before any guess */
@@ -66,118 +67,104 @@ export interface HouseSettings extends StdOptions {
   extraCss: string
   /** replaces the built-in house stylesheet (fixed classes: indent, extract1, toc_1…); empty = built-in */
   houseCss: string
-
-  // ---- markup (house-style options from client feedback on the reference EPUBs) ----
-  roleHeading: boolean // role="heading" + aria-level on the heading that names each part
-  langWrapper: boolean // <div xml:lang="…"> around the content of every page
-  seriesSmallCaps: boolean // numbered heading series ("Hábito 1…12") all in small caps when some are
-  verseLines: boolean // a quotation broken into short lines is set as verse (extract1/extract2)
-  /** the kind of e-book offered first for a new book (changeable per book in Book details) */
-  defaultProfile: 'accessible' | 'standard'
-  /** language attributes on <html>: the reference writes xml:lang only ("duplicated language should be removed") */
-  htmlLang: 'xml:lang' | 'both' | 'lang'
-  /** a paragraph whose own InDesign overrides change its look: 'own' = one class of its own
-   *  ("Texto_1", never "Texto Texto_1"); 'ignore' = always the style's class */
-  styleVariants: 'own' | 'ignore'
   /** which kinds of override are worth a class of their own (others are typesetting noise) */
   variantOn: VariantGroup[]
-  /** tables: 'reference' = as the hand-finished EPUB (td with the cell style class, no thead);
-   *  'th' = first row as <thead><th scope="col"> (screen readers announce column names) */
-  tableHeaders: 'reference' | 'th'
-  /** rule above the footnotes: a short line as in print, a full-width line, or none */
-  footnoteRule: 'short' | 'full' | 'none'
-  footnoteRuleWidth: number // % of the text width, for 'short'
-  /** chapter title element: h2 for every chapter, or the tag the source used (h1 when the export typed it so) */
-  chapterTag: 'h2' | 'source'
-  /** class of a chapter title set without a label ("Natur"): the client's chapter-b, or the InDesign style's own name */
-  chapterHeadingClass: 'chapter-b' | 'style'
-  /** printed page numbers on the contents page: shown right-aligned as in print, or left out */
-  tocPageNumbers: 'strip' | 'show'
-  /** a chapter's subtitle ("Natur: Ackerland, Grünfläche…") in the navigation menu when the printed contents lists it under the chapter */
-  navSubtitle: boolean
-  /** where the accessible name of the navigation lists sits: on the wrapping section (valid for EPUBCheck 5.4) or on <nav> itself (rejected by EPUBCheck 5.4) */
-  navLabelOn: 'section' | 'nav'
-  /** text-and-data-mining reservation in the package (W3C TDM reservation protocol) */
-  tdmReservation: 'off' | 'reserved'
-  /** NOTE-04: where notes go. auto = InDesign end notes on the notes page when the book has one, footnotes under their chapter */
-  noteSpot: 'auto' | 'chapter' | 'book-end'
-  /** HD-09: subheads the book styles only by their look: all h3, or a level by size (the biggest h3, the next h4, then h5) */
-  headingLevels: 'one' | 'size'
-  /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */
-  navDepth: number
-  /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
-  navFront: 'all' | 'named' | 'none'
-  /** FM-02: the title page lines follow the printed page (needs the print PDF) or stay in the order of the export */
-  titleOrder: 'print' | 'source'
-  /** PKG-02: the cover page is part of the reading order (linear) or only reachable from the menu */
-  coverLinear: boolean
-  /** PKG-03: write the EPUB 2 <guide> (cover and contents) */
-  writeGuide: boolean
-
-  // ---- stylesheet ----
-  /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference;
-   *  'compact' = one rule per line */
-  cssFormat: 'vertical' | 'compact'
-  maxSpaceEm: number // largest space above/below a paragraph taken over from print (em)
-  blockSpaceEm: number // space around indented blocks (<div class="top">); collapses with the paragraphs' own
-  headingSpaceAboveEm: number // least space above a part/chapter/section title (h1/h2) — print opens them low on the page
-  headingSpaceBelowEm: number // least space between that title and the text
-  headingScalePct: number // scales every heading size taken from InDesign (100 = as in print)
-  footnoteIndentEm: number // first-line indent of footnotes
-  tocEntryIndentEm: number // left indent of chapter entries on the printed contents and list pages (0 = flush, as print)
-  blockClass: 'extract1' | 'extract' // class of indented blocks without an InDesign style of their own
-  altRequired: 'error' | 'warn' // a picture with no description stops delivery (accessible) or only warns
-
-  /** quality check */
-  minCoverPx: number // shortest acceptable long side of the cover
-  lostWordsErrorPct: number // % of source words missing that counts as an error (below: a warning)
 }
 
 type Field =
   | { def: boolean; bool: true }
   | { def: string; choices: readonly string[] }
   | { def: number; min: number; max: number }
-/** One row per plain setting: its default and what a valid value is. DEFAULT_SETTINGS and sanitize are made from this table,
- *  so a new plain setting is one row here (plus its rule in the registry), not four edits. */
+/** One row per plain setting: its default and what a valid value is. The type, DEFAULT_SETTINGS and sanitize are all made
+ *  from this table, so a new plain setting is one row here (plus its rule in the registry), not four edits. */
 const SCHEMA = {
+  // ---- markup (house-style options from client feedback on the reference EPUBs) ----
+  /** role="heading" + aria-level on the heading that names each part */
   roleHeading: { def: true, bool: true },
+  /** <div xml:lang="…"> around the content of every page */
   langWrapper: { def: true, bool: true },
+  /** numbered heading series ("Hábito 1…12") all in small caps when some are */
   seriesSmallCaps: { def: true, bool: true },
+  /** a quotation broken into short lines is set as verse (extract1/extract2) */
   verseLines: { def: true, bool: true },
+  /** the kind of e-book offered first for a new book (changeable per book in Book details) */
   defaultProfile: { def: 'accessible', choices: ['accessible', 'standard'] },
+  /** language attributes on <html>: the reference writes xml:lang only ("duplicated language should be removed") */
   htmlLang: { def: 'xml:lang', choices: ['xml:lang', 'both', 'lang'] },
+  /** a paragraph whose own InDesign overrides change its look: 'own' = one class of its own
+   *  ("Texto_1", never "Texto Texto_1"); 'ignore' = always the style's class */
   styleVariants: { def: 'own', choices: ['own', 'ignore'] },
-  tableHeaders: { def: 'th', choices: ['reference', 'th'] }, // accessible; a client may choose 'reference' with a recorded waiver (Spec step)
+  /** tables: 'reference' = as the hand-finished EPUB (td with the cell style class, no thead);
+   *  'th' = first row as <thead><th scope="col"> (screen readers announce column names).
+   *  Accessible by default; a client may choose 'reference' with a recorded waiver (Spec step) */
+  tableHeaders: { def: 'th', choices: ['reference', 'th'] },
+  /** rule above the footnotes: a short line as in print, a full-width line, or none */
   footnoteRule: { def: 'short', choices: ['short', 'full', 'none'] },
+  /** % of the text width, for 'short' */
   footnoteRuleWidth: { def: 25, min: 5, max: 100 },
   // source / style / no subtitle: an InDesign <h1 class="h1"> stays that way, and the menu shows the chapter title.
   // A client layer (BeBra: h2.chapter-b, subtitles in the menu) turns the review rules on for that publisher.
+  /** chapter title element: h2 for every chapter, or the tag the source used (h1 when the export typed it so) */
   chapterTag: { def: 'source', choices: ['h2', 'source'] },
+  /** class of a chapter title set without a label ("Natur"): the client's chapter-b, or the InDesign style's own name */
   chapterHeadingClass: { def: 'style', choices: ['chapter-b', 'style'] },
+  /** printed page numbers on the contents page: shown right-aligned as in print, or left out */
   tocPageNumbers: { def: 'strip', choices: ['strip', 'show'] },
+  /** a chapter's subtitle ("Natur: Ackerland, Grünfläche…") in the navigation menu when the printed contents lists it under the chapter */
   navSubtitle: { def: false, bool: true },
+  /** where the accessible name of the navigation lists sits: on the wrapping section (valid for EPUBCheck 5.4) or on <nav> itself (rejected by EPUBCheck 5.4) */
   navLabelOn: { def: 'section', choices: ['section', 'nav'] },
+  /** text-and-data-mining reservation in the package (W3C TDM reservation protocol) */
   tdmReservation: { def: 'off', choices: ['off', 'reserved'] },
+  /** NOTE-04: where notes go. auto = InDesign end notes on the notes page when the book has one, footnotes under their chapter */
   noteSpot: { def: 'auto', choices: ['auto', 'chapter', 'book-end'] },
+  /** HD-09: subheads the book styles only by their look: all h3, or a level by size (the biggest h3, the next h4, then h5) */
   headingLevels: { def: 'one', choices: ['one', 'size'] },
+  /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */
   navDepth: { def: 3, min: 1, max: 3 },
+  /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
   navFront: { def: 'all', choices: ['all', 'named', 'none'] },
+  /** FM-02: the title page lines follow the printed page (needs the print PDF) or stay in the order of the export */
   titleOrder: { def: 'print', choices: ['print', 'source'] },
+  /** PKG-02: the cover page is part of the reading order (linear) or only reachable from the menu */
   coverLinear: { def: true, bool: true },
+  /** PKG-03: write the EPUB 2 <guide> (cover and contents) */
   writeGuide: { def: true, bool: true },
+
+  // ---- stylesheet ----
+  /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference; 'compact' = one rule per line */
   cssFormat: { def: 'vertical', choices: ['vertical', 'compact'] },
+  /** largest space above/below a paragraph taken over from print (em) */
   maxSpaceEm: { def: 2, min: 0, max: 10 },
+  /** space around indented blocks (<div class="top">); collapses with the paragraphs' own */
   blockSpaceEm: { def: 1, min: 0, max: 5 },
+  /** least space above a part/chapter/section title (h1/h2) — print opens them low on the page */
   headingSpaceAboveEm: { def: 2, min: 0, max: 10 },
+  /** least space between that title and the text */
   headingSpaceBelowEm: { def: 3, min: 0, max: 10 },
+  /** scales every heading size taken from InDesign (100 = as in print) */
   headingScalePct: { def: 100, min: 50, max: 200 },
+  /** first-line indent of footnotes */
   footnoteIndentEm: { def: 2, min: 0, max: 5 },
+  /** left indent of chapter entries on the printed contents and list pages (0 = flush, as print) */
   tocEntryIndentEm: { def: 1.5, min: 0, max: 5 },
+  /** class of indented blocks without an InDesign style of their own */
   blockClass: { def: 'extract1', choices: ['extract1', 'extract'] },
+  /** a picture with no description stops delivery (accessible) or only warns */
   altRequired: { def: 'error', choices: ['error', 'warn'] },
+
+  // ---- quality check ----
+  /** shortest acceptable long side of the cover */
   minCoverPx: { def: 1400, min: 0, max: 10000 },
+  /** % of source words missing that counts as an error (below: a warning) */
   lostWordsErrorPct: { def: 1, min: 0, max: 100 },
 } as const satisfies Record<string, Field>
+
+/** A schema row's value type: yes/no, one of its choices, or a number. */
+type ValueOf<F> = F extends { bool: true } ? boolean : F extends { choices: readonly (infer C)[] } ? C : number
+type PlainSettings = { -readonly [K in keyof typeof SCHEMA]: ValueOf<(typeof SCHEMA)[K]> }
+
+export interface HouseSettings extends StdOptions, PlainSettings, StructuredSettings {}
 
 export const DEFAULT_SETTINGS: HouseSettings = {
   markup: {},
@@ -188,7 +175,7 @@ export const DEFAULT_SETTINGS: HouseSettings = {
   houseCss: '',
   variantOn: ['align', 'indent', 'face'],
   ...STD_DEFAULTS,
-  ...(Object.fromEntries(Object.entries(SCHEMA).map(([k, f]) => [k, f.def])) as unknown as Pick<HouseSettings, keyof typeof SCHEMA>),
+  ...(Object.fromEntries(Object.entries(SCHEMA).map(([k, f]) => [k, f.def])) as unknown as PlainSettings),
 }
 
 let current: HouseSettings = DEFAULT_SETTINGS
