@@ -421,3 +421,6 @@ npm run epubcheck -- "path/to/book.epub"
 - **Numbered subheads** (`1: Deseas…`) with a hanging number (`span.list`) aren't done yet; they stay as plain `h3`.
 - **Alt text:** captions give a starting point, but pictures still need real descriptions by a person. A picture with no description is now an error, unless it is ticked as decorative.
 - **Final QA outside the app:** DAISY Ace for accessibility (EPUBCheck already runs in the tests).
+
+## Standalone repo
+Extracted from pdf-tagger-sns/automation-app with history. Client sample books (Automation/ and corrections/ in the old repo) are not included, so the 11 sample-based tests skip; put the books at ../Automation and ../corrections to run them. Run npm run fetch-tools for the bundled JRE and EPUBCheck (not committed).
