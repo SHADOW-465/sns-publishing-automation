@@ -674,7 +674,9 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : undefined
       const h = tpl?.tag && /^h[1-6]$/.test(tpl.tag) ? tpl.tag : 'h1'
       const extra = Object.entries(tpl?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-      const cls = tpl?.class ? tpl.class : s.type === 'chapter' ? 'ch-head1' : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
+      const own = s.type === 'chapter' ? 'ch-head1' : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
+      // "{style}" in the template's class is the builder's own class, as the InDesign build puts the style's there
+      const cls = tpl?.class ? tpl.class.replace('{style}', own) : own
       heading = s.number !== undefined
         ? `<${h} class="${cls}" id="${headId}"${extra}><span class="ch-num">${esc(s.number)}</span> <span class="ch2">${t}</span></${h}>`
         : `<${h} class="${cls}" id="${headId}"${extra}>${t}</${h}>`

@@ -65,6 +65,10 @@ test('the client’s chapter-title template (tag, class, attributes) shapes the 
     const chap = [...r.files].find(([p]) => /chapter01\.xhtml$/.test(p))
     assert.ok(chap, 'a chapter file')
     assert.match(text(chap![1]), /<h2 class="chapter-b" id="chap1" data-kind="chapter">/)
+    // "{style}" stands for the builder's own class, never written out literally
+    setSettings({ ...DEFAULT_SETTINGS, markup: { 'chapter-title': { class: '{style} chapter-b' } } })
+    const r2 = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, title: 'Das Feld', authors: 'A. Autor', eisbn: '9780306406157', language: 'de-DE' }, rules: rulesFor('de'), cover: { name: 'cover.png', data: COVER } }, nodeRaster)
+    assert.match(text([...r2.files].find(([p]) => /chapter01\.xhtml$/.test(p))![1]), /<h1 class="ch-head1 chapter-b" id="chap1">/)
   } finally {
     setSettings(DEFAULT_SETTINGS)
   }
