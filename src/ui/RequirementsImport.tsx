@@ -133,7 +133,7 @@ export function RequirementsImport({ levels, onApply, onPictures, onLabels, onLa
             <tbody>
               {[
                 ...Object.entries(layerData.markup).map(([r, t]) => ({ key: `markup:${r}`, what: `Markup: ${r}`, read: sampleOf(r as MarkupRole, t!) })),
-                ...Object.entries(layerData.styleMap).map(([k, v]) => ({ key: k, what: `Style: ${v.match}`, read: `means ${v.role}${v.class ? `, class ${v.class}` : ''}` })),
+                ...Object.entries(layerData.styleMap).map(([k, v]) => ({ key: k, what: v.text ? `Content rule: “${v.text}”${v.layout ? `, ${v.layout}` : ''}${v.minInset != null ? `, inset ≥ ${v.minInset}px` : ''}` : `Style: ${v.match}`, read: `means ${v.role}${v.class ? `, class ${v.class}` : ''}` })),
               ].map((e) => (
                 <tr key={e.key}>
                   <td><input type="checkbox" aria-label={`Use ${e.what}`} checked={confirmed.has(e.key)} onChange={(ev) => setConfirmed(new Set(ev.target.checked ? [...confirmed, e.key] : [...confirmed].filter((x) => x !== e.key)))} /></td>

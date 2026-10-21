@@ -41,7 +41,7 @@ export function readRequirements(name: string, data: Uint8Array): { template?: S
     const template = fromSpecWorkbook(sheets)
     const layerData = layerDataFromWorkbook(sheets)
     if (template) return { template, items: template.map((s) => s.req), pictures, labels, layerData }
-    if (layerData) return { items: [...Object.entries(layerData.markup).map(([r, t]) => ({ text: `${r}: ${JSON.stringify(t)}`, where: 'Markup sheet' })), ...Object.values(layerData.styleMap).map((s) => ({ text: `${s.match} = ${s.role}`, where: 'Styles sheet' }))], layerData }
+    if (layerData) return { items: [...Object.entries(layerData.markup).map(([r, t]) => ({ text: `${r}: ${JSON.stringify(t)}`, where: 'Markup sheet' })), ...Object.values(layerData.styleMap).map((s) => ({ text: s.text ? `text “${s.text}” = class ${s.class}` : `${s.match} = ${s.role}`, where: 'Styles sheet' }))], layerData }
     if (labels && !pictures.length) return { labels, items: Object.entries(labels).flatMap(([code, m]) => Object.entries(m).map(([k, v]) => ({ text: `${code} ${k} = ${v}`, where: 'Language sheet' }))) }
     if (pictures.length) return { pictures, items: pictures.map((p) => ({ text: `${p.file}: ${p.alt}`, where: 'Picture descriptions' })), labels }
     return { items: sheets.flatMap((sh) => sh.rows.map((r, i) => ({ text: r.filter(Boolean).join(' | '), where: `${sh.name}, row ${i + 1}` })).filter((x) => x.text.trim())) }

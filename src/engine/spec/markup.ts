@@ -41,7 +41,8 @@ const attrText = (a?: Record<string, string>) => Object.entries(a ?? {}).map(([k
 
 export const MARKUP_ROLES: MarkupRole[] = ['chapter-title', 'part-title', 'noteref', 'figure']
 export const MARKUP_HEAD = ['Element (role)', 'Expected HTML sample']
-export const STYLES_HEAD = ['Source style', 'Means (role)', 'Output class']
+export const STYLES_HEAD = ['Source style', 'Means (role)', 'Output class', 'Text pattern (content rule)', 'Layout', 'Least inset (px)']
+const LAYOUTS = ['block', 'hanging'] as const
 
 /** Which role a report's expected sample shows: a note call, a picture wrapper, a part heading (epub:type or class "part") or a chapter heading. */
 export function sampleRole(sample: string): MarkupRole | undefined {
@@ -83,12 +84,25 @@ export function sampleOf(role: MarkupRole, t: MarkupTemplate): string {
 
 export function markupSheets(d: LayerData): Sheet[] {
   const mk = MARKUP_ROLES.filter((r) => d.markup[r]).map((r) => [r, sampleOf(r, d.markup[r]!)])
-  // ponytail: content rules (text patterns) live in the client file; the Styles sheet lists style names only
-  const st = Object.values(d.styleMap).filter((s) => !s.text).map((s) => [s.match, s.role, s.class ?? ''])
+  // a content rule has no style name: its text pattern, layout and least inset fill the last three columns
+  const st = Object.values(d.styleMap).map((s) => [s.match, s.role, s.class ?? '', s.text ?? '', s.layout ?? '', s.minInset != null ? String(s.minInset) : ''])
   return [
     { name: 'Markup', rows: [MARKUP_HEAD, ...(mk.length ? mk : MARKUP_ROLES.map((r) => [r, '']))], widths: [22, 80] },
-    { name: 'Styles', rows: [STYLES_HEAD, ...(st.length ? st : [['', '', '']])], widths: [28, 22, 22], lists: [{ ref: 'B2:B200', values: [...ROLES] }] },
+    { name: 'Styles', rows: [STYLES_HEAD, ...(st.length ? st : [STYLES_HEAD.map(() => '')])], widths: [28, 22, 22, 44, 12, 16], lists: [{ ref: 'B2:B200', values: [...ROLES] }, { ref: 'E2:E200', values: [...LAYOUTS] }] },
   ]
+}
+
+/** A content rule from a Styles row, or undefined when the row cannot be one (no class, a pattern that does not compile, an unknown layout or role). */
+function contentRule(text: string, role: string, cls: string, layout: string, inset: string): StyleRule | undefined {
+  if (!cls || !(ROLES as readonly string[]).includes(role)) return undefined
+  if (layout && !(LAYOUTS as readonly string[]).includes(layout)) return undefined
+  if (inset && !/^\d+(\.\d+)?$/.test(inset)) return undefined
+  try {
+    new RegExp(text, 'iu')
+  } catch {
+    return undefined
+  }
+  return { match: '', role, text, ...(layout ? { layout: layout as StyleRule['layout'] } : {}), ...(inset ? { minInset: Number(inset) } : {}), class: cls }
 }
 
 /** The Markup and Styles sheets of a workbook, or undefined when it has neither. */
@@ -102,8 +116,15 @@ export function layerDataFromWorkbook(sheets: Sheet[]): LayerData | undefined {
     if (t) (out.markup[role] = t), (out.sources![`markup:${role}`] = { where: `Markup sheet, row ${i + 2}`, text: row[1].trim() })
   })
   find('Styles', STYLES_HEAD)?.rows.slice(1).forEach((row, i) => {
-    const [match, role, cls] = [(row[0] ?? '').trim(), (row[1] ?? '').trim(), (row[2] ?? '').trim()]
-    if (match && (ROLES as readonly string[]).includes(role)) (out.styleMap[`style:${match}`] = { match, role, ...(cls ? { class: cls } : {}) }), (out.sources![`style:${match}`] = { where: `Styles sheet, row ${i + 2}`, text: `${match} → ${role}${cls ? ` (${cls})` : ''}` })
+    const [match, role, cls, pattern, layout, inset] = [0, 1, 2, 3, 4, 5].map((c) => (row[c] ?? '').trim())
+    const where = `Styles sheet, row ${i + 2}`
+    if (pattern) {
+      // a content rule: it only sets a class, so it needs one, and a pattern that compiles
+      const rule = contentRule(pattern, role || 'p', cls, layout, inset)
+      if (rule) (out.styleMap[`content:${cls}:${pattern}`] = rule), (out.sources![`content:${cls}:${pattern}`] = { where, text: `text "${pattern}"${rule.layout ? `, ${rule.layout}` : ''}${rule.minInset != null ? `, inset ≥ ${rule.minInset}px` : ''} → ${cls}` })
+      return
+    }
+    if (match && (ROLES as readonly string[]).includes(role)) (out.styleMap[`style:${match}`] = { match, role, ...(cls ? { class: cls } : {}) }), (out.sources![`style:${match}`] = { where, text: `${match} → ${role}${cls ? ` (${cls})` : ''}` })
   })
   return Object.keys(out.markup).length || Object.keys(out.styleMap).length ? out : undefined
 }

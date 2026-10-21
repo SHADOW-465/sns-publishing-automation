@@ -5,7 +5,8 @@ import { text, unzip, bytes } from '../src/engine/zip.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
 import { setSettings, DEFAULT_SETTINGS, type HouseSettings } from '../src/engine/settings.ts'
 import { conformance } from '../src/engine/check/conform.ts'
-import { sampleRole, parseMarkupSample, sampleOf, markupSheets, layerDataFromWorkbook, layerDataFromReport } from '../src/engine/spec/markup.ts'
+import { sampleRole, parseMarkupSample, sampleOf, markupSheets, layerDataFromWorkbook, layerDataFromReport, STYLES_HEAD } from '../src/engine/spec/markup.ts'
+import { writeXlsx, readXlsx } from '../src/engine/spec/office.ts'
 import { pdfImgHtml } from '../src/engine/pdfepub/build.ts'
 import { longDescHtml } from '../src/engine/epub/markup.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
@@ -125,4 +126,22 @@ p.${n(6)} { margin-left:17px; text-indent:0; }`
   assert.deepEqual(run((k) => `ParaOverride-${k}`).slice(0, 6), want)
   assert.deepEqual(run((k) => `ParaOverride-${k * 7 + 3}`).slice(0, 6), want, 'other numbers, same classes')
   assert.ok(!want.includes(run((k) => `ParaOverride-${k}`)[6]!), 'an inset paragraph that is no question or answer keeps its own class')
+})
+
+test('content rules round-trip through the Styles sheet of the spec workbook; rows that cannot be a content rule are left out', async () => {
+  const { CLIENT_FILES } = await import('../src/clients/index.ts')
+  const ark = CLIENT_FILES.find((c) => c.match === 'arkanobooks')!
+  const styleMap = { ...ark.styleMap, kt: { match: '^KT$', role: 'chapter-title', class: 'kt' } }
+  const sheets = readXlsx(writeXlsx(markupSheets({ markup: {}, styleMap })))
+  const styles = sheets.find((s) => s.name === 'Styles')!
+  assert.deepEqual(styles.rows[0], STYLES_HEAD)
+  const back = layerDataFromWorkbook(sheets)!
+  const sort = (m: Record<string, unknown>) => Object.values(m).map((v) => JSON.stringify(v)).sort()
+  assert.deepEqual(sort(back.styleMap), sort(styleMap), 'every rule comes back as written, content rules with their pattern, layout and inset')
+  const k = Object.keys(back.styleMap).find((x) => back.styleMap[x].class === 'extract1')!
+  assert.match(back.sources![k].text, /hanging, inset ≥ 40px → extract1/)
+  // a content rule needs a class, a pattern that compiles and a known layout; an old three-column sheet still reads
+  const rows = [STYLES_HEAD, ['', 'p', '', '^Hola', '', ''], ['', 'p', 'x', '^(bad', '', ''], ['', 'p', 'y', '^Ok', 'sideways', ''], ['', 'p', 'z', '^Ok', '', 'deep'], ['', 'p', 'web', '^Web:', '', '']]
+  assert.deepEqual(Object.values(layerDataFromWorkbook([{ name: 'Styles', rows }])!.styleMap), [{ match: '', role: 'p', text: '^Web:', class: 'web' }])
+  assert.deepEqual(Object.values(layerDataFromWorkbook([{ name: 'Styles', rows: [['Source style', 'Means (role)', 'Output class'], ['KT', 'chapter-title', 'kt']] }])!.styleMap), [{ match: 'KT', role: 'chapter-title', class: 'kt' }])
 })
