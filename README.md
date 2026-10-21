@@ -445,4 +445,4 @@ The tests run Ace when `tools/ace` is there and skip that one test otherwise.
 - **Ace in the desktop installer:** Ace is an optional install (`npm run tools:ace`, see QA tools); the installer does not offer to download it yet.
 
 ## Standalone repo
-Extracted from pdf-tagger-sns/automation-app with history. Client sample books (Automation/ and corrections/ in the old repo) are not included, so the 11 sample-based tests skip; put the books at ../Automation and ../corrections to run them. Run npm run fetch-tools for the bundled JRE and EPUBCheck (not committed).
+Extracted from pdf-tagger-sns/automation-app with history. Client sample books (Automation/ and corrections/ in the old repo) are not included, so the 12 sample-based tests skip (and the full-Ace test, unless `npm run tools:ace`); put the books at ../Automation and ../corrections to run them. Run `npm run tools` for the bundled JRE and EPUBCheck (not committed).
