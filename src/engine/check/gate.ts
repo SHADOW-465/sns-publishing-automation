@@ -80,18 +80,18 @@ export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: Che
   stages.push({ id: 'structure', title: 'Structure checks', ran: true, errors: flat.filter((f) => f.level === 'error').map((f) => f.msg), warnings: flat.filter((f) => f.level === 'warn').map((f) => f.msg) })
   // conformance only makes sense for a book built under these settings, not for any EPUB dropped into the checker
   if (o.conformance !== false) stages.push({ id: 'conformance', title: 'Spec conformance', ran: true, errors: conformance(files, s), warnings: [] })
+  // Ace judges the accessibility layer, so a standard EPUB (no accessibility metadata) is not sent to it. It is optional
+  // (a separate download with its own Chrome); it already runs axe-core, so axe here only stands in when Ace did not run.
+  const accessible = /schema:accessMode/.test(text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array()))
+  const ace = accessible ? await (o.ace ?? noValidator)(epub) : null
   const rules = pageRules(files)
-  const axe = o.axe ? await axePages(files, o.axe) : null
-  if (!axe) notes.push('axe-core did not run here, so the pages were checked by the built-in rules only.')
+  const axe = !ace && o.axe ? await axePages(files, o.axe) : null
+  if (!ace && !axe) notes.push('axe-core did not run here, so the pages were checked by the built-in rules only.')
   stages.push({ id: 'accessibility', title: 'Accessibility', ran: true, errors: [...claimsCheck(files), ...rules.errors, ...(axe?.errors ?? [])], warnings: [...rules.warnings, ...(axe?.warnings ?? [])] })
   const v = await (o.validator ?? noValidator)(epub)
   stages.push({ id: 'epubcheck', title: 'EPUBCheck', ran: !!v, errors: v?.errors ?? [], warnings: v?.warnings ?? [] })
   if (!v) notes.push('EPUBCheck could not run here, so this file is not cleared for delivery.')
-  // Ace judges the accessibility layer, so a standard EPUB (no accessibility metadata) is not sent to it
-  const accessible = /schema:accessMode/.test(text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array()))
-  const ace = accessible ? await (o.ace ?? noValidator)(epub) : null
   if (accessible) stages.push({ id: 'ace', title: 'Ace by DAISY', ran: !!ace, errors: ace?.errors ?? [], warnings: ace?.warnings ?? [] })
-  // Ace is optional (a separate download with its own Chrome); without it the axe-core page checks above stand in for it
   if (accessible && !ace) notes.push(`Ace by DAISY did not run here${axe ? ', so the pages were checked with axe-core, the engine inside Ace' : ''}; run the full Ace before an accessibility certification.`)
   if (o.reference) stages.push({ id: 'reference', title: 'Reference diff', ran: true, errors: [], warnings: refdiff(files, o.reference).map((d) => `Differs from your reference: ${d}`) })
   const errors = stages.some((x) => x.errors.length)

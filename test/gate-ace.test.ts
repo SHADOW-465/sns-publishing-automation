@@ -104,3 +104,16 @@ test('Ace is optional: when it is missing or fails to run, the service says 503 
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('when the full Ace ran, axe-core does not run again (Ace already runs it), so its findings are not counted twice', async () => {
+  const r = book()
+  let pages = 0
+  const counting = async (x: string) => (pages++, jsdomAxe(x))
+  const ace = async () => ({ errors: ['chapter01.xhtml: Images must have alternative text (Ace image-alt)'], warnings: [] })
+  const g = await gate(r.epub, DEFAULT_SETTINGS, { source: r.source, conformance: false, axe: counting, ace })
+  assert.equal(pages, 0)
+  assert.deepEqual(g.stages.filter((s) => s.errors.length).map((s) => s.id), ['ace'])
+  assert.ok(!g.notes.some((n) => /axe-core did not run/.test(n)), g.notes.join(' | '))
+  await gate(r.epub, DEFAULT_SETTINGS, { source: r.source, conformance: false, axe: counting, ace: async () => null })
+  assert.ok(pages > 0, 'without Ace, axe-core checks every page')
+})
