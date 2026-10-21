@@ -1,6 +1,7 @@
 // Puts the JRE and epubcheck.jar in tools/ when they are missing (tools/ is git-ignored; the installer packs it).
 //   node scripts/fetch-tools.mjs [--from <dir>] [--ace]
-// --ace also installs Ace by DAISY into tools/ace (npm, pinned in the lock file); the gate's Ace stage uses it.
+// --ace (npm run tools:ace) also installs Ace by DAISY into tools/ace (npm, pinned in the lock file, about 450 MB with
+// its headless Chrome). It is optional and never packed into the installer; without it the app uses axe-core alone.
 // --from copies a folder that already holds jdk-*/ and epubcheck-*/ (an offline build machine); otherwise the pinned
 // archives in scripts/tools.lock.json are downloaded. Every archive is checked against its sha256 before it is unpacked,
 // and the jar is checked after, so a changed or truncated download stops the build.
@@ -46,11 +47,22 @@ for (const [spec, ok] of [[lock.jre, existsSync(javaExe)], [lock.epubcheck, exis
 }
 if (sha(readFileSync(jar)) !== lock.epubcheck.jarSha256) throw new Error('epubcheck.jar does not match the pinned sha256')
 if (!existsSync(javaExe)) throw new Error(`${javaExe} is missing`)
-if (process.argv.includes('--ace') && !existsSync(join(tools, lock.ace.dir, 'node_modules/@daisy/ace/bin/ace-puppeteer.js'))) {
-  const dir = join(tools, lock.ace.dir)
-  mkdirSync(dir, { recursive: true })
-  if (!existsSync(join(dir, 'package.json'))) writeFileSync(join(dir, 'package.json'), '{"private":true}\n')
-  console.log(`installing ${lock.ace.package} into ${dir} …`)
-  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund', '--save-exact', lock.ace.package], { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' })
+// Ace is optional: installed only on --ace, again when the pinned version changes, and checked after the install
+const aceDir = join(tools, lock.ace.dir)
+const aceWanted = lock.ace.package.slice(lock.ace.package.lastIndexOf('@') + 1)
+const aceVersion = () => {
+  try {
+    return existsSync(join(aceDir, 'node_modules/@daisy/ace/bin/ace-puppeteer.js')) ? JSON.parse(readFileSync(join(aceDir, 'node_modules/@daisy/ace/package.json'), 'utf8')).version : undefined
+  } catch {
+    return undefined
+  }
 }
-console.log(`tools/ ready: ${lock.jre.dir}, ${lock.epubcheck.dir} (jar sha256 ok)${existsSync(join(tools, lock.ace.dir, 'node_modules/@daisy/ace')) ? `, ${lock.ace.package}` : ''}`)
+if (process.argv.includes('--ace') && aceVersion() !== aceWanted) {
+  mkdirSync(aceDir, { recursive: true })
+  if (!existsSync(join(aceDir, 'package.json'))) writeFileSync(join(aceDir, 'package.json'), '{"private":true}\n')
+  console.log(`installing ${lock.ace.package} into ${aceDir} …`)
+  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--no-audit', '--no-fund', '--save-exact', lock.ace.package], { cwd: aceDir, stdio: 'inherit', shell: process.platform === 'win32' })
+  if (aceVersion() !== aceWanted) throw new Error(`${lock.ace.package} did not install into ${aceDir}`)
+}
+const ace = aceVersion()
+console.log(`tools/ ready: ${lock.jre.dir}, ${lock.epubcheck.dir} (jar sha256 ok)${ace ? `, @daisy/ace@${ace}${ace === aceWanted ? '' : ` (pinned ${aceWanted}: npm run tools:ace)`}` : '; Ace by DAISY is not installed (optional: npm run tools:ace)'}`)

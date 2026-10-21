@@ -367,7 +367,7 @@ export async function runAccessibility(epub: Uint8Array): Promise<A11yResult | n
 export function AccessibilityBox({ result }: { result: A11yResult | null | undefined }) {
   if (result === undefined) return null
   if (result === null) return <p className="note warnbox small">The accessibility check did not run here. Check the file with Ace by DAISY before an accessibility certification.</p>
-  if (!result.errors.length) return <p className="note small">{result.by}: no serious accessibility problems{result.warnings.length ? `, ${result.warnings.length} to look at` : ''}{result.by === 'axe-core' ? ' (the page checks of Ace; the full Ace run needs the app on your computer)' : ''}.</p>
+  if (!result.errors.length) return <p className="note small">{result.by}: no serious accessibility problems{result.warnings.length ? `, ${result.warnings.length} to look at` : ''}{result.by === 'axe-core' ? ' (the page checks inside Ace; the full Ace run is an optional extra install)' : ''}.</p>
   return (
     <div className="box err small" role="status">
       <strong>{result.by} found {result.errors.length} serious accessibility problem{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but it does not meet the accessibility standard yet.

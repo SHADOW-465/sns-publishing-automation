@@ -71,7 +71,7 @@ export function CheckFlow() {
             <li><strong>Content</strong> — empty or duplicated text, very short chapters, and page markers against the print PDF.</li>
             <li><strong>Book details</strong> — title, author, publisher, ISBN and cover size as stores show them.</li>
           </ul>
-          In the app on your computer, EPUBCheck and Ace by DAISY themselves run on the file; in the web copy the pages are checked with axe-core, the engine inside Ace.
+          In the app on your computer, EPUBCheck runs on the file, and so does Ace by DAISY where it is installed (an optional extra). Otherwise, and in the web copy, the pages are checked with axe-core, the engine inside Ace.
         </Help>
         <div className="row">
           <button className="primary" disabled={!epub || !!busy} onClick={onCheck}>

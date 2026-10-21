@@ -1,9 +1,11 @@
-// Ace by DAISY as a local service (gate stage 5), next to EPUBCheck. Ace is a Node program that drives a headless Chrome,
-// so it is installed into tools/ace (`node scripts/fetch-tools.mjs --ace`), not bundled into the app. Where it is, in order:
+// Ace by DAISY as a local service (gate stage 5), next to EPUBCheck. Ace is a Node program that drives a headless Chrome
+// (about 450 MB), so it is optional: `npm run tools:ace` installs it into tools/ace, and neither the web copy nor the
+// installer carries it. Without it, or when it fails to run, the service answers 503 and the app checks the pages with
+// axe-core (the engine inside Ace) instead. Where it is looked for, in order:
 //   1. ACE_HOME                  (a folder holding node_modules/@daisy/ace)
 //   2. <resources dir>/tools/ace (the packaged desktop app)
 //   3. <repo>/tools/ace          (development; git ignores tools/)
-//   POST /api/ace   body = the .epub   →  { errors: string[], warnings: string[] }   (critical/serious = errors)
+//   POST /api/ace   body = the .epub   →  { errors: string[], warnings: string[] }   (critical/serious = errors), 503 when Ace did not run
 //   GET  /api/ace                      →  { available: boolean }
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
@@ -36,7 +38,9 @@ export function aceFindings(report) {
   return { errors: [...new Set(errors)], warnings: [...new Set(warnings)] }
 }
 
-/** @param {Uint8Array} epub @returns {Promise<{ errors: string[], warnings: string[] } | null>} */
+/** null when Ace is not installed or did not write a report (no headless Chrome, a crash, the time limit): the caller
+ *  falls back to axe-core. A broken file is EPUBCheck's to report, not Ace's.
+ *  @param {Uint8Array} epub @returns {Promise<{ errors: string[], warnings: string[] } | null>} */
 export async function runAce(epub) {
   const js = acePath()
   if (!js) return null
@@ -46,11 +50,11 @@ export async function runAce(epub) {
   try {
     // the Electron shell has no separate node: its own binary runs as node with ELECTRON_RUN_AS_NODE
     const env = process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env
-    await new Promise((done) =>
-      execFile(process.execPath, [js, '--silent', '--force', '--outdir', join(dir, 'out'), file], { env, timeout: 300_000, maxBuffer: 32 << 20 }, () => done()),
+    const failed = await new Promise((done) =>
+      execFile(process.execPath, [js, '--silent', '--force', '--outdir', join(dir, 'out'), file], { env, timeout: 300_000, maxBuffer: 32 << 20 }, (e, _out, err) => done(e ? String(err || e.message) : '')),
     )
     const report = join(dir, 'out', 'report.json')
-    if (!existsSync(report)) return { errors: ['Ace could not read this file as an EPUB.'], warnings: [] }
+    if (!existsSync(report)) return console.warn(`Ace by DAISY did not run: ${String(failed).trim().slice(0, 500)}`), null
     return aceFindings(JSON.parse(readFileSync(report, 'utf8')))
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -64,9 +68,9 @@ export function aceHandler(req, res) {
   const chunks = []
   req.on('data', (c) => chunks.push(c))
   req.on('end', async () => {
-    const r = await runAce(new Uint8Array(Buffer.concat(chunks)))
+    const r = await runAce(new Uint8Array(Buffer.concat(chunks))).catch((e) => (console.warn(`Ace by DAISY failed: ${e}`), null))
     res.statusCode = r ? 200 : 503
-    res.end(JSON.stringify(r ?? { error: 'Ace is not installed in tools/ace' }))
+    res.end(JSON.stringify(r ?? { error: acePath() ? 'Ace by DAISY did not run on this file' : 'Ace by DAISY is not installed (npm run tools:ace)' }))
   })
 }
 

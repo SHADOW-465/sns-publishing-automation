@@ -406,8 +406,30 @@ Code is in `src/engine/pdfua/`. The regression test is `test/pdfua.test.ts`.
 automatically when it is present.
 
 ```bash
+npm run tools                             # the JRE and EPUBCheck, checked against pinned sha256 hashes
 npm run epubcheck -- "path/to/book.epub"
 ```
+
+### Ace by DAISY (optional)
+
+Ace is not bundled: it is a Node program with its own headless Chrome (about 450 MB), so neither the web
+copy nor the desktop installer carries it. To use it on a development or build machine:
+
+```bash
+npm run tools:ace                         # installs @daisy/ace (version pinned in scripts/tools.lock.json) into tools/ace
+```
+
+`vite dev`, `vite preview` and the desktop shell then offer it at `/api/ace`. The service looks for Ace in
+`ACE_HOME` (a folder holding `node_modules/@daisy/ace`), then `tools/ace` next to the desktop app, then
+`tools/ace` in this folder. Running `npm run tools:ace` again reinstalls only when the pinned version changed.
+
+Without Ace (not installed, no headless Chrome, a crash or the 5-minute limit) the service answers 503 and
+the app falls back to **axe-core**, the engine inside Ace, run on every page in the browser
+(`src/engine/check/axe.ts`). The check screen says which of the two ran. A missing Ace never makes the
+verdict red, and it is never needed for green; only EPUBCheck is. Ace is only asked about accessible books
+(those with `schema:accessMode` metadata). For an accessibility certification, run the full Ace.
+
+The tests run Ace when `tools/ace` is there and skip that one test otherwise.
 
 ## Next
 
@@ -420,7 +442,7 @@ npm run epubcheck -- "path/to/book.epub"
 - **PDF/UA automated validation:** PAC is manual (Windows GUI). veraPDF could run the same checks in the tests.
 - **Numbered subheads** (`1: Deseas…`) with a hanging number (`span.list`) aren't done yet; they stay as plain `h3`.
 - **Alt text:** captions give a starting point, but pictures still need real descriptions by a person. A picture with no description is now an error, unless it is ticked as decorative.
-- **Final QA outside the app:** DAISY Ace for accessibility (EPUBCheck already runs in the tests).
+- **Ace in the desktop installer:** Ace is an optional install (`npm run tools:ace`, see QA tools); the installer does not offer to download it yet.
 
 ## Standalone repo
 Extracted from pdf-tagger-sns/automation-app with history. Client sample books (Automation/ and corrections/ in the old repo) are not included, so the 11 sample-based tests skip; put the books at ../Automation and ../corrections to run them. Run npm run fetch-tools for the bundled JRE and EPUBCheck (not committed).

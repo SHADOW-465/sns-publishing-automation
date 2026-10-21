@@ -3,7 +3,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { acePath, aceHandler, aceFindings } from '../server/ace-service.mjs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { acePath, aceHandler, aceFindings, runAce } from '../server/ace-service.mjs'
 import { gate, httpValidator } from '../src/engine/check/gate.ts'
 import { DEFAULT_SETTINGS } from '../src/engine/settings.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
@@ -65,5 +68,39 @@ test('the full Ace run is a gate stage for an accessible book, reached over HTTP
     assert.equal((await gate(std.epub, DEFAULT_SETTINGS, { conformance: false, ace: httpValidator(url) })).stages.some((s) => s.id === 'ace'), false)
   } finally {
     srv.close()
+  }
+})
+
+test('Ace is optional: when it is missing or fails to run, the service says 503 and the gate falls back to axe-core, never red for that alone', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'ace-home-'))
+  const before = process.env.ACE_HOME
+  const srv = createServer(aceHandler)
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+  const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/api/ace`
+  try {
+    // an install whose headless Chrome is missing: Ace starts, writes no report and exits 1
+    const bin = join(home, 'node_modules', '@daisy', 'ace', 'bin')
+    mkdirSync(bin, { recursive: true })
+    writeFileSync(join(bin, 'ace-puppeteer.js'), 'console.error("Could not find Chrome"); process.exit(1)')
+    process.env.ACE_HOME = home
+    const r = book()
+    assert.equal(await runAce(r.epub), null)
+    const res = await fetch(url, { method: 'POST', body: r.epub as unknown as BodyInit })
+    assert.equal(res.status, 503)
+    assert.match((await res.json()).error, /did not run/)
+    const g = await gate(r.epub, DEFAULT_SETTINGS, { source: r.source, conformance: false, axe: jsdomAxe, ace: httpValidator(url) })
+    const stage = g.stages.find((s) => s.id === 'ace')!
+    assert.deepEqual([stage.ran, stage.errors], [false, []])
+    assert.notEqual(g.verdict, 'red')
+    assert.ok(g.notes.some((n) => /Ace by DAISY did not run here, so the pages were checked with axe-core/.test(n)), g.notes.join(' | '))
+    // the static web copy: no service at all
+    const web = await gate(r.epub, DEFAULT_SETTINGS, { source: r.source, conformance: false, axe: jsdomAxe, ace: httpValidator('http://127.0.0.1:9/api/ace') })
+    assert.equal(web.stages.find((s) => s.id === 'ace')!.ran, false)
+    assert.notEqual(web.verdict, 'red')
+  } finally {
+    if (before === undefined) delete process.env.ACE_HOME
+    else process.env.ACE_HOME = before
+    srv.close()
+    rmSync(home, { recursive: true, force: true })
   }
 })

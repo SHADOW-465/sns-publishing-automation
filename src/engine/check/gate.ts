@@ -1,6 +1,6 @@
 // The validation gate: one verdict for a built EPUB, from the stages below. Green needs EPUBCheck to have run and passed.
 //   1 our structure checks  2 spec conformance  3 accessibility (claims, pageRules, axe-core per page)  4 EPUBCheck (service)
-//   5 Ace by DAISY (service, accessible books only)  6 reference diff
+//   5 Ace by DAISY (optional service, accessible books only; never needed for green)  6 reference diff
 // EPUBCheck needs Java and Ace a headless Chrome, so the browser reaches both through a local service. axe-core runs in the browser.
 import { unzip, text, type Files } from '../zip.ts'
 import type { HouseSettings } from '../settings.ts'
@@ -91,7 +91,8 @@ export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: Che
   const accessible = /schema:accessMode/.test(text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array()))
   const ace = accessible ? await (o.ace ?? noValidator)(epub) : null
   if (accessible) stages.push({ id: 'ace', title: 'Ace by DAISY', ran: !!ace, errors: ace?.errors ?? [], warnings: ace?.warnings ?? [] })
-  if (accessible && !ace) notes.push('Ace by DAISY could not run here; run it before an accessibility certification.')
+  // Ace is optional (a separate download with its own Chrome); without it the axe-core page checks above stand in for it
+  if (accessible && !ace) notes.push(`Ace by DAISY did not run here${axe ? ', so the pages were checked with axe-core, the engine inside Ace' : ''}; run the full Ace before an accessibility certification.`)
   if (o.reference) stages.push({ id: 'reference', title: 'Reference diff', ran: true, errors: [], warnings: refdiff(files, o.reference).map((d) => `Differs from your reference: ${d}`) })
   const errors = stages.some((x) => x.errors.length)
   const warned = stages.some((x) => x.warnings.length)

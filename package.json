@@ -12,6 +12,7 @@
     "epubcheck": "node test/epubcheck.ts",
     "test": "node --test --test-concurrency=1 --import ./test/setup.ts \"test/**/*.test.ts\"",
     "tools": "node scripts/fetch-tools.mjs",
+    "tools:ace": "node scripts/fetch-tools.mjs --ace",
     "desktop": "electron .",
     "desktop:build": "node scripts/fetch-tools.mjs && vite build && electron-builder --win nsis",
     "desktop:dir": "node scripts/fetch-tools.mjs && vite build && electron-builder --win dir"
