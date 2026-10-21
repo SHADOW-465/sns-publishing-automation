@@ -19,7 +19,7 @@ import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, typ
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { insertAtMarker } from '../epub/insert.ts'
 import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
-import { settings, isHousePrintOnly, variantProps } from '../settings.ts'
+import { settings, isHousePrintOnly, variantProps, type StyleRule } from '../settings.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
@@ -99,13 +99,20 @@ type PBlock = Extract<Block, { t: 'p' }>
 /** Styles of the export that a client's styleMap names: a style name or a regular expression over it. These decide before any guess. */
 function styleMapProfile(ex: Export): Profile {
   const out: Profile = {}
-  const rules = Object.values(settings().styleMap)
-  if (!rules.length) return out
+  if (!Object.keys(settings().styleMap).length) return out
   for (const k of new Set(ex.blocks.flatMap((b) => (b.t === 'p' ? [b.key] : [])))) {
-    const r = rules.filter((x) => !x.text).find((x) => x.match === k || (() => { try { return new RegExp(x.match, 'i').test(k) } catch { return false } })())
-    if (r && (ROLES as readonly string[]).includes(r.role)) out[k] = { role: r.role as Role, outClass: r.class ?? '' }
+    const r = styleRuleFor(k)
+    if (r) out[k] = { role: r.role as Role, outClass: r.class ?? '' }
   }
   return out
+}
+
+/** The styleMap rule for a style name. A rule naming the style exactly beats a pattern, and of those the last wins: the
+ *  layers resolve in order (house, client, series, book), so "remember for this book" overrides the client's rule. */
+export function styleRuleFor(key: string): StyleRule | undefined {
+  const rules = Object.values(settings().styleMap).filter((x) => !x.text && (ROLES as readonly string[]).includes(x.role))
+  const hits = (x: StyleRule) => { try { return new RegExp(x.match, 'i').test(key) } catch { return false } }
+  return rules.findLast((x) => x.match === key) ?? rules.find((x) => x.match && hits(x))
 }
 
 export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture[] = []): Analysis {
@@ -240,18 +247,21 @@ export function contentClass(b: { key: string; text: string }, d: Decls): string
   }
 }
 
-/** The client's styleMap decides the role and class of the styles it names, whenever the spec was opened (after the analysis, in the app). */
-function withStyleMap<T extends { key: string; role: string; outClass: string }>(styles: T[]): T[] {
-  const rules = Object.values(settings().styleMap).filter((x) => !x.text)
-  if (!rules.length) return styles
+/** The client's styleMap decides the role and class of the styles it names, whenever the spec was opened (after the analysis, in the app).
+ *  A style the person changed on the Structure step (it differs from what the analysis gave) keeps the person's choice. */
+function withStyleMap<T extends { key: string; role: string; outClass: string }>(styles: T[], analysed: T[]): T[] {
+  if (!Object.keys(settings().styleMap).length) return styles
+  const was = new Map(analysed.map((s) => [s.key, s]))
   return styles.map((s) => {
-    const r = rules.find((x) => x.match === s.key || (() => { try { return new RegExp(x.match, 'i').test(s.key) } catch { return false } })())
-    return r && (ROLES as readonly string[]).includes(r.role) ? { ...s, role: r.role, outClass: r.class || s.outClass } : s
+    const w = was.get(s.key)
+    if (w && (w.role !== s.role || w.outClass !== s.outClass)) return s
+    const r = styleRuleFor(s.key)
+    return r ? { ...s, role: r.role, outClass: r.class || s.outClass } : s
   })
 }
 
 export function build(a: Analysis, rawInput: BuildInput): BuildResult {
-  const input = { ...rawInput, styles: withStyleMap(rawInput.styles) }
+  const input = { ...rawInput, styles: withStyleMap(rawInput.styles, a.styles) }
   const { ex } = a
   const { meta } = input
   const L = labelsFor(meta.language)

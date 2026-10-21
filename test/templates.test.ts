@@ -145,3 +145,23 @@ test('content rules round-trip through the Styles sheet of the spec workbook; ro
   assert.deepEqual(Object.values(layerDataFromWorkbook([{ name: 'Styles', rows }])!.styleMap), [{ match: '', role: 'p', text: '^Web:', class: 'web' }])
   assert.deepEqual(Object.values(layerDataFromWorkbook([{ name: 'Styles', rows: [['Source style', 'Means (role)', 'Output class'], ['KT', 'chapter-title', 'kt']] }])!.styleMap), [{ match: 'KT', role: 'chapter-title', class: 'kt' }])
 })
+
+test('the styleMap at build: a name beats a pattern, the book layer beats the client, and a style the person changed keeps their choice', async () => {
+  const { styleRuleFor } = await import('../src/engine/indesign/build.ts')
+  const body = [long('Front line to keep the front matter alive.'), ...[1, 2].map((n) => `<p class="Etiqueta">Chapter ${n}</p>\n<p class="Titulo">Title ${n}</p>\n${long(`Chapter ${n} text.`)}\n<p class="Sub">A subhead in ${n}</p>\n${long('More text.')}`)].join('\n')
+  const a = analyze(synthExport(body, SYNTH_CSS))
+  // resolved layers in order: the client's pattern first, the book's remembered decision after it
+  const styleMap = { client: { match: '^Su', role: 'p', class: 'client-sub' }, 'style:Sub': { match: 'Sub', role: 'h3', class: 'book-sub' } }
+  setSettings({ ...DEFAULT_SETTINGS, styleMap })
+  assert.equal(styleRuleFor('Sub')?.class, 'book-sub')
+  assert.equal(styleRuleFor('Subtitle')?.class, 'client-sub')
+  const html = (styles: typeof a.styles) => {
+    const r = build(a, { styles, images: a.images, meta: { ...a.meta, title: 'Sample', authors: 'A. Writer', eisbn: '9780306406157' }, cover: { name: 'cover.png', data: cover } })
+    return [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([, d]) => text(d)).join('\n')
+  }
+  assert.match(html(a.styles), /class="book-sub"[^>]*>A subhead in 1/)
+  const mine = a.styles.map((s) => (s.key === 'Sub' ? { ...s, role: 'p' as const, outClass: 'mine' } : s))
+  const out = html(mine)
+  assert.match(out, /<p class="mine">A subhead in 1/)
+  assert.doesNotMatch(out, /book-sub|client-sub/)
+})
