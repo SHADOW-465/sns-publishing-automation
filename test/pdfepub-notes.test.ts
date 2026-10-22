@@ -87,3 +87,41 @@ test('NOTE-05 in the PDF build: per chapter, the second chapter’s notes are 1 
     setSettings(DEFAULT_SETTINGS)
   }
 })
+
+/** Chapters with two subheads each (bold, between the chapter title and body sizes). */
+async function bookWithSubheads(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create()
+  const serif = await doc.embedFont(StandardFonts.TimesRoman)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const words = 'Der Text dieses Kapitels erzählt von der Arbeit am Feld und von den Menschen, die dort lebten und die Geschichte des Ortes prägten'.split(' ')
+  for (let ch = 1; ch <= 8; ch++) {
+    const p = doc.addPage([400, 600])
+    p.drawText(`Kapitel ${ch}`, { x: 60, y: 520, size: 24, font: bold })
+    let y = 480
+    for (let sub = 1; sub <= 2; sub++) {
+      p.drawText(`Abschnitt ${ch}.${sub}`, { x: 60, y, size: 14, font: bold })
+      y -= 22
+      for (let line = 0; line < 12; line++, y -= 13) p.drawText(words.slice(line % 6, line % 6 + 9).join(' '), { x: 60, y, size: 11, font: serif })
+      y -= 10
+    }
+    p.drawText(String(ch + 10), { x: 195, y: 25, size: 9, font: serif })
+  }
+  return doc.save()
+}
+
+test('with an h2 chapter-title template, the PDF build’s subheads sit one level under the chapter title, not beside it', async () => {
+  const book = await analyzePdf(pdfjs, await bookWithSubheads(), nodeRaster)
+  const meta = { ...book.meta, title: 'Das Feld', authors: 'A. Autor', eisbn: '9780306406157', language: 'de-DE' }
+  const levels = async () => {
+    const r = await buildPdfEpub(book, { styles: book.styles, meta, rules: rulesFor('de'), cover: { name: 'cover.png', data: COVER } }, nodeRaster)
+    const ch = text([...r.files].find(([p]) => /chapter01\.xhtml$/.test(p))![1])
+    return [...ch.matchAll(/<(h[1-6])\b[^>]*>(?:<[^>]+>)*\s*(Kapitel 1|Abschnitt 1\.1)/g)].map((m) => `${m[1]} ${m[2]}`)
+  }
+  assert.deepEqual(await levels(), ['h1 Kapitel 1', 'h2 Abschnitt 1.1'], 'default: chapter h1, subhead h2')
+  setSettings({ ...DEFAULT_SETTINGS, markup: { 'chapter-title': { tag: 'h2', class: 'chapter-b' } } })
+  try {
+    assert.deepEqual(await levels(), ['h2 Kapitel 1', 'h3 Abschnitt 1.1'])
+  } finally {
+    setSettings(DEFAULT_SETTINGS)
+  }
+})

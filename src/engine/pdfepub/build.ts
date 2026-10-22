@@ -477,8 +477,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
           continue
         }
         closePara()
-        // subheads sit one level under the chapter heading (h1); a book with a single subhead style uses h2 for it
-        const h = r === 'subhead' || !book.styles.some((x) => x.role === 'subhead' && x.count >= 10) ? 'h2' : 'h3'
+        // subheads sit one level under the chapter heading (h1, or the chapter-title template's tag); a book with a single subhead style uses one level for it
+        const tplTag = cur?.type === 'chapter' ? settings().markup['chapter-title']?.tag : undefined
+        const base = tplTag && /^h[1-6]$/.test(tplTag) ? Number(tplTag[1]) : 1
+        const h = `h${Math.min(6, base + (r === 'subhead' || !book.styles.some((x) => x.role === 'subhead' && x.count >= 10) ? 1 : 2))}`
         if (lastBlock?.kind === 'raw' && lastBlock.html.startsWith(`<${h}`) && prev && roleOf(prev) === r && l.y - prev.y < l.size * 2) {
           lastBlock.html = lastBlock.html.replace(`</${h}>`, ` ${segHtml(segsOf(l))}</${h}>`) // two-line subhead
           continue
