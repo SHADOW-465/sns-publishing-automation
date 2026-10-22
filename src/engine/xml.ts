@@ -55,7 +55,9 @@ export const pageBreakOf = (el: Element): string | null => {
 /** Resolve a relative href against the directory of `base` (zip paths, no leading slash). */
 export function resolvePath(base: string, href: string): string {
   const parts = base.split('/').slice(0, -1)
-  for (const seg of decodeURIComponent(href.split('#')[0]).split('/')) {
+  let path = href.split('#')[0]
+  try { path = decodeURIComponent(path) } catch { /* a stray "%" ("50%off.xhtml") is not an escape: keep it as written */ }
+  for (const seg of path.split('/')) {
     if (seg === '..') parts.pop()
     else if (seg && seg !== '.') parts.push(seg)
   }
