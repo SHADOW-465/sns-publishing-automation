@@ -127,3 +127,22 @@ test('Tempelhofer Feld: ten chapters, Luftfahrt is not the imprint, spine and pa
   assert.ok(r.sections.some((s) => s.type === 'notes'))
   assert.ok(r.sections.some((s) => s.type === 'bibliography'))
 })
+
+test('HD-09 by size: a style the person (or the client) says is no heading does not push the real subheads down a level', async () => {
+  const { synthBook, SYNTH_CSS } = await import('./synth.ts')
+  const { setSettings, DEFAULT_SETTINGS } = await import('../src/engine/settings.ts')
+  const css = `${SYNTH_CSS}
+p.Big { font-size:1.4em; text-align:left; font-weight:bold; margin-top:30px; margin-bottom:15px; font-family:"Sans", sans-serif; }
+p.Small { font-size:1em; text-align:left; font-weight:bold; margin-top:30px; margin-bottom:15px; font-family:"Sans", sans-serif; }
+`
+  const body = (t: string) => `<p class="Cuerpo">${`${t} `.repeat(30)}</p>`
+  const files = synthExport(synthBook(8, (n) => `${body(`Text ${n}.`)}\n<p class="Big">Big ${n}</p>\n${body('More.')}\n<p class="Sub">Sub ${n}</p>\n${body('More.')}\n<p class="Small">Small ${n}</p>\n${body('End.')}`), css)
+  setSettings({ ...DEFAULT_SETTINGS, headingLevels: 'size' })
+  try {
+    const roles = (saved = {}) => Object.fromEntries(analyze(files, saved).styles.filter((s) => ['Big', 'Sub', 'Small'].includes(s.key)).map((s) => [s.key, s.role]))
+    assert.deepEqual(roles(), { Big: 'h3', Sub: 'h4', Small: 'h5' })
+    assert.deepEqual(roles({ Big: { role: 'p', outClass: 'big' } }), { Big: 'p', Sub: 'h3', Small: 'h4' })
+  } finally {
+    setSettings(DEFAULT_SETTINGS)
+  }
+})
