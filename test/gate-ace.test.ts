@@ -117,3 +117,17 @@ test('when the full Ace ran, axe-core does not run again (Ace already runs it), 
   await gate(r.epub, DEFAULT_SETTINGS, { source: r.source, conformance: false, axe: counting, ace: async () => null })
   assert.ok(pages > 0, 'without Ace, axe-core checks every page')
 })
+
+test('a standard EPUB is not red from axe for leaving out the accessibility layer it leaves out on purpose (page language, roles)', async () => {
+  const std = book('standard')
+  const g = await gate(std.epub, DEFAULT_SETTINGS, { source: std.source, conformance: false, axe: jsdomAxe, validator: async () => ({ errors: [], warnings: [] }) })
+  const a11y = g.stages.find((s) => s.id === 'accessibility')!
+  assert.deepEqual(a11y.errors, [])
+  assert.notEqual(g.verdict, 'red')
+  // a picture with no alt is still an error in a standard book (which has no <section> for broken() to use)
+  const f = unzip(std.epub)
+  const k = [...f.keys()].find((p) => /chapter01\.xhtml$/.test(p))!
+  f.set(k, bytes(text(f.get(k)!).replace('</body>', '<img src="images/none.png"/></body>')))
+  const bad = await gate(zipEpub(f), DEFAULT_SETTINGS, { conformance: false, axe: jsdomAxe })
+  assert.match(bad.stages.find((s) => s.id === 'accessibility')!.errors.join('\n'), /\(axe image-alt/)
+})

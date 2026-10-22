@@ -70,12 +70,14 @@ export const iframeAxe: AxeRunner = async (xhtml) => {
 export async function axePages(files: Files, run: AxeRunner): Promise<{ errors: string[]; warnings: string[] } | null> {
   const errors: string[] = []
   const warnings: string[] = []
+  // a standard EPUB (no accessibility metadata) leaves the language off the page on purpose, as checkEpub knows
+  const standard = !/schema:accessMode/.test(text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array()))
   for (const [path, data] of files) {
     if (!path.endsWith('.xhtml')) continue
     const found = await run(text(data))
     if (!found) return null
     const name = path.replace(/^.*\//, '')
-    for (const v of found) (v.impact === 'critical' || v.impact === 'serious' ? errors : warnings).push(`${name}: ${v.help} (axe ${v.rule}, ${v.nodes} place${v.nodes === 1 ? '' : 's'})`)
+    for (const v of found) if (!(standard && v.rule === 'html-has-lang')) (v.impact === 'critical' || v.impact === 'serious' ? errors : warnings).push(`${name}: ${v.help} (axe ${v.rule}, ${v.nodes} place${v.nodes === 1 ? '' : 's'})`)
   }
   return { errors, warnings }
 }
