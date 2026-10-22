@@ -24,7 +24,8 @@ export function toolPaths() {
     const jre = readdirSync(dir).find((d) => d.startsWith('jdk-'))
     const ec = readdirSync(dir).find((d) => d.startsWith('epubcheck-'))
     const java = jre && join(dir, jre, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
-    if (java && ec && existsSync(java)) return { java, jar: join(dir, ec, 'epubcheck.jar'), dir }
+    const jar = ec && join(dir, ec, 'epubcheck.jar')
+    if (java && jar && existsSync(java) && existsSync(jar)) return { java, jar, dir }
   }
   return null
 }
@@ -41,6 +42,8 @@ export async function runEpubcheck(epub) {
       execFile(p.java, ['-Xmx384m', '-Xss2m', '-XX:+UseSerialGC', '-jar', p.jar, file], { encoding: 'utf8', timeout: 240_000, maxBuffer: 32 << 20 }, (_e, out, err) => done(`${out}${err}`)),
     )
     const lines = output.split(/\r?\n/)
+    // EPUBCheck always ends with its "Messages: …" count; without it Java did not start, the jar failed or the time ran out
+    if (!lines.some((l) => /^Messages: /.test(l))) return console.warn(`EPUBCheck did not run: ${output.trim().slice(0, 500)}`), null
     return { errors: lines.filter((l) => /^(ERROR|FATAL)/.test(l)), warnings: lines.filter((l) => /^WARNING/.test(l)) }
   } finally {
     rmSync(dir, { recursive: true, force: true })
