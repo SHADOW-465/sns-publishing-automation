@@ -80,7 +80,7 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS)
   settings.labels = labels
   const markup: Record<string, MarkupTemplate> = { ...(base.markup ?? {}) }
   const styleMap: Record<string, StyleRule> = { ...(base.styleMap ?? {}) }
-  const css = [base.extraCss ?? ''].filter(Boolean)
+  const css = [String(settings.extraCss ?? '')].filter(Boolean) // the house value, or CSS-03 as the last layer set it
   for (const layer of ordered) {
     const who = { level: layer.level, name: layer.name }
     for (const [role, t] of Object.entries(layer.markup ?? {})) (markup[role] = t), (from[`markup:${role}`] = who)

@@ -291,3 +291,13 @@ test('markup samples keep their extra attributes (aria-*, data-*), and the build
   assert.match(noteRef('#fn-1', 'fn_1', '1'), /^<sup><a epub:type="noteref" href="#fn-1" id="fn_1" role="doc-noteref" title="Nota">1<\/a><\/sup>$/)
   setSettings(DEFAULT_SETTINGS)
 })
+
+test('Extra CSS (CSS-03) set on a layer or as the house value survives resolve, followed by each layer\'s own css', () => {
+  const house = { ...DEFAULT_SETTINGS, extraCss: 'p.house { color: red; }' }
+  assert.equal(resolve([], house).settings.extraCss, 'p.house { color: red; }')
+  const book = emptyLayer('book', 'b')
+  book.values['CSS-03'] = 'p.book { color: blue; }'
+  assert.equal(resolve([book]).settings.extraCss, 'p.book { color: blue; }')
+  const client = { ...emptyLayer('client', 'c'), css: 'p.client { margin: 0; }' }
+  assert.equal(resolve([client], house).settings.extraCss, 'p.house { color: red; }\np.client { margin: 0; }')
+})
