@@ -111,7 +111,8 @@ function styleMapProfile(ex: Export): Profile {
  *  layers resolve in order (house, client, series, book), so "remember for this book" overrides the client's rule. */
 export function styleRuleFor(key: string): StyleRule | undefined {
   const rules = Object.values(settings().styleMap).filter((x) => !x.text && (ROLES as readonly string[]).includes(x.role))
-  const hits = (x: StyleRule) => { try { return new RegExp(x.match, 'i').test(key) } catch { return false } }
+  // a plain style name (what "remember" saves) names that style only; a match is a pattern when it has regex syntax ("^ihv(\d)$")
+  const hits = (x: StyleRule) => { try { return /[\^$*+?()[\]{}|\\]/.test(x.match) && new RegExp(x.match, 'i').test(key) } catch { return false } }
   return rules.findLast((x) => x.match === key) ?? rules.find((x) => x.match && hits(x))
 }
 

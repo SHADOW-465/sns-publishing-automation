@@ -165,3 +165,15 @@ test('the styleMap at build: a name beats a pattern, the book layer beats the cl
   assert.match(out, /<p class="mine">A subhead in 1/)
   assert.doesNotMatch(out, /book-sub|client-sub/)
 })
+
+test('a remembered style name only names that style: "Sub" does not also take "Subtitle" or "SubSub"', async () => {
+  const { styleRuleFor } = await import('../src/engine/indesign/build.ts')
+  setSettings({ ...DEFAULT_SETTINGS, styleMap: { 'style:Sub': { match: 'Sub', role: 'h3', class: 'book-sub' }, 'style:Texto-1': { match: 'Texto-1', role: 'h2' } } })
+  assert.equal(styleRuleFor('Sub')?.class, 'book-sub')
+  assert.equal(styleRuleFor('Subtitle'), undefined)
+  assert.equal(styleRuleFor('SubSub'), undefined)
+  assert.equal(styleRuleFor('Texto-10'), undefined)
+  // a real pattern still works as one
+  setSettings({ ...DEFAULT_SETTINGS, styleMap: { p: { match: String.raw`^ihv(\d)$`, role: 'h3' } } })
+  assert.equal(styleRuleFor('ihv2')?.role, 'h3')
+})
