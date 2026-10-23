@@ -39,7 +39,7 @@ test('accessible and standard EPUB from one export', { skip: !has(input) && 'sam
 
   // accessible: the full layer; standard: none of it, same text
   assert.match(text(acc.files.get('OEBPS/content.opf')!), /schema:accessMode/)
-  for (const [p, t] of all(std)) assert.doesNotMatch(t, /\srole="|\saria-[a-z]+="|epub:type="pagebreak"|schema:access|conformsTo|doc-pagelist|page-list/, `${p}: accessibility layer removed`)
+  for (const [p, t] of all(std)) assert.doesNotMatch(t, /\srole="|\saria-[a-z]+="|epub:type="pagebreak"|schema:access|conformsTo|doc-pagelist|page-list|pageBreakSource/, `${p}: accessibility layer removed`)
   // standard: the client's tag-differences sheet
   const sch = text(std.files.get('OEBPS/chapter02.xhtml')!)
   assert.doesNotMatch(sch, /<html [^>]*lang=/, 'no language on the page')

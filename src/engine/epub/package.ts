@@ -103,8 +103,9 @@ export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativ
     out = out.replace(/<img\b([^>]*?)\/>/g, (m, attrs: string) => {
       if (/class="(?:cv|w1)"/.test(attrs)) return m
       const alt = /\balt="([^"]*)"/.exec(attrs)
-      const decorative = o.altDecorative === 'word' ? L.decorativeAlt : ''
-      return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${alt[1] ? L.imageAlt : decorative}"`) : ` alt="${L.imageAlt}"${attrs}`}/>`
+      // only a picture marked as decoration is decorative; one nobody has described yet is still a picture (the review says so)
+      const word = /role="presentation"/.test(attrs) ? (o.altDecorative === 'word' ? L.decorativeAlt : '') : L.imageAlt
+      return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${word}"`) : ` alt="${word}"${attrs}`}/>`
     })
   if (o.stdLists === 'typed') out = listsAsParagraphs(out)
   if (o.stdEmphasis === 'bi') out = bAndI(out, 'bi')
@@ -397,7 +398,7 @@ ${meta.publisher.trim() ? `<dc:publisher>${esc(meta.publisher.trim())}</dc:publi
 ${meta.rights ? `<dc:rights>${esc(meta.rights)}</dc:rights>` : ''}
 ${meta.description?.trim() ? `<dc:description>${esc(meta.description.trim())}</dc:description>` : ''}
 ${meta.published?.trim() ? `<dc:date>${esc(meta.published.trim())}</dc:date>` : ''}
-${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
+${meta.printIsbn ? `<dc:source id="src-id">urn:isbn:${isbnDigits(meta.printIsbn)}</dc:source>${!standard && pageList.length ? `\n<meta property="pageBreakSource">urn:isbn:${isbnDigits(meta.printIsbn)}</meta>` : ''}` : ''}
 <meta property="dcterms:modified">${modified}</meta>
 ${meta.series?.trim() ? `<meta property="belongs-to-collection" id="series">${esc(meta.series.trim())}</meta>
 <meta refines="#series" property="collection-type">series</meta>${meta.seriesPosition?.trim() ? `

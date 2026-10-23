@@ -45,10 +45,12 @@ test('emphasis: <b>/<i>, <em>/<strong>, or spans, one form throughout', () => {
   assert.equal(mixed, '<p>x <i>a</i> <b>b</b></p>')
 })
 
-test('a decorative picture is described with nothing, or with the word for it', () => {
-  assert.match(toStandard(body, L, { ...STD_DEFAULTS, altDecorative: 'empty' }), /<img alt="" src="images\/a\.jpg"\/>/)
-  assert.match(toStandard(body, L, { ...STD_DEFAULTS, altDecorative: 'word' }), /<img alt="decorative"/)
+test('a decorative picture is described with nothing, or with the word for it; one nobody described is not decorative', () => {
+  const deco = '<p><img alt="" role="presentation" src="images/a.jpg"/></p>'
+  assert.match(toStandard(deco, L, { ...STD_DEFAULTS, altDecorative: 'empty' }), /<img alt="" src="images\/a\.jpg"\/>/)
+  assert.match(toStandard(deco, L, { ...STD_DEFAULTS, altDecorative: 'word' }), /<img alt="decorative"/)
   assert.match(toStandard('<img alt="A woman" src="b.jpg"/>', L, { ...STD_DEFAULTS, altDecorative: 'empty' }), /alt="image"/, 'a described picture gets the generic word (STD-09)')
+  assert.match(toStandard('<img alt="" src="c.jpg"/>', L, { ...STD_DEFAULTS, altDecorative: 'empty' }), /alt="image"/, 'an undescribed picture is not called decoration')
 })
 
 test('pageAnchorId fills in the page number', () => {
