@@ -311,31 +311,53 @@ export function paints(ops: Op[], res: Resources): (Paint | null)[] {
 
 export const isPaint = (op: string) => PATH_PAINT.has(op) || TEXT_SHOW.has(op) || op === 'Do' || op === 'BI' || op === 'sh'
 
-/** The owner of the next painting operator, null for an artifact, undefined when nothing more is painted. */
-function nextPaintOwner(ops: Op[], owners: (Owner | undefined)[], from: number): Owner | null | undefined {
-  for (let j = from + 1; j < ops.length; j++) if (isPaint(ops[j].op)) return owners[j] ?? null
-  return undefined
-}
-
 // ---------------------------------------------------------------------------------------------
 // Rewrite: wrap painting operators in marked content
 // ---------------------------------------------------------------------------------------------
+
+/** For each q: where its group ends and, if every paint inside belongs to one element and no text object is inside, that element. */
+function qGroups(ops: Op[], owners: (Owner | undefined)[]): Map<number, { owner?: { el: number; tag: string } }> {
+  const out = new Map<number, { owner?: { el: number; tag: string } }>()
+  const stack: { at: number; key?: string; owner?: { el: number; tag: string }; mixed: boolean }[] = []
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i].op
+    if (op === 'q') stack.push({ at: i, mixed: false })
+    else if (op === 'Q') {
+      const g = stack.pop()
+      if (g) out.set(g.at, g.mixed || !g.owner ? {} : { owner: g.owner })
+    } else if (op === 'BT' || op === 'ET') for (const g of stack) g.mixed = true
+    else if (isPaint(op)) {
+      const w = owners[i] ?? null
+      for (const g of stack) {
+        const key = w ? `${w.el}` : 'artifact'
+        if (g.key === undefined) (g.key = key), (g.owner = w ?? undefined)
+        else if (g.key !== key) g.mixed = true
+      }
+    }
+  }
+  for (const g of stack) out.set(g.at, {}) // unbalanced q: left alone
+  return out
+}
 
 /** Owner of a painting operator: a structure element id (tag + element), or null = artifact. */
 export type Owner = { el: number; tag: string } | null
 
 /**
  * Rebuild the stream. Existing marked-content operators are dropped (the document is re-tagged
- * from scratch) except optional-content ones (/OC). A sequence never crosses BT/ET (a text
- * object stays its own MCID). It may cross q/Q when the same element continues, so a logo
- * drawn as many graphics groups stays one figure.
+ * from scratch) except optional-content ones (/OC). A sequence never crosses BT/ET (a text object stays its
+ * own MCID) and always ends at the same q/Q depth where it began, so the nesting is valid (PDF 32000 §14.6, PAC).
+ * A logo drawn as many q…Q groups, all painted by one element, is still one sequence: it opens in front of the
+ * first q, at the outer depth, when every paint in that group belongs to the same element and no text object
+ * interrupts it. Each sequence gets its own MCID.
  * Returns the new stream and, per MCID, the element that owns it.
  */
 export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): { stream: string; mcids: number[] } {
   let out = ''
   let pos = 0
-  let open: { key: string } | null = null
+  let open: { key: string; depth: number } | null = null
+  let depth = 0 // q nesting where the next operator is written
   const mcids: number[] = []
+  const groups = qGroups(ops, owners)
   const ocDepth: boolean[] = [] // stack of BDC/BMC in the source: true = kept (/OC)
   // A path object runs from its first construction operator to its painting operator; marked content may only start
   // or end outside it (PDF 32000 §14.6, and PAC's content check). The path is held back and written with its paint.
@@ -365,7 +387,7 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
     if (path !== null && o.op === 'n') {
       // a clipping path: no paint, stays inside whatever sequence is open
       // outside a sequence it would be unmarked content: it opens an artifact one, which the next painting operator reuses or closes
-      if (!open) (out += '\n/Artifact BMC\n'), (open = { key: 'artifact' })
+      if (!open) (out += '\n/Artifact BMC\n'), (open = { key: 'artifact', depth })
       out += path + gap + raw
       path = null
       continue
@@ -392,14 +414,26 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
       out += raw
       continue
     }
-    if (o.op === 'q' || o.op === 'Q') {
-      // Keep one sequence when the same element continues on the other side (a logo drawn as many
-      // q/Q groups is one Figure, not a Figure full of separate pieces). Close only when the next
-      // paint belongs to someone else, so a q never glues two elements together.
-      const nxt = nextPaintOwner(ops, owners, i)
-      const nextKey = nxt === undefined ? '' : nxt ? `${nxt.el}` : 'artifact'
-      if (!open || !nextKey || open.key !== nextKey) close()
+    if (o.op === 'q') {
+      const g = groups.get(i)
+      // a group painted by one element alone can sit inside that element's sequence; anything else ends the sequence here
+      if (open && !(g?.owner && open.key === `${g.owner.el}`)) close()
+      if (!open && g?.owner) {
+        out += `
+/${g.owner.tag} <</MCID ${mcids.length}>> BDC
+`
+        mcids.push(g.owner.el)
+        open = { key: `${g.owner.el}`, depth }
+      }
       out += raw
+      depth++
+      continue
+    }
+    if (o.op === 'Q') {
+      // a sequence that began inside the group being closed must end before the Q
+      if (open && open.depth >= depth) close()
+      out += raw
+      depth = Math.max(0, depth - 1)
       continue
     }
     if (isPaint(o.op)) {
@@ -411,7 +445,7 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
           out += `\n/${w.tag} <</MCID ${mcids.length}>> BDC\n`
           mcids.push(w.el)
         } else out += '\n/Artifact BMC\n'
-        open = { key }
+        open = { key, depth }
       }
       if (held) (out += path + gap), (path = null)
       out += raw

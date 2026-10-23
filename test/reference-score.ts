@@ -78,12 +78,9 @@ if (want('ceramics')) {
 
 if (want('gladiators') || want('evers')) {
   // accessible PDF scores come from the PDF/UA harness when it is present
-  try {
-    const mod = './reference-score-pdf.ts'
-    const { scorePdfUaBooks } = (await import(mod)) as { scorePdfUaBooks: (want: (n: string) => boolean) => Promise<typeof results> }
+  {
+    const { scorePdfUaBooks } = await import('./reference-score-pdf.ts')
     Object.assign(results, await scorePdfUaBooks(want))
-  } catch (e) {
-    if ((e as { code?: string }).code !== 'ERR_MODULE_NOT_FOUND') throw e
   }
 }
 
