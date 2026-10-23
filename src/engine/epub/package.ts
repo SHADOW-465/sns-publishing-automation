@@ -6,6 +6,7 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, type StdOptions } from '../settings.ts'
+import { postBuildGuards } from '../check/guards.ts'
 
 export interface BookMeta {
   title: string
@@ -420,5 +421,6 @@ ${settings().writeGuide ? `<guide>
 `)
 
   review.push(...validateEpub(files).filter((x) => !(standard && x.msg === "Document has no heading."))) // a standard EPUB has paragraphs, not heading elements
+  for (const msg of postBuildGuards(files)) review.push({ level: 'warn', msg })
   return { epub: zipEpub(files), files }
 }
