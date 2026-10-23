@@ -5,7 +5,7 @@ import { labelsFor, type Labels, type SectionType } from './locale.ts'
 import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
-import { settings, htmlLangAttrs, STD_DEFAULTS, type StdOptions } from '../settings.ts'
+import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
 import { postBuildGuards } from '../check/guards.ts'
 
 export interface BookMeta {
@@ -54,15 +54,25 @@ export const isRtl = (lang: string) => /^(ar|he|iw|fa|ur|yi|ps|sd|ug|dv)(-|_|$)/
  * lists are paragraphs with their bullet or number typed in, quotes are <div class="top">, tables have bare rows,
  * notes carry no roles, page numbers are <a id="Page_1"/>, and the section / language wrappers and all ARIA go.
  */
-export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativeAlt'> = { imageAlt: 'image', decorativeAlt: 'decorative' }, o: StdOptions = STD_DEFAULTS): string {
+/** the id of the anchor for a printed page (STD-14): the pattern with the page number in it */
+export const pageAnchorId = (n: string, pattern: string = DEFAULT_SETTINGS.pageAnchorId) => pattern.replace('{n}', n)
+
+export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativeAlt'> = { imageAlt: 'image', decorativeAlt: 'decorative' }, o: StdOptions & Partial<Pick<HouseSettings, 'altDecorative' | 'pageAnchorId' | 'pageAnchorPlace'>> = STD_DEFAULTS): string {
+  const anchor = (n: string) => pageAnchorId(n, o.pageAnchorId)
   let out = body
   // page markers
   if (o.stdPageMarks !== 'keep')
     out = out.replace(/<(span|div)\b([^>]*?)(?:\/>|>\s*<\/\1>)/g, (m, _t, attrs: string) => {
       if (!/epub:type="pagebreak"/.test(attrs)) return m
       const id = attrs.match(/\bid="page-([^"]+)"/)?.[1]
-      return id && o.stdPageMarks === 'anchor' ? `<a id="Page_${id}"/>` : ''
+      return id && o.stdPageMarks === 'anchor' ? `<a id="${anchor(id)}"/>` : ''
     })
+  // links to a printed page (an index, a list of illustrations) follow the marker: to its new name, or to the file when there is none
+  if (o.stdPageMarks !== 'keep')
+    out = out.replace(/href="([^"#]*)#page-([^"]+)"/g, (_m, file: string, id: string) => (o.stdPageMarks === 'anchor' ? `href="${file}#${anchor(id)}"` : `href="${file}"`))
+  // the anchor sits as the first thing inside the block that starts the page, not on a line of its own in front of it (STD-15)
+  if (o.stdPageMarks === 'anchor' && o.pageAnchorPlace === 'inside')
+    for (let pass = 0; pass < 3; pass++) out = out.replace(/(<a id="[^"]+"\/>)\s*<(p|h[1-6]|li|div|figure)\b([^>]*)>/g, '<$2$3>$1')
   // wrappers: sections, the language div, footnote boxes (the first paragraph keeps the box's id so note links still land)
   if (o.stdWrappers === 'none') {
     out = out.replace(/<\/?section\b[^>]*>\n?/g, '')
@@ -93,30 +103,35 @@ export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativ
     out = out.replace(/<img\b([^>]*?)\/>/g, (m, attrs: string) => {
       if (/class="(?:cv|w1)"/.test(attrs)) return m
       const alt = /\balt="([^"]*)"/.exec(attrs)
-      return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${alt[1] ? L.imageAlt : L.decorativeAlt}"`) : ` alt="${L.imageAlt}"${attrs}`}/>`
+      const decorative = o.altDecorative === 'word' ? L.decorativeAlt : ''
+      return `<img${alt ? attrs.replace(/\balt="[^"]*"/, `alt="${alt[1] ? L.imageAlt : decorative}"`) : ` alt="${L.imageAlt}"${attrs}`}/>`
     })
   if (o.stdLists === 'typed') out = listsAsParagraphs(out)
-  if (o.stdEmphasis === 'bi') out = bAndI(out)
+  if (o.stdEmphasis === 'bi') out = bAndI(out, 'bi')
+  else if (o.stdEmphasis === 'semantic') out = bAndI(out, 'semantic')
   // the accessibility layer: ARIA, roles, epub:type (notes keep theirs when the client wants note pop-ups)
   const keepNote = (tag: string) => o.stdNotes === 'roles' && /epub:type="(?:noteref|footnote|backlink|endnotes?)"|role="doc-(?:noteref|footnote|backlink|endnotes?)"/.test(tag)
   out = out.replace(/<[a-z][^<>]*>/g, (tag) => (keepNote(tag) || o.stdPageMarks === 'keep' && /epub:type="pagebreak"/.test(tag) ? tag : tag.replace(/\s(?:role|aria-[a-z]+|epub:type)="[^"]*"/g, '')))
   return out
 }
 
-/** `<span class="italic">` / `bold` (alone or together) → <i> / <b>; other spans stay. */
-function bAndI(html: string): string {
+/** `<span class="italic">` / `bold` (alone or together) → <i> / <b> (bi) or <em> / <strong> (semantic); other spans stay.
+ *  The bi form also turns <em> / <strong> into <i> / <b>, so one form is used throughout. */
+function bAndI(html: string, form: 'bi' | 'semantic'): string {
+  const tags = form === 'bi' ? { italic: 'i', bold: 'b' } : { italic: 'em', bold: 'strong' }
   const stack: string[] = []
-  return html.replace(/<span\b([^>]*)>|<\/span>/g, (m, attrs?: string) => {
+  const out = html.replace(/<span\b([^>]*)>|<\/span>/g, (m, attrs?: string) => {
     if (attrs === undefined) return stack.pop() ?? m
     const cls = attrs.match(/^\s*class="([^"]*)"\s*$/)?.[1]?.split(/\s+/).filter(Boolean)
     if (cls?.length && cls.every((c) => c === 'bold' || c === 'italic')) {
-      const open = [cls.includes('bold') ? 'b' : '', cls.includes('italic') ? 'i' : ''].filter(Boolean)
+      const open = [cls.includes('bold') ? tags.bold : '', cls.includes('italic') ? tags.italic : ''].filter(Boolean)
       stack.push(open.reverse().map((t) => `</${t}>`).join(''))
       return open.reverse().map((t) => `<${t}>`).join('')
     }
     stack.push('</span>')
     return m
   })
+  return form === 'bi' ? out.replace(/<(\/?)em\b/g, '<$1i').replace(/<(\/?)strong\b/g, '<$1b') : out.replace(/<(\/?)i>/g, '<$1em>').replace(/<(\/?)b>/g, '<$1strong>')
 }
 
 /** `<ul><li>` / `<ol><li>` → `<p class="bull">• …</p>` / `<p class="num">1. …</p>` (nested lists get "bull2", "bull3"…). */
@@ -204,7 +219,8 @@ export function packageEpub(p: {
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
   const sections = standard ? p.sections.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : p.sections
-  const pageList = sections.flatMap((s) => [...s.body.matchAll(/id="(?:page-|Page_)([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
+  const pageList = p.sections.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
+  const pageTarget = (n: string) => (standard ? pageAnchorId(n, settings().pageAnchorId) : `page-${n}`)
   const lang = meta.language
   const files: Files = new Map()
   const put = (path: string, s: string) => files.set(path, bytes(s))
@@ -219,7 +235,7 @@ export function packageEpub(p: {
 
   // standard: no language on the page (it is in the package); the title of every page is the book's
   const langAttrs = (standard && settings().stdPageLang === 'none' ? '' : htmlLangAttrs(lang)) + (rtl ? ' dir="rtl"' : '')
-  const docTitle = (t: string) => (standard && settings().stdTitle === 'book' ? title : t)
+  const docTitle = (t: string) => (standard && settings().stdTitle === 'book' ? title : standard && settings().stdTitle === 'main' ? meta.title : t)
   const doc = (t: string, body: string) => xhtmlDoc(langAttrs, docTitle(t), 'css/style.css', body, standard)
   // ---- content documents ----
   const coverAlt = L.coverAlt({ title, authors: authors.join(', '), publisher: meta.publisher })
@@ -273,8 +289,8 @@ export function packageEpub(p: {
     `<h1 id="toc01">${esc(L.navTitle)}</h1>`,
     ol(tree),
     `</nav>`,
-    pageList.length && !standard
-      ? `<nav ${named('pagelist01')}epub:type="page-list" hidden="" role="doc-pagelist">\n<h2 id="pagelist01">${esc(L.pageList)}</h2>\n<ol class="nav">\n${pageList.map((pg) => `<li><a href="${pg.file}#page-${esc(pg.n)}">${esc(pg.n)}</a></li>`).join('\n')}\n</ol>\n</nav>`
+    pageList.length && (!standard || settings().stdPageMarks === 'anchor')
+      ? `<nav ${named('pagelist01')}epub:type="page-list" hidden=""${standard ? '' : ' role="doc-pagelist"'}>\n<h2 id="pagelist01">${esc(L.pageList)}</h2>\n<ol class="nav">\n${pageList.map((pg) => `<li><a href="${pg.file}#${pageTarget(pg.n)}">${esc(pg.n)}</a></li>`).join('\n')}\n</ol>\n</nav>`
       : '',
     `<nav ${named('landmarks01')}epub:type="landmarks" hidden="" role="navigation">`,
     `<h2 id="landmarks01">${esc(L.landmarks)}</h2>`,
@@ -315,7 +331,7 @@ ${authors.map((a) => `<docAuthor><text>${esc(a)}</text></docAuthor>`).join('\n')
 <navMap>
 ${navMap}
 </navMap>
-${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navLabel>\n${pageList.map((pg) => `<pageTarget id="pt-${esc(pg.n)}" type="${/^\d+$/.test(pg.n) ? 'normal' : 'front'}" value="${esc(pg.n)}" playOrder="${++play}"><navLabel><text>${esc(pg.n)}</text></navLabel><content src="${pg.file}#${standard ? "Page_" : "page-"}${esc(pg.n)}"/></pageTarget>`).join('\n')}\n</pageList>` : ''}
+${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navLabel>\n${pageList.map((pg) => `<pageTarget id="pt-${esc(pg.n)}" type="${/^\d+$/.test(pg.n) ? 'normal' : 'front'}" value="${esc(pg.n)}" playOrder="${++play}"><navLabel><text>${esc(pg.n)}</text></navLabel><content src="${pg.file}#${esc(pageTarget(pg.n))}"/></pageTarget>`).join('\n')}\n</pageList>` : ''}
 </ncx>
 `)
 
