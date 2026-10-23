@@ -73,9 +73,8 @@ The start screen asks, in order: client, output type (one line each), then which
 
 ## Scores
 
-Before scores are in `docs/reference-scores/before.json` (Cambia 97.5) and `before-ceramics.json` (ceramics 90). After scores are recorded in the consolidation report. Run:
+`docs/reference-scores/before.json` is the earlier run on this branch: Cambia 97.5, ceramics 89.4, Gladiators 54, Evers 77.9. An older ceramics figure of 90 was taken before the scorer read a page list that is not in the spine. `docs/reference-scores/after.json` is the run after the typography, title-page, picture-description and client-layer work. The consolidation report has both. Run:
 
 ```
-node --import ./test/setup.ts test/reference-score.ts after --only=cambia
-node --import ./test/setup.ts test/reference-score.ts after-ceramics --only=ceramics
+node --import ./test/setup.ts test/reference-score.ts after
 ```

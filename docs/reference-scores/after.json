@@ -1,0 +1,437 @@
+{
+  "label": "after",
+  "at": "2026-10-23T19:30:46.023Z",
+  "results": {
+    "Cambia tu mente (InDesign → Accessible EPUB, Arkano Books)": {
+      "overall": 97.5,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 99.9,
+          "diffs": []
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 99.9,
+          "diffs": [
+            "2 reference paragraphs are missing or reworded in the build, for example “cualquier forma de reproducción distribución comunicación pú…”.",
+            "2 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “cualquier forma de reproducción distribución comunicación pú…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 89.2,
+          "diffs": [
+            "40 paragraphs: the reference class → the build class: extract → extract1.",
+            "38 paragraphs: the reference class → the build class: Ladillo-3 → Ladillo-1_1.",
+            "30 paragraphs: the reference class → the build class: No-Table-Style → No-Table-Style3.",
+            "12 paragraphs: the reference class → the build class: num1 → Ladillo-1_1.",
+            "11 paragraphs: the reference class → the build class: Antetitulo_SUPER → toc_1a.",
+            "10 paragraphs: the reference class → the build class: No-Table-Style1 → No-Table-Style2.",
+            "…and 21 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 98.9,
+          "diffs": [
+            "1 italic run in the build is not italic in the reference, for example “fracaso”.",
+            "5 bold runs of the reference are not bold in the build, for example “qué necesitas”."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 76.9,
+          "diffs": [
+            "Package metadata differs: title “Cambia tu mente. Desprograma tu mente subconscient…” (build: “Cambia tu mente”).",
+            "9 accessibility statements of the reference are missing in the build (for example a11y:certifiedBy=gaia ediciones).",
+            "5 accessibility statements in the build are not in the reference (for example pageBreakSource=urn isbn 9791388228025)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 71.6,
+          "diffs": [
+            ".title: text-indent is 0em in the reference and not set in the build.",
+            ".title-3: font-weight is normal in the reference and not set in the build.",
+            ".title_1: text-indent is 0em in the reference and not set in the build.",
+            ".title-4: font-weight is normal in the reference and not set in the build.",
+            ".title-2: font-weight is normal in the reference and not set in the build.",
+            ".noindent: font-size is 100% in the reference and not set in the build.",
+            ".toc_1: font-size is 100% in the reference and not set in the build.",
+            ".toc_2: font-size is 85% in the reference and not set in the build.",
+            "…and 52 more"
+          ]
+        }
+      ]
+    },
+    "Contemporary Ceramics (print PDF → Standard EPUB, Crowood)": {
+      "overall": 91,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 99.1,
+          "diffs": [
+            "“19 SUSTAINABILITY” is a heading in the reference but plain text in the build.",
+            "“20 CERAMICS COMMUNITY” is a heading in the reference but plain text in the build.",
+            "3 headings in the build are not headings in the reference, for example “CONTENTS”."
+          ]
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 87.9,
+          "diffs": [
+            "20 reference paragraphs are joined into a longer paragraph in the build (paragraphs merged).",
+            "59 reference paragraphs are cut into pieces in the build (paragraphs split).",
+            "34 reference paragraphs are missing or reworded in the build, for example “while it s a pleasure to admire a beautifully photographed f…”.",
+            "168 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “in high school ceramics was my favourite and we normally got…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 93.1,
+          "diffs": [
+            "20 paragraphs: the reference class → the build class: ch-head1 → TOC-2.",
+            "13 paragraphs: the reference class → the build class: noindent → hang.",
+            "8 paragraphs: the reference class → the build class: extractint → indent.",
+            "8 paragraphs: the reference class → the build class: extract1 → extractt.",
+            "8 paragraphs: the reference class → the build class: noindent-t → noindent.",
+            "4 paragraphs: the reference class → the build class: box-subhead1 → subhead.",
+            "…and 21 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 93.9,
+          "diffs": [
+            "16 italic runs of the reference are not italic in the build, for example “losíng venus” (italics lost).",
+            "16 italic runs in the build are not italic in the reference, for example “losing venus”.",
+            "7 bold runs of the reference are not bold in the build, for example “community ceramics studio case study urban”.",
+            "13 bold runs in the build are not bold in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 97.5,
+          "diffs": [
+            "The contents entry “title” of the reference is missing or worded differently in the build."
+          ]
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 72,
+          "diffs": [
+            "The build has 288 pictures; the reference has 285.",
+            "143 pictures are not after the same paragraph as in the reference (picture placement).",
+            "Picture descriptions: reference 0 real, 284 generic word, 1 empty; build 3 real, 283 generic word, 2 empty."
+          ]
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 90,
+          "diffs": [
+            "The reference has a page list in the menu; the build has none."
+          ]
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 75,
+          "diffs": [
+            "Package metadata differs: title “Contemporary Ceramics: Twenty Key Themes” (build: “Contemporary Ceramics”).",
+            "Package metadata differs: language en (build: en-GB)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 67.5,
+          "diffs": [
+            ".TOC-5: text-align is left in the reference and not set in the build.",
+            ".TOC-5: font-size is 110% in the reference and not set in the build.",
+            ".TOC-5: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-5: font-family is sans-serif in the reference and not set in the build.",
+            ".TOC-4: text-align is left in the reference and not set in the build.",
+            ".TOC-4: font-size is 110% in the reference and not set in the build.",
+            ".TOC-4: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-4: font-family is sans-serif in the reference and not set in the build.",
+            "…and 47 more"
+          ]
+        }
+      ]
+    },
+    "gladiators": {
+      "overall": 76.1,
+      "dims": [
+        {
+          "id": "document",
+          "label": "Document settings (language, title, PDF/UA mark)",
+          "weight": 10,
+          "score": 87.5,
+          "diffs": [
+            "Document title is “Gladiators in the Greek World: How A Roman Blood Sport Took …” in the build and “Gladiators in the Greek World: How A Roman Bloodsport Took A…” in the reference."
+          ]
+        },
+        {
+          "id": "bookmarks",
+          "label": "Bookmarks",
+          "weight": 20,
+          "score": 98.1,
+          "diffs": [
+            "The bookmark “title” of the reference is not in the build.",
+            "1 bookmark in the build are not in the reference, for example “gladiators in the greek world”."
+          ]
+        },
+        {
+          "id": "headings",
+          "label": "Headings by level",
+          "weight": 20,
+          "score": 99.5,
+          "diffs": [
+            "H3: 13 in the build, 14 in the reference."
+          ]
+        },
+        {
+          "id": "lists",
+          "label": "Lists",
+          "weight": 10,
+          "score": 56.3,
+          "diffs": [
+            "13 lists in the build, 10 in the reference.",
+            "163 list items in the build, 58 in the reference.",
+            "1 list item parts have no label or body tag."
+          ]
+        },
+        {
+          "id": "tables",
+          "label": "Tables",
+          "weight": 5,
+          "score": 0,
+          "diffs": [
+            "0 tables in the build, 1 in the reference.",
+            "0 header cells in the build, 61 in the reference."
+          ]
+        },
+        {
+          "id": "figures",
+          "label": "Figures and their descriptions",
+          "weight": 15,
+          "score": 66.1,
+          "diffs": [
+            "30 figures in the build, 33 in the reference.",
+            "2 figures have no description in the build."
+          ]
+        },
+        {
+          "id": "links",
+          "label": "Links",
+          "weight": 10,
+          "score": 48.5,
+          "diffs": [
+            "13 web or e-mail links in the build, 19 in the reference.",
+            "1022 links inside the document in the build, 29 in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes and contents entries",
+          "weight": 8,
+          "score": 68.1,
+          "diffs": [
+            "1035 note references in the build, 44 in the reference."
+          ]
+        },
+        {
+          "id": "untagged",
+          "label": "Everything on the page is tagged or marked as decoration",
+          "weight": 2,
+          "score": 100,
+          "diffs": []
+        }
+      ]
+    },
+    "evers": {
+      "overall": 75.8,
+      "dims": [
+        {
+          "id": "document",
+          "label": "Document settings (language, title, PDF/UA mark)",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "bookmarks",
+          "label": "Bookmarks",
+          "weight": 20,
+          "score": 61.8,
+          "diffs": [
+            "The bookmark “viii generative künstliche intelligenz als neue entwicklungs…” of the reference is not in the build.",
+            "The bookmark “i einleitung” of the reference is not in the build.",
+            "The bookmark “ii sucht und gesellschaft” of the reference is not in the build.",
+            "The bookmark “1 perspektiven auf den suchtbegriff” of the reference is not in the build.",
+            "…54 more reference bookmarks are missing.",
+            "50 bookmarks in the build are not in the reference, for example “viii generative künstliche intelligenz als neue entwicklungs…”.",
+            "…and 1 more"
+          ]
+        },
+        {
+          "id": "headings",
+          "label": "Headings by level",
+          "weight": 20,
+          "score": 68.2,
+          "diffs": [
+            "H1: 13 in the build, 1 in the reference.",
+            "H2: 28 in the build, 23 in the reference.",
+            "H3: 36 in the build, 44 in the reference.",
+            "H4: 39 in the build, 30 in the reference.",
+            "H5: 0 in the build, 50 in the reference."
+          ]
+        },
+        {
+          "id": "lists",
+          "label": "Lists",
+          "weight": 10,
+          "score": 69.6,
+          "diffs": [
+            "41 lists in the build, 25 in the reference.",
+            "112 list items in the build, 143 in the reference.",
+            "31 list item parts have no label or body tag."
+          ]
+        },
+        {
+          "id": "tables",
+          "label": "Tables",
+          "weight": 5,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "figures",
+          "label": "Figures and their descriptions",
+          "weight": 15,
+          "score": 82.7,
+          "diffs": []
+        },
+        {
+          "id": "links",
+          "label": "Links",
+          "weight": 10,
+          "score": 78.8,
+          "diffs": [
+            "36 web or e-mail links in the build, 46 in the reference.",
+            "55 links inside the document in the build, 80 in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes and contents entries",
+          "weight": 8,
+          "score": 84.3,
+          "diffs": [
+            "91 note references in the build, 125 in the reference.",
+            "52 contents entries in the build, 65 in the reference."
+          ]
+        },
+        {
+          "id": "untagged",
+          "label": "Everything on the page is tagged or marked as decoration",
+          "weight": 2,
+          "score": 100,
+          "diffs": []
+        }
+      ]
+    }
+  }
+}

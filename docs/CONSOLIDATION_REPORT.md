@@ -64,10 +64,21 @@ Where a correction sheet from 23 October disagrees with these files, the files w
 | `c317709` | Start screen: client, output type, then the files for that output. Real standard breaks block the build. |
 | `03c1c97` | Tests for those checks. |
 | `bd3251e` | Plan, reference inventory, Supabase steps. |
+| `ce728a3` | This report, and the scores then on hand. |
+| `2c267ea` | A marked-content sequence ends at the `q` depth where it began, so a logo of several graphics groups stays one sequence. |
+| `b35cb8d` | Each output type has its own defaults, with a reason and a source. |
+| `fbf25b4` | A link to a printed page follows the anchor’s new name. Anchor name, place, emphasis and decorative alt are settings. |
+| `24a7d17` | An undescribed picture keeps the generic word. Only a picture marked as decoration is decorative. A Standard EPUB does not write `pageBreakSource`. |
+| `c9ad94d` | PDF typography follows the settings. “As the printed page” is read from the lines. A title page set to text is rebuilt as text. |
+| `03e8c83` | The reference build uses the output type and the client layer (Crowood Standard EPUB, Arkano Accessible EPUB, Pen & Sword Accessible PDF). |
 
 ## Hard-coding removed
 
 Chapter openings from a PDF are no longer a fixed string in the builder. They come from `chapterOpener`, `pdfChapterClass`, `pdfChapterNumClass`, and `pdfChapterTitleClass`, with a plain-language default per output type in `src/engine/output/standards.ts`.
+
+Body alignment, chapter-title alignment and typeface, the contents heading, the copyright page and the extract size come from `bodyAlign`, `chapterTitleAlign`, `chapterTitleFont`, `contentsHeadingAlign`, `contentsHeadingFont`, `copyrightAlign` and `extractSizePct`. “As the printed page” is measured from the lines (`src/engine/pdfepub/align.ts`): full lines that end on the right edge are justified, a short line that sits on the middle is centred. The Crowood layer sets these to left, serif and sans-serif, which is what the ceramics file does.
+
+A title or half-title page is a picture of the printed page, or real text, from `titlePageAs`. Standard EPUB defaults to the picture, as in the ceramics file. Accessible EPUB defaults to text. An undescribed picture is not treated as decoration: only `role="presentation"` takes the decorative description. A Standard EPUB names the print edition in `dc:source` and does not add `pageBreakSource`.
 
 Left on purpose:
 
@@ -102,24 +113,30 @@ The new screen was not clicked in a browser. There is no browser tool in this se
 
 ## Match scores
 
-Recorded by `test/reference-score.ts`. Before is commit `2587301`. After is this tree.
+Recorded by `test/reference-score.ts` into `docs/reference-scores/`. Before is `before.json`. After is `after.json`, from this tree, with each book’s output type and client layer applied. The loose file `88228-02_Cambia_tu_mente.xhtml` is not part of either run.
 
 | Book | Before | After |
 | --- | --- | --- |
 | Cambia tu mente (accessible EPUB) | 97.5 | 97.5 |
-| Contemporary Ceramics (standard EPUB) | 90 | 89.4 |
+| Contemporary Ceramics (standard EPUB) | 89.4 | 91 |
+| Gladiators in the Greek World (accessible PDF) | 54 | 76.1 |
+| Evers-Wölk report (accessible PDF) | 77.9 | 75.8 |
+
+An earlier ceramics run, before the scorer looked at a page list outside the spine, was 90. That run is the “before” quoted in the first draft of this report. `before.json` already includes the page-list comparison, so its ceramics number is 89.4.
 
 Cambia’s section scores did not move (sections 99.9, headings 100, paragraphs 99.9, classes 89.2, emphasis 98.9, notes 100, contents 100, pictures 100, pages 100, metadata 76.9, stylesheet 71.6).
 
-Ceramics moved on one line only: printed page numbers 100 to 90. The scorer now reads the navigation document when it is not in the spine. The ceramics file has a page list there. The standard build uses anchors and does not add that list, which is the standard-EPUB default. The other ceramics scores are unchanged (sections 100, headings 99.1, paragraphs 87.9, classes 93.1, emphasis 93.9, contents 88, index 100, pictures 72, metadata 62.5, stylesheet 67.5).
+Ceramics went from 89.4 to 91 on two lines. Contents 88 to 97.5: the Crowood layer names page anchors `pg_{n}`, so links in the contents and the index land on those anchors. One contents entry, “title”, is still worded differently. Metadata 62.5 to 75: a Standard EPUB no longer writes `pageBreakSource`. The title is still short of the subtitle (“Twenty Key Themes”) and the language is `en-GB` where the file says `en`. Pictures stayed at 72 (3 real descriptions, 283 times the generic word, 2 empty, against the file’s 284 generic and 1 empty). An intermediate run that treated every undescribed picture as decoration scored pictures at 52.1; that file was `try.json` and it is not kept. Printed page numbers stayed at 90. The ceramics file has a page list in the navigation document. The Standard EPUB build uses anchors and does not add that list. Sections 100, headings 99.1, paragraphs 87.9, classes 93.1, emphasis 93.9, index 100, stylesheet 67.5 are unchanged. Paragraphs are still 20 merged and 59 split. Those were not forced together.
 
-There is no numeric before/after score for the accessible PDFs. `reference-score-pdf.ts` does not exist. The Gladiators test passed after the figure fix: 361 pages, the FSC mark is one Figure, index lines stay paragraphs, image-list links resolve. The German medium sample passed: 13 figures, 16 notes.
+Gladiators went from 54 to 76.1 because the Pen & Sword layer is applied: chapters stay H1 (headings 43.6 to 99.5) and bookmarks stop at the chapter level, with the plates bookmark (bookmarks 38.1 to 98.1). The bookmark “title” in the file is “gladiators in the greek world” in the build. The document title still splits “Bloodsport” into “Blood Sport”. Figures went from 73.2 to 66.1. The count is unchanged (30 against 33, two without a description). The biggest figure is no longer reported as 116 pieces against the file’s 34, because the pieces are no longer more than one and a half times the file. The scorer still compares the piece counts, so a tighter figure scores lower. Lists, the missing table, the 1022 internal links against 29, and the 1035 note references against 44 are unchanged.
+
+Evers went from 77.9 to 75.8. The only move is figures, 96.2 to 82.7, with no difference the scorer prints: the counts match and every figure has a description, and the piece-count comparison is what changed. Bookmarks 61.8, headings 68.2 (13 H1 against the file’s one H1, and no H5 against the file’s 50), lists 69.6, links 78.8 and notes 84.3 are unchanged.
 
 ## Tests, lint, build
 
 There is no separate lint script. Typecheck is part of the build.
 
-`npm test`: 166 tests, 161 passed, 0 failed, 5 skipped, about 7.3 minutes. `npm run build` succeeded (tsc and Vite). One earlier run failed the Gladiators title page, because a marked-content sequence was allowed to cross a text object. Text objects now close at `BT` and `ET`, and that test passed in the full run (41 seconds).
+`npm test`: 184 tests, 179 passed, 0 failed, 5 skipped, about 8.2 minutes. `npm run build` succeeded (tsc and Vite). One earlier run failed the Gladiators title page, because a marked-content sequence was allowed to cross a text object. Text objects now close at `BT` and `ET`, and that test passed in the full run.
 
 Five tests skip when a sample or Ace is missing. That is expected.
 
@@ -131,7 +148,11 @@ Five tests skip when a sample or Ace is missing. That is expected.
 - P12. Half-title versus title, and the uncropped logo.
 - Q10. Whether `Book_Details.xlsx` should become a settings layer, and which columns.
 - The corrections document’s Birmingham versus Cambia filename mismatch.
-- Whether the house space under a heading should drop from 3em to the ceramics 2em. It stays 3em until someone sets the client layer.
+- Whether the house space under a heading should drop from 3em to the ceramics 2em. It stays 3em until someone sets the client layer. The PDF stylesheet for a chapter heading is still the ceramics 2em, because that file was the source of those classes.
+- Whether a Standard EPUB should grow a page list. The ceramics file has one, and the pages score stays at 90 without it. The Standard EPUB default is anchors only, which is what the build does.
+- Ceramics package title and language. The build has “Contemporary Ceramics” and `en-GB`. The file has “Contemporary Ceramics: Twenty Key Themes” and `en`.
+- Gladiators document title. The build says “Blood Sport”. The file says “Bloodsport”.
+- Evers heading levels. The build has 13 H1s and no H5. The file has one H1 and 50 H5s. The Accessible PDF default is one H1, and it applies only once a title heading is found.
 
 ## Supabase, waiting for approval
 
