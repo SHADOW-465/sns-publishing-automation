@@ -118,7 +118,7 @@ export function specWorkbook(p: { client: string; book: string; resolved: Resolv
   const rows = RULES.map((r) => {
     const v = r.key ? (resolved.settings[r.key] as RuleValue) : undefined
     const f = resolved.from[r.id]
-    const allowed = r.type === 'choice' || r.type === 'multi' ? r.choices!.map(([x]) => x).join(', ') : r.type === 'bool' ? 'Yes, No' : r.type === 'number' ? `${r.min ?? ''}–${r.max ?? ''} ${r.unit ?? ''}`.trim() : r.type === 'fixed' ? '(fixed)' : r.type === 'list' ? 'one phrase per line' : 'CSS'
+    const allowed = r.type === 'choice' || r.type === 'multi' ? r.choices!.map(([x]) => x).join(', ') : r.type === 'bool' ? 'Yes, No' : r.type === 'number' ? `${r.min ?? ''}–${r.max ?? ''} ${r.unit ?? ''}`.trim() : r.type === 'fixed' ? '(fixed)' : r.type === 'list' ? 'one phrase per line' : r.type === 'text' ? 'a short name' : 'CSS'
     return [
       r.id, r.group, `${r.title}. ${r.help}`, r.kind, allowed, show(r, houseDefault(r)), r.type === 'fixed' ? '(always applied)' : show(r, v),
       f ? `${f.level === 'default' ? 'Default' : LEVEL_LABEL[f.level]}${f.name ? ` (${f.name})` : ''}${f.source ? ` — ${f.source.file}, ${f.source.where}` : ''}` : '',

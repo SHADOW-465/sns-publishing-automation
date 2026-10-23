@@ -87,7 +87,7 @@ function lineFor(p: Extract<Paint, { kind: 'text' }>, lines: PLine[], H: number)
 
 export function writeUa(
   plan: { doc: PDFDocument; pages: PagePlan[] }, book: PdfBook, st: Structure, meta: UaMeta,
-  opts: { cropToTrim: boolean; frontPages?: { page: number; label: string }[] },
+  opts: { cropToTrim: boolean; frontPages?: { page: number; label: string }[]; bookmarkLevels?: number; indexLinks?: boolean; noteLinks?: boolean },
 ): { pdf: Promise<Uint8Array>; review: ReviewItem[]; stats: Record<string, number> } {
   const { doc } = plan
   const ctx = doc.context
@@ -349,7 +349,9 @@ export function writeUa(
     linkNodes.push({ node: link, annot, page, key: annotKey++ })
     annotKids.set(link, [{ ref: annot, page }])
   }
-  for (const plan of notePlans) {
+  // note links switched off: the number stays tagged as part of the text, without a Link that has nowhere to go
+  if (opts.noteLinks === false) for (const plan of notePlans) (plan.link.tag = 'Span'), plan.backLink && (plan.backLink.tag = 'Span')
+  for (const plan of opts.noteLinks === false ? [] : notePlans) {
     const refBox = boxOf([plan.refLine])
     const nl = plan.noteLine
     const Hn = book.pages[nl.page].height
@@ -386,7 +388,7 @@ export function writeUa(
     }
     n.kids.forEach(linkIndex)
   }
-  linkIndex(st.root)
+  if (opts.indexLinks) linkIndex(st.root)
   if (indexLinks) review.push({ level: 'info', msg: `Linked ${indexLinks} index page number(s) to their pages.` })
 
   // ---- 4. structure tree ----
@@ -469,7 +471,7 @@ export function writeUa(
   const marks: SNode[] = [
     ...front.map((f) => ({ id: -2, tag: 'H1', kids: [], lines: [{ page: f.page, x0: 0, y: 0, size: 0 } as unknown as PLine], text: f.label })),
     ...heads,
-  ].sort((a, b) => a.lines[0].page - b.lines[0].page)
+  ].filter((m) => m.id === -2 || Number(m.tag.slice(1)) <= (opts.bookmarkLevels ?? 6)).sort((a, b) => a.lines[0].page - b.lines[0].page)
   if (marks.length) {
     type Item = { h: SNode; level: number; ref: PDFRef; kids: Item[]; parent?: Item }
     const top: Item[] = []

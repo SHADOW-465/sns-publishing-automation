@@ -183,7 +183,7 @@ export async function analyzeUa(
 }
 
 /** Bookmark names for front pages without a heading (as in the reference: Cover, Half Title, Title, Copyright). */
-export function frontPages(a: UaAnalysis): { page: number; label: string }[] {
+export function frontPages(a: UaAnalysis, options: UaOptions = a.options ?? {}): { page: number; label: string }[] {
   const L = labelsFor(a.meta.lang)
   const out: { page: number; label: string }[] = []
   const first = a.book.pages[0]
@@ -194,8 +194,8 @@ export function frontPages(a: UaAnalysis): { page: number; label: string }[] {
   for (const i of textFront) if (i < titleIdx) out.push({ page: i, label: L.halftitle })
   if (titleIdx !== undefined) out.push({ page: titleIdx, label: L.title })
   if (a.book.imprintPage !== undefined) out.push({ page: a.book.imprintPage, label: L.copyright })
-  // the client's finished Gladiators file bookmarks the appended section as "Plate"
-  if (a.platePage !== undefined) out.push({ page: a.platePage, label: 'Plate' })
+  // an appended plates PDF gets a bookmark (UA-04, UA-05: the client's finished Gladiators file calls it "Plate")
+  if (a.platePage !== undefined && options.plateBookmark !== false) out.push({ page: a.platePage, label: options.plateLabel ?? 'Plate' })
   return out
 }
 
@@ -308,7 +308,8 @@ export async function buildUa(
   if (decorativeN) extra.push({ level: 'info', msg: `Marked ${decorativeN} decorative picture(s) as artifacts, so a screen reader skips them.` })
   if (pendingAi) extra.push({ level: 'warn', msg: `${pendingAi} picture description(s) are unapproved AI drafts.` })
   const plan = await planPages(a.merged, input.onProgress) // fresh copy: writing modifies the document
-  const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a) })
+  const opts = input.options ?? a.options
+  const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a, opts), bookmarkLevels: opts.bookmarkLevels, indexLinks: opts.indexLinks, noteLinks: opts.noteLinks })
   const pdf = await out.pdf
   const review = [...a.review.filter((r) => !/alt text/.test(r.msg)), ...extra, ...out.review, ...(await checkUa(pdf))]
   // as in the samples: the source file's name, plus the e-ISBN when there is one

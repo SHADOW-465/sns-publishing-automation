@@ -13,7 +13,7 @@
 import { DEFAULT_SETTINGS, VARIANT_GROUPS, type HouseSettings, type VariantGroup } from '../settings.ts'
 
 export type RuleKind = 'locked' | 'advisory' | 'free'
-export type RuleType = 'choice' | 'bool' | 'number' | 'multi' | 'list' | 'css' | 'fixed'
+export type RuleType = 'choice' | 'bool' | 'number' | 'multi' | 'list' | 'css' | 'text' | 'fixed'
 export type RuleValue = string | number | boolean | string[]
 
 export interface Rule {
@@ -45,7 +45,7 @@ export interface Rule {
 
 export const WAIVER_TEXT = 'Yes, I know this reduces accessibility, do it anyway.'
 
-export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Package', 'Stylesheet', 'Copyright page', 'Standard EPUB', 'Quality check'] as const
+export const GROUPS = ['Pages and language', 'Headings', 'Paragraphs and classes', 'Tables', 'Notes', 'Contents pages', 'Package', 'Stylesheet', 'Copyright page', 'Typography', 'Accessible PDF', 'Standard EPUB', 'Quality check'] as const
 
 const onOff: [string, string][] = [['true', 'Yes'], ['false', 'No']]
 
@@ -142,36 +142,6 @@ export const RULES: Rule[] = [
     keywords: ['chapter heading', 'chapter title', 'h2 chapter', 'no header tag', 'no heading style', 'título de capítulo', 'kapitelüberschrift'],
     choiceWords: { source: ['as the source', 'keep h1'] },
     origin: 'EPUB Automation Report 15-10-26',
-  },
-  {
-    id: 'HD-10', group: 'Headings', title: 'Chapter opener shape (from a PDF)', kind: 'free', type: 'choice', key: 'chapterOpener',
-    help: 'How a chapter number and title are written when the book is built from the print PDF. One heading matches the finished Crowood ceramics file. Two plain paragraphs is the shape one correction sheet asked for, and an accessible EPUB will not accept it.',
-    choices: [['spans', 'Number and title inside one heading'], ['split', 'Two plain paragraphs, no heading id']],
-    example: (v) => (v === 'split' ? '<p class="chnum">CHAPTER 1</p>\n<p class="chtit">Title</p>' : '<h1 class="ch-head1"><span class="ch-num">1</span> <span class="ch2">Title</span></h1>'),
-    keywords: ['chapter opener', 'chnum', 'chtit', 'ch-num', 'chapter number'],
-    choiceWords: { spans: ['one heading', 'ch-head'], split: ['chnum', 'chtit', 'two paragraphs', 'split'] },
-    origin: 'Crowood ceramics reference (spans). Correction V1 asked for split.',
-  },
-  {
-    id: 'HD-11', group: 'Headings', title: 'Chapter heading class (from a PDF)', kind: 'free', type: 'choice', key: 'pdfChapterClass',
-    help: 'The class on a chapter heading built from the print PDF, when the chapter-title template does not name one. ch-head1 is the class in the finished Crowood file.',
-    choices: [['ch-head1', 'ch-head1'], ['chapter-title', 'chapter-title'], ['chtit', 'chtit']],
-    keywords: ['ch-head1', 'chapter-title class', 'chtit'],
-    origin: 'Crowood ceramics reference',
-  },
-  {
-    id: 'HD-12', group: 'Headings', title: 'Chapter number class (from a PDF)', kind: 'free', type: 'choice', key: 'pdfChapterNumClass',
-    help: 'The class on the chapter number. ch-num is the finished Crowood file. chnum is the class one correction sheet asked for.',
-    choices: [['ch-num', 'ch-num'], ['chnum', 'chnum']],
-    keywords: ['ch-num', 'chnum'],
-    origin: 'Crowood ceramics reference',
-  },
-  {
-    id: 'HD-13', group: 'Headings', title: 'Chapter title-word class (from a PDF)', kind: 'free', type: 'choice', key: 'pdfChapterTitleClass',
-    help: 'The class on the title words beside the chapter number. ch2 is the finished Crowood file.',
-    choices: [['ch2', 'ch2'], ['chtit', 'chtit']],
-    keywords: ['ch2', 'chtit'],
-    origin: 'Crowood ceramics reference',
   },
   {
     id: 'HD-08', group: 'Headings', title: 'Class of a chapter title without a label', kind: 'free', type: 'choice', key: 'chapterHeadingClass',
@@ -430,11 +400,136 @@ export const RULES: Rule[] = [
     keywords: ['missing words', 'palabras faltantes', 'missing text'],
     origin: 'Settings',
   },
+  // ---- title pages, alt policy, anchors (standard EPUB) ----
+  {
+    id: 'FM-03', group: 'Copyright page', title: 'Title and half-title pages of a print PDF', kind: 'advisory', type: 'choice', key: 'titlePageAs', safe: 'text',
+    help: 'Text: the title page is rebuilt as text, so a screen reader reads it. Picture: the printed page is shown as a picture, with its words as the description. A picture of text cannot be resized or read by software, so an accessible EPUB needs text; a standard EPUB may use the picture, as the finished Crowood file does.',
+    choices: [['text', 'Text, rebuilt from the page'], ['image', 'A picture of the printed page']],
+    example: (v) => (v === 'image' ? '<p class="cover"><img alt="CONTEMPORARY CERAMICS Jo Taylor" class="cv" src="images/title.jpg"/></p>' : '<h1 class="title_1">CONTEMPORARY CERAMICS</h1>\n<p class="title-3">Jo Taylor</p>'),
+    keywords: ['title page as image', 'title page image', 'portadilla como imagen', 'half title image', 'titelseite als bild'],
+    choiceWords: { image: ['as image', 'as a picture', 'image', 'como imagen'], text: ['as text', 'real text', 'como texto'] },
+    origin: 'Crowood ceramics reference (picture); correction I1; WCAG 2.2 1.4.5',
+  },
+  {
+    id: 'HD-10', group: 'Headings', title: 'Chapter opener shape (from a PDF)', kind: 'free', type: 'choice', key: 'chapterOpener',
+    help: 'How a chapter number and title are written when the book is built from the print PDF. One heading matches the finished Crowood ceramics file. Two plain paragraphs is the shape one correction sheet asked for, and an accessible EPUB will not accept it.',
+    choices: [['spans', 'Number and title inside one heading'], ['split', 'Two plain paragraphs, no heading id']],
+    example: (v) => (v === 'split' ? '<p class="chnum">CHAPTER 1</p>\n<p class="chtit">Title</p>' : '<h1 class="ch-head1"><span class="ch-num">1</span> <span class="ch2">Title</span></h1>'),
+    keywords: ['chapter opener', 'chnum', 'chtit', 'ch-num', 'chapter number'],
+    choiceWords: { spans: ['one heading', 'ch-head'], split: ['chnum', 'chtit', 'two paragraphs', 'split'] },
+    origin: 'Crowood ceramics reference (spans). Correction V1 asked for split.',
+  },
+  { id: 'HD-11', group: 'Headings', title: 'Chapter heading class (from a PDF)', kind: 'free', type: 'text', key: 'pdfChapterClass', help: 'The class on a chapter heading built from the print PDF, when the chapter-title template does not name one. ch-head1 is the class in the finished Crowood file.', example: (v) => `<h1 class="${v}">…</h1>`, keywords: ['ch-head1', 'chapter-title class', 'chtit'], origin: 'Crowood ceramics reference' },
+  { id: 'HD-12', group: 'Headings', title: 'Chapter number class (from a PDF)', kind: 'free', type: 'text', key: 'pdfChapterNumClass', help: 'The class on the chapter number. ch-num is the finished Crowood file. chnum is the class one correction sheet asked for.', example: (v) => `<span class="${v}">1</span>`, keywords: ['ch-num', 'chnum'], origin: 'Crowood ceramics reference' },
+  { id: 'HD-13', group: 'Headings', title: 'Chapter title-word class (from a PDF)', kind: 'free', type: 'text', key: 'pdfChapterTitleClass', help: 'The class on the title words beside the chapter number. ch2 is the finished Crowood file.', example: (v) => `<span class="${v}">Title</span>`, keywords: ['ch2', 'chtit'], origin: 'Crowood ceramics reference' },
+
+  // ---- typography of books built from a print PDF ----
+  {
+    id: 'TYP-01', group: 'Typography', title: 'Alignment of body text', kind: 'free', type: 'choice', key: 'bodyAlign',
+    help: 'As in print follows the printed page: justified when the lines end flush on the right, otherwise left. Left or justified forces it. Readers can always override it; justified text is harder for some readers (WCAG 1.4.8, advanced level).',
+    choices: [['print', 'As the printed page'], ['left', 'Left'], ['justify', 'Justified']],
+    example: (v) => `p.noindent { text-align: ${v === 'print' ? '(as printed)' : v}; }`,
+    keywords: ['justify', 'justified', 'body alignment', 'bodymatter alignment', 'alineación del texto', 'blocksatz'], origin: 'Correction P5; Crowood and Cambia references differ',
+  },
+  {
+    id: 'TYP-02', group: 'Typography', title: 'Alignment of chapter titles', kind: 'free', type: 'choice', key: 'chapterTitleAlign',
+    help: 'As in print follows the printed page (centred titles stay centred). Left or centred forces it.',
+    choices: [['print', 'As the printed page'], ['left', 'Left'], ['center', 'Centred']],
+    example: (v) => `.ch-head1 { text-align: ${v === 'print' ? '(as printed)' : v}; }`,
+    keywords: ['heading alignment', 'chapter heading alignment', 'centre heading', 'center heading'], origin: 'Correction P13; Crowood reference is left',
+  },
+  {
+    id: 'TYP-03', group: 'Typography', title: 'Typeface of chapter titles', kind: 'free', type: 'choice', key: 'chapterTitleFont',
+    help: 'Serif or sans-serif family for chapter titles. The reader’s own font choice still wins.',
+    choices: [['serif', 'Serif'], ['sans-serif', 'Sans-serif']],
+    example: (v) => `.ch-head1 { font-family: ${v}; }`, keywords: ['heading font', 'font-family', 'chapter font', 'schriftart'], origin: 'Correction P13; Crowood reference is serif',
+  },
+  {
+    id: 'TYP-04', group: 'Typography', title: 'Alignment of the contents-page heading', kind: 'free', type: 'choice', key: 'contentsHeadingAlign',
+    help: 'As in print, left or centred, for the heading of the printed contents page.',
+    choices: [['print', 'As the printed page'], ['left', 'Left'], ['center', 'Centred']],
+    example: (v) => `h1.TOC-1 { text-align: ${v === 'print' ? '(as printed)' : v}; }`, keywords: ['contents heading', 'toc heading alignment'], origin: 'Correction P2; Crowood reference is left',
+  },
+  {
+    id: 'TYP-05', group: 'Typography', title: 'Typeface of the contents-page heading', kind: 'free', type: 'choice', key: 'contentsHeadingFont',
+    help: 'Serif or sans-serif family for the heading of the printed contents page.',
+    choices: [['serif', 'Serif'], ['sans-serif', 'Sans-serif']],
+    example: (v) => `h1.TOC-1 { font-family: ${v}; }`, keywords: ['contents font', 'toc font'], origin: 'Correction P2; Crowood reference is sans-serif',
+  },
+  {
+    id: 'TYP-06', group: 'Typography', title: 'Alignment of the copyright page', kind: 'free', type: 'choice', key: 'copyrightAlign',
+    help: 'As in print, left or centred, for the lines of the copyright page.',
+    choices: [['print', 'As the printed page'], ['left', 'Left'], ['center', 'Centred']],
+    example: (v) => `p.copyr1 { text-align: ${v === 'print' ? '(as printed)' : v}; }`, keywords: ['copyright alignment', 'centre copyright', 'center alignment'], origin: 'Corrections I2, P1; Crowood reference is left',
+  },
+  {
+    id: 'TYP-07', group: 'Typography', title: 'Size of quoted extracts and verse', kind: 'free', type: 'number', key: 'extractSizePct', unit: '%', min: 60, max: 100,
+    help: 'Share of the body text size. Written as a percentage, so readers can still enlarge the text (WCAG 1.4.4).',
+    example: (v) => `p.extract1 { font-size: ${v}%; }`, keywords: ['extract size', 'verse size', 'quote size', 'text size', 'poem size'], origin: 'Corrections I7, I8, P6, P7; Crowood reference is 100%',
+  },
+
+  // ---- accessible PDF ----
+  {
+    id: 'UA-01', group: 'Accessible PDF', title: 'Heading level of a chapter', kind: 'free', type: 'number', key: 'uaChapterLevel', min: 1, max: 2,
+    help: 'Level 2 keeps a single top heading (the book’s title) with the chapters under it. Level 1 makes every chapter a top heading. PDF/UA only asks that levels do not skip.',
+    example: (v) => (v === 1 ? '<H1>Chapter</H1>' : '<H1>Book title</H1> … <H2>Chapter</H2>'), keywords: ['chapter level', 'heading level pdf', 'h1 chapter'], origin: 'PDF/UA-1 7.4; Gladiators reference is 1, German report is 2',
+  },
+  {
+    id: 'UA-02', group: 'Accessible PDF', title: 'Logos and marks', kind: 'free', type: 'choice', key: 'uaLogos',
+    help: 'A mark drawn from many small shapes (FSC, a publisher’s device) becomes one figure with a description, or decoration that a screen reader skips.',
+    choices: [['figure', 'One figure, with a description'], ['artifact', 'Decoration, skipped by screen readers']],
+    example: (v) => (v === 'artifact' ? '/Artifact' : '<Figure Alt="FSC logo">'), keywords: ['logo', 'fsc', 'decorative logo', 'artifact logo'], origin: 'Correction U1; PDF/UA-1 7.3',
+  },
+  {
+    id: 'UA-03', group: 'Accessible PDF', title: 'Bookmark depth', kind: 'free', type: 'number', key: 'uaBookmarkLevels', min: 1, max: 6,
+    help: 'How many heading levels get a bookmark. 1 lists only top-level headings (chapters when chapters are H1); 6 lists every heading.',
+    example: (v) => `${v} level${v === 1 ? '' : 's'} of bookmarks`, keywords: ['bookmarks', 'outline depth', 'lesezeichen'], origin: 'Gladiators reference has chapters only; the German report nests to four',
+  },
+  {
+    id: 'UA-04', group: 'Accessible PDF', title: 'Bookmark for appended plates', kind: 'free', type: 'bool', key: 'uaPlateBookmark',
+    help: 'A PDF appended after the book (plates) gets a bookmark of its own, so a reader can jump to it.',
+    choices: onOff, example: (v) => (v ? 'Bookmarks: … Notes · Index · Plate' : 'Bookmarks: … Notes · Index'), keywords: ['plate bookmark', 'plates', 'bookmark add plate'], origin: 'Correction U6; Gladiators reference bookmarks “Plate”',
+  },
+  {
+    id: 'UA-05', group: 'Accessible PDF', title: 'Name of the plates bookmark', kind: 'free', type: 'text', key: 'uaPlateLabel',
+    help: 'The words on that bookmark. Gladiators’ finished file says “Plate”.', example: (v) => `Bookmark: ${v}`, keywords: ['plate label'], origin: 'Gladiators reference',
+  },
+  {
+    id: 'UA-06', group: 'Accessible PDF', title: 'Page numbers in an index are links', kind: 'free', type: 'bool', key: 'uaIndexLinks',
+    help: 'Each page number in the index jumps to that page. The client’s finished Gladiators file does not do this; the 23 October correction asked for it. Off until the client confirms.',
+    choices: onOff, example: (v) => (v ? 'Abdera, <Link>55</Link>' : 'Abdera, 55'), keywords: ['index link', 'index page number link', 'index link to page number'], origin: 'Correction U2; Gladiators reference has no index links',
+  },
+  {
+    id: 'UA-07', group: 'Accessible PDF', title: 'Note numbers link to the notes and back', kind: 'free', type: 'bool', key: 'uaNoteLinks',
+    help: 'A note number in the text jumps to its note, and the note jumps back.',
+    choices: onOff, example: (v) => (v ? '<Reference><Link>12</Link></Reference> → <Note>' : '12 (no link)'), keywords: ['note link', 'footnote link', 'endnote link'], origin: 'Client checklist 17 October; PDF/UA-1 7.11',
+  },
+
+  {
+    id: 'STD-13', group: 'Standard EPUB', title: 'Description of a decorative picture', kind: 'free', type: 'choice', key: 'altDecorative',
+    help: 'A picture that carries no information (an ornament, a rule) gets an empty description, which screen readers skip: that is what HTML and WCAG ask. The other option writes the word for it (“decorative”), which a screen reader reads out loud.',
+    choices: [['empty', 'Empty (alt="")'], ['word', 'The word “decorative”']],
+    example: (v) => (v === 'empty' ? '<img alt="" src="images/ornament.jpg"/>' : '<img alt="decorative" src="images/ornament.jpg"/>'),
+    keywords: ['decorative alt', 'alt=""', 'empty alt', 'alt decorative', 'decorative image'], origin: 'HTML 4.7.5.1; WCAG 1.1.1; the T-C-E reference has alt=""; the language sheet says “decorative”',
+  },
+  {
+    id: 'STD-14', group: 'Standard EPUB', title: 'Name of a printed-page anchor', kind: 'free', type: 'text', key: 'pageAnchorId',
+    help: 'The id given to the point where a printed page starts. {n} is replaced by the page number. The client’s sheet says Page_{n}; the finished Crowood file uses pg_{n}.',
+    example: (v) => `<a id="${String(v).replace('{n}', '13')}"/>`, keywords: ['page id', 'page anchor', 'pg_', 'page_'], origin: 'Client sheet (Page_1); Crowood ceramics reference (pg_13)',
+  },
+  {
+    id: 'STD-15', group: 'Standard EPUB', title: 'Where the page anchor sits', kind: 'free', type: 'choice', key: 'pageAnchorPlace',
+    help: 'On a line of its own in front of the paragraph that starts the page, or as the first thing inside that paragraph (a chapter title then has no stray anchor in front of it).',
+    choices: [['before', 'In front of the paragraph'], ['inside', 'Inside the paragraph']],
+    example: (v) => (v === 'inside' ? '<p class="ch-head1"><a id="pg_13"/>1 …</p>' : '<a id="Page_13"/>\n<p class="ch-head1">1 …</p>'),
+    keywords: ['no need of page id', 'page id before chapter heading', 'anchor position'], origin: 'Correction P3; Crowood ceramics reference puts the anchor inside',
+  },
+
   // ---- Standard EPUB: one rule per row of the client's "Standard vs Accessible tag differences" sheet ----
   ...(
     [
       ['STD-01', 'stdHeadings', 'Headings', 'Standard EPUB: how a heading is written.', [['paragraph', 'Classed paragraph'], ['headings', 'Heading element (h1–h6)']], (v: RuleValue) => (v === 'paragraph' ? '<p class="chapter" id="chap1">' : '<h1 class="chapter" id="chap1">'), ['standard heading', 'heading as paragraph', 'encabezado estándar']],
-      ['STD-02', 'stdEmphasis', 'Bold and italic', 'Standard EPUB: how bold and italic text is marked.', [['bi', '<b> and <i>'], ['span', 'Spans with a class']], (v: RuleValue) => (v === 'bi' ? '<b>…</b> <i>…</i>' : '<span class="bold">…</span> <span class="italic">…</span>'), ['standard bold', 'standard italic', 'negrita estándar']],
+      ['STD-02', 'stdEmphasis', 'Bold and italic', 'Standard EPUB: how bold and italic text is marked.', [['bi', '<b> and <i>'], ['span', 'Spans with a class'], ['semantic', '<em> and <strong>']], (v: RuleValue) => (v === 'bi' ? '<b>…</b> <i>…</i>' : v === 'semantic' ? '<em>…</em> <strong>…</strong>' : '<span class="bold">…</span> <span class="italic">…</span>'), ['standard bold', 'standard italic', 'negrita estándar']],
       ['STD-03', 'stdFigures', 'Pictures and captions', 'Standard EPUB: a picture with its caption.', [['div', 'Div with the picture and a caption paragraph'], ['figure', 'figure and figcaption']], (v: RuleValue) => (v === 'div' ? '<div class="fig_group"><p class="image_Container"><img …/></p><p class="caption">…</p></div>' : '<figure class="fig_group"><img …/><figcaption>…</figcaption></figure>'), ['standard figure', 'standard image', 'figura estándar']],
       ['STD-04', 'stdLists', 'Lists', 'Standard EPUB: how list items are written.', [['typed', 'Paragraphs with the bullet or number typed in'], ['lists', 'Real lists (ul, ol)']], (v: RuleValue) => (v === 'typed' ? '<p class="bull">• First item</p>\n<p class="num">1. First item</p>' : '<ul><li>First item</li></ul>'), ['standard list', 'lista estándar']],
       ['STD-05', 'stdQuotes', 'Quotations', 'Standard EPUB: how a block quotation is wrapped.', [['div-top', '<div class="top">'], ['blockquote', '<blockquote>']], (v: RuleValue) => (v === 'div-top' ? '<div class="top"><p class="quote">…</p></div>' : '<blockquote><p class="quote">…</p></blockquote>'), ['standard quote', 'cita estándar']],
@@ -444,7 +539,7 @@ export const RULES: Rule[] = [
       ['STD-09', 'stdAlt', 'Picture descriptions', 'Standard EPUB: generic word ("imagen") or the description from the book. Keeping the real description is better for readers.', [['generic', 'The generic word for the language'], ['keep', 'Keep the real description']], (v: RuleValue) => (v === 'generic' ? '<img alt="imagen" …/>' : '<img alt="A woman reading under a tree" …/>'), ['standard alt', 'standard image description']],
       ['STD-10', 'stdWrappers', 'Section and language wrappers', 'Standard EPUB: wrap each page in <section> and <div xml:lang>, or write the content directly.', [['none', 'No wrappers'], ['keep', 'Keep section and language div']], (v: RuleValue) => (v === 'none' ? '<body>\n<p class="…">' : '<body>\n<section epub:type="chapter">\n<div xml:lang="es-ES">'), ['standard wrapper', 'standard section']],
       ['STD-11', 'stdPageLang', 'Language on each page', 'Standard EPUB: put the language on <html> or leave it to the package file.', [['none', 'None on the page'], ['xml:lang', 'xml:lang on <html>']], (v: RuleValue) => (v === 'none' ? '<html xmlns="…" xmlns:epub="…">' : '<html xml:lang="es-ES" xmlns="…">'), ['standard language', 'standard xml:lang']],
-      ['STD-12', 'stdTitle', 'Page title', 'Standard EPUB: the <title> of each page.', [['book', 'The book title on every page'], ['section', 'The name of the section']], (v: RuleValue) => (v === 'book' ? '<title>Cartografías del poder</title>' : '<title>Capítulo 1</title>'), ['standard title']],
+      ['STD-12', 'stdTitle', 'Page title', 'Standard EPUB: the <title> of each page.', [['book', 'The book title and subtitle on every page'], ['section', 'The name of the section'], ['main', 'The main book title only']], (v: RuleValue) => (v === 'book' ? '<title>Cartografías del poder. Exploraciones…</title>' : v === 'main' ? '<title>Cartografías del poder</title>' : '<title>Capítulo 1</title>'), ['standard title']],
     ] as const
   ).map(
     ([id, key, title, help, choices, example, keywords]): Rule => ({
@@ -490,6 +585,8 @@ export function coerce(r: Rule, raw: unknown): RuleValue | undefined {
       return Array.isArray(raw) ? raw.map(String) : t.split(/\n|;/).map((x) => x.trim()).filter(Boolean)
     case 'css':
       return String(raw)
+    case 'text':
+      return t || undefined
     default:
       return undefined
   }

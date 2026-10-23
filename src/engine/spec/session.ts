@@ -4,6 +4,7 @@ import { houseSettings, setSettings, DEFAULT_SETTINGS, type HouseSettings } from
 import { ruleById, show, needsWaiver, WAIVER_TEXT, type RuleValue } from './rules.ts'
 import { emptyLayer, layerFromSettings, resolve, specHash, LEVEL_LABEL, type Layer, type Level, type Resolved, type Source } from './layers.ts'
 import { bundledLayer } from './clients.ts'
+import type { OutputKind } from '../output/standards.ts'
 import type { LayerData } from './markup.ts'
 import { store, type Decision, type DecisionAction } from './store.ts'
 
@@ -11,6 +12,8 @@ export interface SpecContext {
   client: string // publisher
   series: string
   book: string // e-ISBN or title
+  /** the output type: what a value no layer sets falls back to */
+  kind?: OutputKind
 }
 
 export interface Spec {
@@ -24,10 +27,10 @@ export interface Spec {
 export async function openSpec(ctx: SpecContext, house: HouseSettings = houseSettings()): Promise<Spec> {
   const get = async (level: Level, name: string) => (name.trim() ? ((await store().getLayer(level, name)) ?? bundledLayer(level, name) ?? emptyLayer(level, name)) : undefined)
   const layers = [await get('client', ctx.client), await get('series', ctx.series), await get('book', ctx.book)].filter((l): l is Layer => !!l)
-  return { ctx, house, layers, resolved: resolveSpec(house, layers) }
+  return { ctx, house, layers, resolved: resolveSpec(house, layers, ctx.kind) }
 }
 
-export const resolveSpec = (house: HouseSettings, layers: Layer[]) => resolve([layerFromSettings('house', '', house, DEFAULT_SETTINGS), ...layers], DEFAULT_SETTINGS)
+export const resolveSpec = (house: HouseSettings, layers: Layer[], kind?: OutputKind) => resolve([layerFromSettings('house', '', house, DEFAULT_SETTINGS), ...layers], DEFAULT_SETTINGS, kind)
 
 async function log(spec: Spec, actor: string, action: DecisionAction, detail: string, extra: Partial<Decision> = {}) {
   return store().addDecision({ actor: actor || '(no name)', action, client: spec.ctx.client, book: spec.ctx.book, detail, specHash: specHash(spec.resolved.settings), ...extra })
@@ -105,7 +108,7 @@ export async function decide(spec: Spec, actor: string, accepted: boolean): Prom
 
 const withLayer = (spec: Spec, layer: Layer): Spec => {
   const layers = spec.layers.map((l) => (l.level === layer.level ? layer : l))
-  return { ...spec, layers, resolved: resolveSpec(spec.house, layers) }
+  return { ...spec, layers, resolved: resolveSpec(spec.house, layers, spec.ctx.kind) }
 }
 
 /** Remember what a source style means on the client's (or this book's) layer: the next book of that client applies it with no review item. */

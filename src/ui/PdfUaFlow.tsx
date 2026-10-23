@@ -6,6 +6,7 @@ import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
 import { specForFigures, type UaAnalysis } from '../engine/pdfua/index.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
+import { jobChoice } from './job-choice.ts'
 import type { ReviewItem } from '../engine/epub/package.ts'
 
 // Print PDF → accessible PDF (PDF/UA-1). The PDF is re-tagged from scratch; the reviewer checks
@@ -75,9 +76,13 @@ export function PdfUaFlow() {
   const onBuild = () =>
     run('Tagging the PDF…', async () => {
       const { buildUa } = await import('../engine/pdfua/index.ts')
-      const { bundledUaOptions } = await import('../engine/spec/clients.ts')
+      const { openSpec } = await import('../engine/spec/session.ts')
+      const { uaOptionsFrom } = await import('../engine/pdfua/structure.ts')
+      // the client's layers, then the Accessible PDF defaults, give the options (heading level, bookmarks, logos, links)
+      const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: meta!.isbn || meta!.title, kind: 'accessible-pdf' })
+      const options = uaOptionsFrom(uaSpec.resolved.settings)
       setResult(await buildUa(a!, {
-        styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options: bundledUaOptions(a!.book.meta.publisher),
+        styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options,
         onProgress: (done, total, stage) => {
           const name = stage ?? 'Tagging the PDF'
           setBusy(total ? `${name}: ${done} of ${total}` : name)

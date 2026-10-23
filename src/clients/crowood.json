@@ -1,0 +1,16 @@
+{
+  "match": "thecrowood",
+  "name": "The Crowood Press",
+  "file": "Contemporary Ceramics (9780719847127.epub): the client's hand-finished Standard EPUB, compared class by class and page by page",
+  "values": {
+    "STD-14": "pg_{n}",
+    "STD-15": "inside",
+    "TYP-01": "left",
+    "TYP-02": "left",
+    "TYP-03": "serif",
+    "TYP-04": "left",
+    "TYP-05": "sans-serif",
+    "TYP-06": "left",
+    "TYP-07": 100
+  }
+}

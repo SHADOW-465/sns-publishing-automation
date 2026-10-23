@@ -119,7 +119,27 @@ export interface UaOptions {
   chapterLevel?: 1 | 2
   /** vector logos (a mark drawn from many paths): a 'figure' with alt (default, the client tags the FSC mark) or 'artifact' */
   logos?: 'artifact' | 'figure'
+  /** heading levels that get a bookmark (1 = top level only) */
+  bookmarkLevels?: number
+  /** bookmark an appended plates PDF, and what the bookmark says */
+  plateBookmark?: boolean
+  plateLabel?: string
+  /** page numbers in an index become links to those pages */
+  indexLinks?: boolean
+  /** a note number links to its note and back */
+  noteLinks?: boolean
 }
+
+/** The accessible-PDF options a resolved settings object carries (UA-01 … UA-07). */
+export const uaOptionsFrom = (s: { uaChapterLevel: number; uaLogos: 'artifact' | 'figure'; uaBookmarkLevels: number; uaPlateBookmark: boolean; uaPlateLabel: string; uaIndexLinks: boolean; uaNoteLinks: boolean }): UaOptions => ({
+  chapterLevel: s.uaChapterLevel === 1 ? 1 : 2,
+  logos: s.uaLogos,
+  bookmarkLevels: s.uaBookmarkLevels,
+  plateBookmark: s.uaPlateBookmark,
+  plateLabel: s.uaPlateLabel,
+  indexLinks: s.uaIndexLinks,
+  noteLinks: s.uaNoteLinks,
+})
 
 export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}, tick?: () => void): Structure {
   const chapterLevel = options.chapterLevel ?? 2

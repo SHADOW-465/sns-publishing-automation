@@ -43,7 +43,7 @@ export function saveAiConfig(c: AiConfig) {
 /** The rule list as the model sees it: ID, meaning and allowed values, one line each. */
 export function ruleCatalogue(): string {
   return RULES.filter((r) => r.type !== 'fixed').map((r) => {
-    const values = r.type === 'choice' || r.type === 'multi' ? r.choices!.map(([v, l]) => `${v} (${l})`).join(' | ') : r.type === 'bool' ? 'true | false' : r.type === 'number' ? `number ${r.min}–${r.max} ${r.unit ?? ''}` : r.type === 'list' ? 'phrases separated by ;' : 'CSS text'
+    const values = r.type === 'choice' || r.type === 'multi' ? r.choices!.map(([v, l]) => `${v} (${l})`).join(' | ') : r.type === 'bool' ? 'true | false' : r.type === 'number' ? `number ${r.min}–${r.max} ${r.unit ?? ''}` : r.type === 'list' ? 'phrases separated by ;' : r.type === 'text' ? 'a short name' : 'CSS text'
     return `${r.id}: ${r.title}. ${r.help} Values: ${values}`
   }).join('\n')
 }

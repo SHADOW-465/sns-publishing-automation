@@ -153,6 +153,8 @@ function Control({ r, value, onChange }: { r: Rule; value: RuleValue | undefined
     }
     case 'list':
       return <textarea id={id} className="big" rows={3} value={((value as string[] | undefined) ?? []).join('\n')} placeholder="One phrase per line" onChange={(e) => onChange(e.target.value.split('\n'))} />
+    case 'text':
+      return <input id={id} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)} />
     case 'css':
       return <textarea id={id} className="big mono" rows={4} value={String(value ?? '')} placeholder="Empty: built-in" onChange={(e) => onChange(e.target.value)} />
     default:

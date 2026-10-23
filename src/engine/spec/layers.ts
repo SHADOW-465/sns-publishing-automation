@@ -12,6 +12,7 @@
 // =============================================================================================
 import { DEFAULT_SETTINGS, type HouseSettings, type MarkupTemplate, type MarkupRole, type StyleRule } from '../settings.ts'
 import { RULES, ruleById, needsWaiver, type RuleValue } from './rules.ts'
+import { baseSettings, defaultFor, type OutputKind } from '../output/standards.ts'
 
 export const LEVELS = ['house', 'client', 'series', 'book'] as const
 export type Level = (typeof LEVELS)[number]
@@ -50,17 +51,19 @@ export const emptyLayer = (level: Level, name: string): Layer => ({ level, name,
 export interface Resolved {
   settings: HouseSettings
   /** rule ID → who set the value in effect */
-  from: Record<string, { level: Level | 'default'; name: string; source?: Source; waiver?: Waiver }>
+  from: Record<string, { level: Level | 'default'; name: string; source?: Source; waiver?: Waiver; basis?: { plain: string; standard: string } }>
   /** advisory values that were asked for but have no waiver yet (the accessible value stays in effect) */
   pendingWaivers: { ruleId: string; level: Level; name: string; value: RuleValue }[]
 }
 
-/** The settings in effect for a build: every layer applied in order, with provenance. */
-export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS): Resolved {
+/** The settings in effect for a build: every layer applied in order, with provenance. A value no layer sets is the default of the
+ *  output type (with its reason and the standard it comes from), or the house default when no type is given. */
+export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS, kind?: OutputKind): Resolved {
+  if (kind) base = baseSettings(kind)
   const settings = { ...base } as Record<string, unknown>
   const from: Resolved['from'] = {}
   const pendingWaivers: Resolved['pendingWaivers'] = []
-  for (const r of RULES) if (r.key) from[r.id] = { level: 'default', name: '' }
+  for (const r of RULES) if (r.key) from[r.id] = { level: 'default', name: '', ...(kind ? { basis: (({ plain, standard }) => ({ plain, standard }))(defaultFor(kind, r.id)) } : {}) }
   const ordered = [...layers].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level))
   const labels: Record<string, Record<string, string>> = {}
   for (const [code, m] of Object.entries(base.labels ?? {})) labels[code] = { ...m }

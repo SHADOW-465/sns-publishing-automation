@@ -15,10 +15,11 @@ export const VARIANT_GROUPS = {
 } as const
 export type VariantGroup = keyof typeof VARIANT_GROUPS
 
-/** The choices behind the Standard EPUB: one per row of the client's sheet (rules STD-01…STD-12). The first value is the sheet's. */
+/** The choices behind the Standard EPUB: one per row of the client's sheet (rules STD-01…STD-12). The first value is the sheet's;
+ *  the default for a Standard EPUB follows the finished files and the HTML standard where they differ (output/standards.ts). */
 export const STD_CHOICES = {
   stdHeadings: ['paragraph', 'headings'],
-  stdEmphasis: ['bi', 'span'],
+  stdEmphasis: ['bi', 'span', 'semantic'],
   stdFigures: ['div', 'figure'],
   stdLists: ['typed', 'lists'],
   stdQuotes: ['div-top', 'blockquote'],
@@ -28,7 +29,7 @@ export const STD_CHOICES = {
   stdAlt: ['generic', 'keep'],
   stdWrappers: ['none', 'keep'],
   stdPageLang: ['none', 'xml:lang'],
-  stdTitle: ['book', 'section'],
+  stdTitle: ['book', 'section', 'main'],
 } as const
 export type StdOptions = { [K in keyof typeof STD_CHOICES]: (typeof STD_CHOICES)[K][number] }
 export const STD_DEFAULTS = Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, v[0]])) as StdOptions
@@ -81,10 +82,19 @@ interface StructuredSettings {
   variantOn: VariantGroup[]
 }
 
+/** a CSS class name: letters, digits, - and _, not starting with a digit */
+/** a short label: letters, digits, spaces, dots, dashes */
+const LABEL_TEXT = /^[\p{L}\p{N} ._-]{1,40}$/u
+const CLASS_NAME = /^[A-Za-z_][\w-]{0,40}$/
+/** an anchor id pattern: the page number goes where {n} is */
+const ANCHOR_ID = /^[A-Za-z_][\w-]{0,30}\{n\}[\w-]{0,10}$/
+
 type Field =
   | { def: boolean; bool: true }
   | { def: string; choices: readonly string[] }
   | { def: number; min: number; max: number }
+  /** free text that must be a plain name (a CSS class or a pattern with {n}); anything else falls back to the default */
+  | { def: string; text: RegExp }
 /** One row per plain setting: its default and what a valid value is. The type, DEFAULT_SETTINGS and sanitize are all made
  *  from this table, so a new plain setting is one row here (plus its rule in the registry), not four edits. */
 const SCHEMA = {
@@ -149,11 +159,51 @@ const SCHEMA = {
    *  split = two plain paragraphs (chnum, then chtit) with no id, as one correction sheet asked. */
   chapterOpener: { def: 'spans', choices: ['spans', 'split'] },
   /** class of that heading when the chapter-title template does not name one. ch-head1 is the ceramics reference. */
-  pdfChapterClass: { def: 'ch-head1', choices: ['ch-head1', 'chapter-title', 'chtit'] },
+  pdfChapterClass: { def: 'ch-head1', text: CLASS_NAME },
   /** class of the chapter number */
-  pdfChapterNumClass: { def: 'ch-num', choices: ['ch-num', 'chnum'] },
+  pdfChapterNumClass: { def: 'ch-num', text: CLASS_NAME },
   /** class of the chapter title words beside the number */
-  pdfChapterTitleClass: { def: 'ch2', choices: ['ch2', 'chtit'] },
+  pdfChapterTitleClass: { def: 'ch2', text: CLASS_NAME },
+  /** how the title and half-title pages of a print PDF are written: as a picture of the printed page (with its text as the description),
+   *  or rebuilt as text. Real text is the accessible form (WCAG 1.4.5), so an accessible EPUB defaults to text (see output/standards.ts) */
+  titlePageAs: { def: 'text', choices: ['text', 'image'] },
+  /** what a decorative picture gets as its description: nothing (alt="", the HTML and WCAG way) or the language's word for it ("decorative") */
+  altDecorative: { def: 'empty', choices: ['empty', 'word'] },
+  /** the id of a printed-page anchor in a standard EPUB; {n} is the page number ("Page_{n}" is the client's sheet, "pg_{n}" the Crowood file) */
+  pageAnchorId: { def: 'Page_{n}', text: ANCHOR_ID },
+  /** where that anchor sits: on a line of its own in front of the block, or as the first thing inside the block that starts the page */
+  pageAnchorPlace: { def: 'before', choices: ['before', 'inside'] },
+
+  // ---- typography of the stylesheet built for a print PDF (an InDesign export carries its own, which "print" keeps) ----
+  /** body text alignment. print = what the printed page does (justified lines end flush right) */
+  bodyAlign: { def: 'print', choices: ['print', 'left', 'justify'] },
+  /** alignment of chapter titles */
+  chapterTitleAlign: { def: 'print', choices: ['print', 'left', 'center'] },
+  /** typeface family of chapter titles */
+  chapterTitleFont: { def: 'serif', choices: ['serif', 'sans-serif'] },
+  /** alignment of the heading of the contents page */
+  contentsHeadingAlign: { def: 'print', choices: ['print', 'left', 'center'] },
+  /** typeface family of the heading of the contents page */
+  contentsHeadingFont: { def: 'sans-serif', choices: ['serif', 'sans-serif'] },
+  /** alignment of the copyright page */
+  copyrightAlign: { def: 'print', choices: ['print', 'left', 'center'] },
+  /** the size of quoted extracts and verse, as a share of the body text */
+  extractSizePct: { def: 100, min: 60, max: 100 },
+
+  // ---- accessible PDF ----
+  /** the heading level of a chapter: 2 keeps one H1 for the title of the book (default), 1 makes every chapter an H1 */
+  uaChapterLevel: { def: 2, min: 1, max: 2 },
+  /** a logo or mark drawn from many small shapes: one figure with a description, or decoration a screen reader skips */
+  uaLogos: { def: 'figure', choices: ['figure', 'artifact'] },
+  /** how many heading levels get a bookmark (1 = chapters only when chapters are H1) */
+  uaBookmarkLevels: { def: 6, min: 1, max: 6 },
+  /** bookmark the section appended at the end (plates), and the name it carries */
+  uaPlateBookmark: { def: true, bool: true },
+  uaPlateLabel: { def: 'Plate', text: LABEL_TEXT },
+  /** make the page numbers of an index links to those pages */
+  uaIndexLinks: { def: false, bool: true },
+  /** link each note number to its note and back */
+  uaNoteLinks: { def: true, bool: true },
 
   // ---- stylesheet ----
   /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference; 'compact' = one rule per line */
@@ -185,7 +235,7 @@ const SCHEMA = {
 } as const satisfies Record<string, Field>
 
 /** A schema row's value type: yes/no, one of its choices, or a number. */
-type ValueOf<F> = F extends { bool: true } ? boolean : F extends { choices: readonly (infer C)[] } ? C : number
+type ValueOf<F> = F extends { bool: true } ? boolean : F extends { choices: readonly (infer C)[] } ? C : F extends { text: RegExp } ? string : number
 type PlainSettings = { -readonly [K in keyof typeof SCHEMA]: ValueOf<(typeof SCHEMA)[K]> }
 
 export interface HouseSettings extends StdOptions, PlainSettings, StructuredSettings {}
@@ -224,7 +274,7 @@ function sanitize(s: HouseSettings): HouseSettings {
   const plain = Object.fromEntries(
     Object.entries(SCHEMA).map(([k, f]) => {
       const v = raw[k]
-      const ok = 'bool' in f ? typeof v === 'boolean' : 'choices' in f ? (f.choices as readonly unknown[]).includes(v) : typeof v === 'number' && isFinite(v)
+      const ok = 'bool' in f ? typeof v === 'boolean' : 'choices' in f ? (f.choices as readonly unknown[]).includes(v) : 'text' in f ? typeof v === 'string' && f.text.test(v) : typeof v === 'number' && isFinite(v)
       return [k, !ok ? f.def : 'min' in f ? Math.min(f.max, Math.max(f.min, v as number)) : v]
     }),
   )

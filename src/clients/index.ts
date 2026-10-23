@@ -1,9 +1,11 @@
 // Client layers that ship with the tool, one JSON file each in the Layer shape (plus how the publisher's name matches).
-// Add a client by dropping a file in this folder: Vite bundles every *.json here. BeBra and Arkano are imported by name as well,
+// Add a client by dropping a file in this folder: Vite bundles every *.json here. The shipped clients are imported by name as well,
 // because Node (the tests) has no import.meta.glob.
 import bebra from './bebra.json' with { type: 'json' }
 import arkano from './arkano.json' with { type: 'json' }
+import crowood from './crowood.json' with { type: 'json' }
+import penAndSword from './pen-and-sword.json' with { type: 'json' }
 import type { ClientFile } from '../engine/spec/clients.ts'
 
 const globbed = (import.meta as { glob?: (p: string, o: object) => Record<string, ClientFile> }).glob?.('./*.json', { eager: true, import: 'default' }) ?? {}
-export const CLIENT_FILES: ClientFile[] = [...new Map([bebra as ClientFile, arkano as ClientFile, ...Object.values(globbed)].map((f) => [f.match, f])).values()]
+export const CLIENT_FILES: ClientFile[] = [...new Map([bebra as ClientFile, arkano as ClientFile, crowood as ClientFile, penAndSword as ClientFile, ...Object.values(globbed)].map((f) => [f.match, f])).values()]

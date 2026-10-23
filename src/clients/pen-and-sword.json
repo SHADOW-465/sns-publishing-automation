@@ -1,0 +1,13 @@
+{
+  "match": "pensword",
+  "name": "Pen & Sword Books",
+  "file": "Gladiators in the Greek World_9781036130527.pdf (the client's finished accessible PDF and its PAC report): chapters are H1, the bookmarks list chapters only, the appended plates are bookmarked \"Plate\", index page numbers are not links",
+  "values": {
+    "UA-01": 1,
+    "UA-02": "figure",
+    "UA-03": 1,
+    "UA-04": true,
+    "UA-05": "Plate",
+    "UA-06": false
+  }
+}
