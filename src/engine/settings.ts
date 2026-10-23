@@ -145,6 +145,15 @@ const SCHEMA = {
   longDescAs: { def: 'paragraph', choices: ['paragraph', 'details'] },
   /** PKG-03: write the EPUB 2 <guide> (cover and contents) */
   writeGuide: { def: true, bool: true },
+  /** PDF→EPUB chapter opener. spans = number and title inside one heading, as in the Crowood ceramics reference.
+   *  split = two plain paragraphs (chnum, then chtit) with no id, as one correction sheet asked. */
+  chapterOpener: { def: 'spans', choices: ['spans', 'split'] },
+  /** class of that heading when the chapter-title template does not name one. ch-head1 is the ceramics reference. */
+  pdfChapterClass: { def: 'ch-head1', choices: ['ch-head1', 'chapter-title', 'chtit'] },
+  /** class of the chapter number */
+  pdfChapterNumClass: { def: 'ch-num', choices: ['ch-num', 'chnum'] },
+  /** class of the chapter title words beside the number */
+  pdfChapterTitleClass: { def: 'ch2', choices: ['ch2', 'chtit'] },
 
   // ---- stylesheet ----
   /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference; 'compact' = one rule per line */

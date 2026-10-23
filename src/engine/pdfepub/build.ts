@@ -676,12 +676,18 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : undefined
       const h = tpl?.tag && /^h[1-6]$/.test(tpl.tag) ? tpl.tag : 'h1'
       const extra = Object.entries(tpl?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
-      const own = s.type === 'chapter' ? 'ch-head1' : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
+      const own = s.type === 'chapter' ? settings().pdfChapterClass : s.type === 'dedication' ? 'ded-h' : s.type === 'acknowledgments' ? 'ack-h' : s.headRole === 'title' ? 'ch-head' : 'subhead'
       // "{style}" in the template's class is the builder's own class, as the InDesign build puts the style's there
       const cls = tpl?.class ? tpl.class.replace('{style}', own) : own
-      heading = s.number !== undefined
-        ? `<${h} class="${cls}" id="${headId}"${extra}><span class="ch-num">${esc(s.number)}</span> <span class="ch2">${t}</span></${h}>`
-        : `<${h} class="${cls}" id="${headId}"${extra}>${t}</${h}>`
+      const numCls = settings().pdfChapterNumClass
+      const titCls = settings().pdfChapterTitleClass
+      // split: two plain paragraphs and no chapter id (one correction sheet). The default keeps number and title
+      // inside one heading, which is what the Crowood ceramics reference does.
+      heading = s.type === 'chapter' && settings().chapterOpener === 'split'
+        ? (s.number !== undefined ? `<p class="${numCls}">${esc(s.number)}</p>\n<p class="${titCls}">${t}</p>` : `<p class="${titCls}">${t}</p>`)
+        : s.number !== undefined
+          ? `<${h} class="${cls}" id="${headId}"${extra}><span class="${numCls}">${esc(s.number)}</span> <span class="${titCls}">${t}</span></${h}>`
+          : `<${h} class="${cls}" id="${headId}"${extra}>${t}</${h}>`
     }
     // page markers that arrived before the heading text go in front of it
     let body = (s.lead ? `${s.lead}\n` : '') + (heading ? `${heading}\n` : '')
@@ -710,7 +716,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (!pageFile.has(String(k))) return 'href="#"'
       return `href="${pageFile.get(String(k))}#page-${k}"`
     })
-    const label = s.title.length ? ` aria-labelledby="${s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem}"` : ` aria-label="${esc(s.nav || s.stem)}"`
+    const named = s.title.length && !(s.type === 'chapter' && settings().chapterOpener === 'split')
+    const label = named ? ` aria-labelledby="${s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem}"` : ` aria-label="${esc(s.nav || s.stem)}"`
     sections.push({
       file: `${s.stem}.xhtml`, id: s.stem, type: s.type, nav: s.nav, parent: s.parent, title: s.nav || meta.title,
       body: `<section${label} epub:type="${s.stem.startsWith('fm') ? 'frontmatter' : meta0.epubType}"${meta0.role && !s.stem.startsWith('fm') ? ` role="${meta0.role}"` : ''}>\n${body}\n</section>`,
