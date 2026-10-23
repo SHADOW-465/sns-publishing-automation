@@ -1199,8 +1199,11 @@ function linkNotes(items: Item[], key: string): number {
   for (const it of items) {
     if (!it.note) continue
     const n = it.note
-    it.html = it.html.replace(/^<p([^>]*)>\s*(?:<sup>)?(?:<span[^>]*>)?\s*(\d{1,3})\s*(?:<\/span>)?(?:<\/sup>)?[\s.]*/, (_, attrs: string) =>
-      `<p${attrs} epub:type="endnote" id="${key}-n${n}">${refd.has(n) ? `<a epub:type="backlink" href="#${key}-r${n}" role="doc-backlink">${n}</a>` : n} `)
+    // page markers in front of the number stay; a <sup> or <span> around the number ("<b>1.</b>") goes with it, and one
+    // that holds more than the number is opened again after it, so the paragraph stays well-formed
+    it.html = it.html.replace(/^<p([^>]*)>((?:\s*<span\b[^>]*\/>)*)\s*(<sup>)?(<span\b(?![^>]*\/>)[^>]*>)?\s*(\d{1,3})[\s.]*(<\/span>)?[\s.]*(<\/sup>)?[\s.]*/,
+      (_, attrs: string, marks: string, sup?: string, span?: string, _n?: string, spanEnd?: string, supEnd?: string) =>
+        `<p${attrs} epub:type="endnote" id="${key}-n${n}">${marks.trim()}${refd.has(n) ? `<a epub:type="backlink" href="#${key}-r${n}" role="doc-backlink">${n}</a>` : n} ${sup && !supEnd ? sup : ''}${span && !spanEnd ? span : ''}`)
   }
   return refd.size
 }

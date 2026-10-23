@@ -9,6 +9,8 @@ import { analyze, build } from '../src/engine/indesign/build.ts'
 import { readPrintPages } from '../src/engine/pdf/pages.ts'
 import { INDD, has, read } from './samples.ts'
 import { epubcheck } from './epubcheck.ts'
+import { synthExport } from './synth.ts'
+import { PNG } from './fixtures/indesign-export.ts'
 
 const input = resolve(INDD, 'Input/88228-02 Cambia tu mente.zip')
 const reference = resolve(INDD, 'Output/Cambia tu mente.epub')
@@ -116,4 +118,36 @@ test('HD-09: styles that only look like headings take h3 by default, or a level 
   assert.equal(by['Ladillo-1'], 'h3', 'the biggest')
   assert.ok(by['Ladillo-2'] > by['Ladillo-1'], 'the smallest sits deeper')
   setSettings(DEFAULT_SETTINGS)
+})
+
+test('note numbers under an in-chapter Notes heading: a bold "1." stays well-formed and a page marker before "2" is kept', () => {
+  const css = `
+p.text { font-size: 1em; font-family: "Minion Pro", serif; text-align: justify; }
+h1.h1 { font-size: 2.5em; font-family: "Veneer", sans-serif; }
+p.h2 { font-size: 1.17em; font-family: "Hero", sans-serif; margin-top: 12px; font-weight:bold; }
+p.impressum { font-size: 0.7em; }
+p.tt { font-size: 2em; text-align:center; }
+span.sup { vertical-align: super; }
+span.b { font-weight: bold; }
+`
+  const pb = (n: number) => `<span epub:type="pagebreak" id="page${n}" role="doc-pagebreak" aria-label="${n}" title="${n}"/>`
+  const long = (t: string) => `<p class="text">${`${t} `.repeat(40)}</p>`
+  const body = [
+    pb(1), '<p class="tt">Sample Book</p>', '<p class="tt">Anna Writer</p>',
+    pb(2), '<p class="impressum">© 2020 Example Press</p>', '<p class="impressum">ISBN 978-3-16-148410-0</p>',
+    pb(3), '<h1 class="h1">Alpha</h1>',
+    `<p class="text">Alpha one<span class="sup">1</span> and two<span class="sup">2</span>. ${'More words follow. '.repeat(40)}</p>`,
+    long('Alpha continues for a while with ordinary sentences.'),
+    '<p class="h2">Notes</p>',
+    '<p class="text"><span class="b">1.</span> First note text.</p>',
+    `<p class="text">${pb(4)}2 Second note text.</p>`,
+    pb(5), '<h1 class="h1">Beta</h1>', long('Beta goes on and on.'), long('Beta more.'),
+  ].join('\n')
+  const a = analyze(synthExport(body, css, 'en-GB'))
+  const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'Sample Book', authors: 'Anna Writer', publisher: 'Example Press', eisbn: '9780306406157', language: 'en-GB' }, cover: { name: 'c.png', data: PNG } })
+  const [, ch] = [...r.files].find(([p]) => /chapter01\.xhtml$/.test(p))!
+  const t = text(ch)
+  assert.equal(new DOMParser().parseFromString(t, 'application/xhtml+xml').getElementsByTagName('parsererror').length, 0, t.slice(t.indexOf('<body')))
+  assert.match(t, /id="[^"]*-n1"/)
+  assert.match(t, /id="page-4"/, 'the page marker at the start of note 2 is kept')
 })
