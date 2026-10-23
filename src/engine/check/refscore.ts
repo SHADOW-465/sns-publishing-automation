@@ -132,9 +132,29 @@ export function bookModel(files: Files): BookModel {
   let nav: NavEntry[] = []
   let pageList = 0
 
+  // the navigation document (in the manifest, usually not in the spine)
+  const navItem = [...manifest.values()].find((m) => m.props.split(/\s+/).includes('nav'))
+  const navDoc = navItem && parse(zipText(files.get(at(navItem.href)) ?? new Uint8Array()))
+  if (navDoc) {
+    for (const n of Array.from(navDoc.getElementsByTagName('nav'))) {
+      const t = attrOps(n, 'type')
+      if (t === 'toc') {
+        const walk = (ol: Element, depth: number) => {
+          for (const li of Array.from(ol.children).filter((c) => ln(c) === 'li')) {
+            const a = Array.from(li.children).find((c) => ln(c) === 'a' || ln(c) === 'span')
+            if (a) nav.push({ depth, label: (a.textContent ?? '').replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') ?? '' })
+            for (const sub of Array.from(li.children).filter((c) => ln(c) === 'ol')) walk(sub, depth + 1)
+          }
+        }
+        const top = Array.from(n.children).find((c) => ln(c) === 'ol')
+        if (top) walk(top, 1)
+      } else if (t === 'page-list') pageList = n.getElementsByTagName('a').length
+    }
+  }
+
   for (const { id } of spine) {
     const item = manifest.get(id)
-    if (!item || !/xhtml/.test(item.type)) continue
+    if (!item || !/xhtml/.test(item.type) || item === navItem) continue
     const file = at(item.href)
     const doc = parse(zipText(files.get(file) ?? new Uint8Array()))
     if (!doc) continue
@@ -154,26 +174,6 @@ export function bookModel(files: Files): BookModel {
       noteRefs: 0, noteBodies: 0, backLinks: 0, words: new Map(),
     }
     sec.type = [...new Set(Array.from(body.getElementsByTagName('*')).map((e) => attrOps(e, 'type')).filter((t) => /^(cover|titlepage|copyright-page|toc|frontmatter|bodymatter|chapter|part|preface|foreword|dedication|index|bibliography|glossary|appendix|acknowledgments|halftitlepage|epigraph)/.test(t)))].join(' ')
-
-    // navigation document
-    const navEls = Array.from(body.getElementsByTagName('nav'))
-    if (navEls.length && item.props.includes('nav')) {
-      for (const n of navEls) {
-        const t = attrOps(n, 'type')
-        if (t === 'toc') {
-          const walk = (ol: Element, depth: number) => {
-            for (const li of Array.from(ol.children).filter((c) => ln(c) === 'li')) {
-              const a = Array.from(li.children).find((c) => ln(c) === 'a' || ln(c) === 'span')
-              if (a) nav.push({ depth, label: (a.textContent ?? '').replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') ?? '' })
-              for (const sub of Array.from(li.children).filter((c) => ln(c) === 'ol')) walk(sub, depth + 1)
-            }
-          }
-          const top = Array.from(n.children).find((c) => ln(c) === 'ol')
-          if (top) walk(top, 1)
-        } else if (t === 'page-list') pageList = n.getElementsByTagName('a').length
-      }
-      continue
-    }
 
     let last = ''
     const pageNo = (el: Element): string | null => {
