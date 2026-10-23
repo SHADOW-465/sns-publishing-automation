@@ -1,0 +1,123 @@
+{
+  "label": "after",
+  "at": "2026-10-23T13:53:38.349Z",
+  "results": {
+    "Cambia tu mente (InDesign → Accessible EPUB, Arkano Books)": {
+      "overall": 97.5,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 99.9,
+          "diffs": []
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 99.9,
+          "diffs": [
+            "2 reference paragraphs are missing or reworded in the build, for example “cualquier forma de reproducción distribución comunicación pú…”.",
+            "2 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “cualquier forma de reproducción distribución comunicación pú…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 89.2,
+          "diffs": [
+            "40 paragraphs: the reference class → the build class: extract → extract1.",
+            "38 paragraphs: the reference class → the build class: Ladillo-3 → Ladillo-1_1.",
+            "30 paragraphs: the reference class → the build class: No-Table-Style → No-Table-Style3.",
+            "12 paragraphs: the reference class → the build class: num1 → Ladillo-1_1.",
+            "11 paragraphs: the reference class → the build class: Antetitulo_SUPER → toc_1a.",
+            "10 paragraphs: the reference class → the build class: No-Table-Style1 → No-Table-Style2.",
+            "…and 21 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 98.9,
+          "diffs": [
+            "1 italic run in the build is not italic in the reference, for example “fracaso”.",
+            "5 bold runs of the reference are not bold in the build, for example “qué necesitas”."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 76.9,
+          "diffs": [
+            "Package metadata differs: title “Cambia tu mente. Desprograma tu mente subconscient…” (build: “Cambia tu mente”).",
+            "9 accessibility statements of the reference are missing in the build (for example a11y:certifiedBy=gaia ediciones).",
+            "5 accessibility statements in the build are not in the reference (for example pageBreakSource=urn isbn 9791388228025)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 71.6,
+          "diffs": [
+            ".title: text-indent is 0em in the reference and not set in the build.",
+            ".title-3: font-weight is normal in the reference and not set in the build.",
+            ".title_1: text-indent is 0em in the reference and not set in the build.",
+            ".title-4: font-weight is normal in the reference and not set in the build.",
+            ".title-2: font-weight is normal in the reference and not set in the build.",
+            ".noindent: font-size is 100% in the reference and not set in the build.",
+            ".toc_1: font-size is 100% in the reference and not set in the build.",
+            ".toc_2: font-size is 85% in the reference and not set in the build.",
+            "…and 52 more"
+          ]
+        }
+      ]
+    }
+  }
+}
