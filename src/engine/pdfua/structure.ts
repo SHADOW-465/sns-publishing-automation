@@ -46,6 +46,8 @@ export interface SNode {
   scope?: 'Column' | 'Row'
   rowSpan?: number
   colSpan?: number
+  /** an index entry: its page numbers become links */
+  indexEntry?: boolean
 }
 
 export interface Figure {
@@ -119,7 +121,7 @@ export interface UaOptions {
   logos?: 'artifact' | 'figure'
 }
 
-export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}): Structure {
+export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}, tick?: () => void): Structure {
   const chapterLevel = options.chapterLevel ?? 2
   let nextId = 0
   const nodes: SNode[] = []
@@ -206,6 +208,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   }
 
   for (const page of book.pages) {
+    tick?.()
     const figs = figuresByPage.get(page.index) ?? []
     const inFig = (l: PLine) => figs.find((f) => {
       const top = page.height - f.box.y1
@@ -536,6 +539,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       } else {
         closeList()
         const p = mk('P')
+        if (inIndex) p.indexEntry = true
         own(l, p)
         container.kids.push(p)
         para = { node: p, last: l, kind: 'P', first: l }

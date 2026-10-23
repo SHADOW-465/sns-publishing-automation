@@ -5,7 +5,7 @@ import type { ReviewItem } from '../epub/package.ts'
 import { inferUaStyles, buildStructure, imageList, type UaOptions, type UaStyle, type Figure, type UaRole, type SNode } from './structure.ts'
 import { detectFigures } from './figures.ts'
 import { readAltDocx, matchAlt, type AltEntry } from './altdocx.ts'
-import { planPages, writeUa, type UaMeta } from './write.ts'
+import { planPages, STAGE_LIMIT_MS, writeUa, type UaMeta } from './write.ts'
 import { trimOf } from './pages.ts'
 import { checkUa } from './check.ts'
 import { labelsFor } from '../epub/locale.ts'
@@ -25,6 +25,8 @@ export interface UaInputs {
   altDocx?: Uint8Array
   /** house-style options (heading levels, vector logos) */
   options?: UaOptions
+  /** stop a quiet stage that runs longer than this, in milliseconds. Default eight minutes. */
+  stageLimitMs?: number
 }
 
 export interface UaFigure {
@@ -47,6 +49,8 @@ export interface UaAnalysis {
   options: UaOptions
   altUnused: AltEntry[]
   review: ReviewItem[]
+  /** first page (0-based) of an appended plates PDF */
+  platePage?: number
 }
 
 /** Cover image first, then the book, then extra PDFs; page labels shifted to match. */
@@ -82,12 +86,30 @@ const FILEISH = /\.(docx?|indd|pdf)\b|^microsoft word|^untitled/i
 
 export async function analyzeUa(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  pdfjs: any, raster: Raster, inp: UaInputs, onProgress?: (done: number, total: number) => void,
+  pdfjs: any, raster: Raster, inp: UaInputs, onProgress?: (done: number, total: number, stage?: string) => void,
 ): Promise<UaAnalysis> {
   const review: ReviewItem[] = []
+  const limit = inp.stageLimitMs ?? STAGE_LIMIT_MS
+  let stageStart = Date.now()
+  const begin = (stage: string, done = 0, total = 0) => {
+    stageStart = Date.now()
+    onProgress?.(done, total, stage)
+  }
+  const check = (stage: string) => {
+    if (Date.now() - stageStart < limit) return
+    const mins = Math.max(1, Math.round(limit / 60000))
+    throw new Error(`Stopped during “${stage}” after ${mins} minute${mins === 1 ? '' : 's'}. Analyse is available again. Leave out the plates PDF and run that on its own, or split the book.`)
+  }
   const merged = await mergeInputs(inp)
-  const book = await analyzePdf(pdfjs, merged, raster, {}, onProgress, { structure: false })
-  const plan = await planPages(merged)
+  begin('Reading the pages')
+  const book = await analyzePdf(pdfjs, merged, raster, {}, (done, total) => onProgress?.(done, total, 'Reading the pages'), { structure: false })
+  let platePage: number | undefined
+  if (inp.extras.length) {
+    const main = await PDFDocument.load(inp.main, { updateMetadata: false, ignoreEncryption: true })
+    platePage = main.getPageCount() + (inp.cover ? 1 : 0)
+  }
+  begin('Planning the tags', 0, book.pages.length)
+  const plan = await planPages(merged, (done, total, stage) => onProgress?.(done, total, stage ?? 'Planning the tags'), { stageLimitMs: limit })
   // slug notes outside the trim ("[Page v]", job info) are never content
   plan.doc.getPages().forEach((pg, i) => {
     const t = trimOf(pg)
@@ -95,12 +117,21 @@ export async function analyzeUa(
     if (p) p.lines = p.lines.filter((l) => l.x1 > t.x0 + 2 && l.x0 < t.x1 - 2 && l.base > t.top + 2 && l.y < t.bottom - 2)
   })
   const detected = new Map<number, Figure[]>()
-  plan.pages.forEach((p, i) => detected.set(i, detectFigures(book.pages[i], p.paints, book.bodySize, { logos: inp.options?.logos })))
+  begin('Finding pictures', 0, plan.pages.length)
+  for (let i = 0; i < plan.pages.length; i++) {
+    check('Finding pictures')
+    detected.set(i, detectFigures(book.pages[i], plan.pages[i].paints, book.bodySize, { logos: inp.options?.logos }))
+    if (i % 8 === 7) {
+      onProgress?.(i + 1, plan.pages.length, 'Finding pictures')
+      await new Promise((r) => setTimeout(r, 0))
+    }
+  }
   const styles = inferUaStyles(book)
 
   // alt texts from the Word file, matched to the figures once to prefill the review
   const alt = inp.altDocx ? readAltDocx(inp.altDocx) : []
-  const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected), inp.options)
+  begin('Working out the reading order', 0, book.pages.length)
+  const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected), inp.options, () => check('Working out the reading order'))
   const pageArea = book.pages[1] ? book.pages[1].width * book.pages[1].height : 1
   // the Word file lists descriptions in the order of the image list: put the figures in that order first
   const il = imageList(st, book)
@@ -148,11 +179,11 @@ export async function analyzeUa(
     }
     await task.destroy()
   }
-  return { merged, book, styles, meta, figures, detected, options: inp.options ?? {}, altUnused: unused, review }
+  return { merged, book, styles, meta, figures, detected, options: inp.options ?? {}, altUnused: unused, review, platePage }
 }
 
 /** Bookmark names for front pages without a heading (as in the reference: Cover, Half Title, Title, Copyright). */
-function frontPages(a: UaAnalysis): { page: number; label: string }[] {
+export function frontPages(a: UaAnalysis): { page: number; label: string }[] {
   const L = labelsFor(a.meta.lang)
   const out: { page: number; label: string }[] = []
   const first = a.book.pages[0]
@@ -163,6 +194,8 @@ function frontPages(a: UaAnalysis): { page: number; label: string }[] {
   for (const i of textFront) if (i < titleIdx) out.push({ page: i, label: L.halftitle })
   if (titleIdx !== undefined) out.push({ page: titleIdx, label: L.title })
   if (a.book.imprintPage !== undefined) out.push({ page: a.book.imprintPage, label: L.copyright })
+  // the client's finished Gladiators file bookmarks the appended section as "Plate"
+  if (a.platePage !== undefined) out.push({ page: a.platePage, label: 'Plate' })
   return out
 }
 
@@ -204,6 +237,7 @@ export interface UaBuildInput {
   fileAlt?: Record<string, { alt: string; longDesc?: string }>
   /** The reviewer marked this picture as decoration. It is tagged as an artifact, not a figure. */
   decorative?: Record<string, boolean>
+  onProgress?: (done: number, total: number, stage?: string) => void
 }
 
 const dropNode = (root: SNode, gone: SNode) => {
@@ -243,7 +277,8 @@ export async function buildUa(
   a: UaAnalysis, input: UaBuildInput,
 ): Promise<{ pdf: Uint8Array; review: ReviewItem[]; stats: Record<string, number>; fileName: string }> {
   const roles = new Map<string, UaRole>(input.styles.map((s) => [s.key, s.role]))
-  const st = buildStructure(a.book, roles, cloneFigs(a.detected), input.options ?? a.options)
+  input.onProgress?.(0, a.book.pages.length, 'Working out the reading order')
+  const st = buildStructure(a.book, roles, cloneFigs(a.detected), input.options ?? a.options, () => input.onProgress?.(0, a.book.pages.length, 'Working out the reading order'))
   const extra: ReviewItem[] = []
   let pendingAi = 0
   let decorativeN = 0
@@ -272,7 +307,7 @@ export async function buildUa(
   }
   if (decorativeN) extra.push({ level: 'info', msg: `Marked ${decorativeN} decorative picture(s) as artifacts, so a screen reader skips them.` })
   if (pendingAi) extra.push({ level: 'warn', msg: `${pendingAi} picture description(s) are unapproved AI drafts.` })
-  const plan = await planPages(a.merged) // fresh copy: writing modifies the document
+  const plan = await planPages(a.merged, input.onProgress) // fresh copy: writing modifies the document
   const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a) })
   const pdf = await out.pdf
   const review = [...a.review.filter((r) => !/alt text/.test(r.msg)), ...extra, ...out.review, ...(await checkUa(pdf))]

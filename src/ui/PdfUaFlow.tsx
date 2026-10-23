@@ -56,9 +56,10 @@ export function PdfUaFlow() {
         cover: cover ? { data: cover.data, png: /\.png$/i.test(cover.name) } : undefined,
         altDocx: altDocx?.data,
       }
-      const r = await analyzeUa(pdfjs, browserRaster, inputs, (done, total) => {
-        setBusy(`Reading page ${done} of ${total}…`)
-        setProgress({ done, total })
+      const r = await analyzeUa(pdfjs, browserRaster, inputs, (done, total, stage) => {
+        const name = stage ?? 'Reading the pages'
+        setBusy(total ? `${name}: ${done} of ${total}` : name)
+        setProgress(total ? { done, total } : undefined)
       })
       const saved = remember<Record<string, UaRole>>('uaprofile', r.book.meta.publisher)
       setStyles(r.styles.map((s) => (saved?.[s.key] ? { ...s, role: saved[s.key], reason: 'from saved publisher profile' } : s)))
@@ -75,7 +76,14 @@ export function PdfUaFlow() {
     run('Tagging the PDF…', async () => {
       const { buildUa } = await import('../engine/pdfua/index.ts')
       const { bundledUaOptions } = await import('../engine/spec/clients.ts')
-      setResult(await buildUa(a!, { styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options: bundledUaOptions(a!.book.meta.publisher) }))
+      setResult(await buildUa(a!, {
+        styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options: bundledUaOptions(a!.book.meta.publisher),
+        onProgress: (done, total, stage) => {
+          const name = stage ?? 'Tagging the PDF'
+          setBusy(total ? `${name}: ${done} of ${total}` : name)
+          setProgress(total ? { done, total } : undefined)
+        },
+      }))
       if (a!.book.meta.publisher) remember('uaprofile', a!.book.meta.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     })
 

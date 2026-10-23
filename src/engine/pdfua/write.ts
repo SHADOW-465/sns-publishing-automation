@@ -7,6 +7,7 @@ import { isFrameOrRule } from './figures.ts'
 import type { PdfBook, PLine } from '../pdfepub/analyze.ts'
 import type { ReviewItem } from '../epub/package.ts'
 import { confidentLanguage } from '../lang.ts'
+import { indexNumberSpans } from './indexlinks.ts'
 
 // =============================================================================================
 // Accessible PDF writer: re-tags the document from scratch (PDF/UA-1).
@@ -28,14 +29,37 @@ export interface PagePlan {
   paints: (Paint | null)[]
 }
 
-/** Parse every page once: its content operators and where each one draws. */
-export async function planPages(data: Uint8Array): Promise<{ doc: PDFDocument; pages: PagePlan[] }> {
+/** How long one stage may run before we stop and say so, in milliseconds. Eight minutes. */
+export const STAGE_LIMIT_MS = 8 * 60 * 1000
+
+/**
+ * Parse every page once: its content operators and where each one draws.
+ * Yields every few pages so the screen can show progress, and stops with a plain message if this
+ * stage runs past the limit (a file that would otherwise sit forever on the last "reading" line).
+ */
+export async function planPages(
+  data: Uint8Array,
+  onProgress?: (done: number, total: number, stage?: string) => void,
+  opts?: { stageLimitMs?: number },
+): Promise<{ doc: PDFDocument; pages: PagePlan[] }> {
   const doc = await PDFDocument.load(data, { updateMetadata: false, ignoreEncryption: true })
-  const pages = doc.getPages().map((p) => {
+  const pdfPages = doc.getPages()
+  const pages: PagePlan[] = []
+  const limit = opts?.stageLimitMs ?? STAGE_LIMIT_MS
+  const started = Date.now()
+  for (let i = 0; i < pdfPages.length; i++) {
+    if (Date.now() - started >= limit) {
+      throw new Error(`Planning the tags stopped on page ${i + 1} of ${pdfPages.length}, after ${Math.max(1, Math.round(limit / 60000))} minute${limit >= 120_000 ? 's' : ''}. The file is too large to tag in one go. Analyse is available again. Leave out the plates PDF and run that on its own, or split the book.`)
+    }
+    const p = pdfPages[i]
     const src = pageContent(doc, p)
     const ops = tokenize(src)
-    return { src, ops, paints: paints(ops, pageResources(doc, p)) }
-  })
+    pages.push({ src, ops, paints: paints(ops, pageResources(doc, p)) })
+    if (i % 4 === 3 || i === pdfPages.length - 1) {
+      onProgress?.(i + 1, pdfPages.length, 'Planning the tags')
+      await new Promise((r) => setTimeout(r, 0))
+    }
+  }
   return { doc, pages }
 }
 
@@ -342,6 +366,29 @@ export function writeUa(
   }
   if (noteLinks) review.push({ level: 'info', msg: `Linked ${noteLinks} note number(s) to their notes and back.` })
 
+  // Index locators ("Abdera, 55", "60, 305n.129"): each printed page number is a link to that page.
+  // "n.129" is the note on that page; which target the client wants for the note is still open, so the link goes to the page.
+  let indexLinks = 0
+  const linkIndex = (n: SNode) => {
+    if (n.indexEntry) {
+      for (const l of n.lines) {
+        const w = Math.max(l.x1 - l.x0, 1)
+        const H = book.pages[l.page].height
+        for (const span of indexNumberSpans(l.text)) {
+          const dest = book.numbers.indexOf(span.pageNo)
+          if (dest < 0) continue
+          const a = l.x0 + (w * span.start) / Math.max(l.text.length, 1)
+          const b = l.x0 + (w * span.end) / Math.max(l.text.length, 1)
+          addLink(l.page, { x0: a, x1: Math.max(b, a + 4), y0: H - l.base - 3, y1: H - l.y + 1 }, n, { Dest: ctx.obj([pageRefs[dest], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(book.pages[dest].height), ctx.obj(null)]) }, `Page ${span.pageNo}`)
+          indexLinks++
+        }
+      }
+    }
+    n.kids.forEach(linkIndex)
+  }
+  linkIndex(st.root)
+  if (indexLinks) review.push({ level: 'info', msg: `Linked ${indexLinks} index page number(s) to their pages.` })
+
   // ---- 4. structure tree ----
   const hasContent = (n: SNode): boolean => (mcrs.get(n)?.length ?? 0) > 0 || annotKids.has(n) || n.kids.some(hasContent)
   let dropped = 0
@@ -417,7 +464,8 @@ export function writeUa(
   // ---- 5. bookmarks from the headings (+ named front pages that have no heading) ----
   const heads = st.headings.filter((h) => refOf.has(h) && h.lines.length)
   const headed = new Set(heads.map((h) => h.lines[0].page))
-  const front = (opts.frontPages ?? []).filter((f) => !headed.has(f.page))
+  // "Plate" is the appended section. Keep it even when that page also has a heading.
+  const front = (opts.frontPages ?? []).filter((f) => f.label === 'Plate' || !headed.has(f.page))
   const marks: SNode[] = [
     ...front.map((f) => ({ id: -2, tag: 'H1', kids: [], lines: [{ page: f.page, x0: 0, y: 0, size: 0 } as unknown as PLine], text: f.label })),
     ...heads,
