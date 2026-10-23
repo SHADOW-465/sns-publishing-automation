@@ -16,6 +16,9 @@ import { ALT_SOURCE_LABEL, isPlaceholderAlt, type SpecPicture } from '../engine/
 import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
 import type { WordBook } from '../engine/wordepub/read.ts'
+import { jobChoice, profileFor } from './job-choice.ts'
+import { settings } from '../engine/settings.ts'
+import { outputViolations } from '../engine/output/standards.ts'
 
 // Print PDF, or a Word manuscript read from its heading styles, → EPUB 3. A .docx is the source when
 // one is attached; otherwise the print PDF is. The cover is a JPG or PNG. The vision key stays in Settings.
@@ -93,7 +96,9 @@ export function PdfFlow() {
         setBook(undefined)
         setStyles([])
         setRules(savedRules ?? rulesFor(wb.language))
-        setMeta(emptyMeta(wb))
+        const base = emptyMeta(wb)
+        const chosen = profileFor(jobChoice()?.output)
+        setMeta(chosen ? { ...base, profile: chosen } : base)
         setNotice(wb.toc.length ? `Read ${wb.toc.length} contents entries. Chapters follow that list.` : 'No contents list in the manuscript: every Heading 1 starts a chapter.')
         setStep(1)
         return
@@ -111,7 +116,8 @@ export function PdfFlow() {
       setRules(savedRules ?? rulesFor(b.meta.language))
       setNotice(saved ? `Applied the settings saved for “${b.meta.publisher}”.` : undefined)
       setBook(b)
-      setMeta(b.meta)
+      const chosen = profileFor(jobChoice()?.output)
+      setMeta(chosen ? { ...b.meta, profile: chosen } : b.meta)
       setStep(1)
     })
 
@@ -181,6 +187,9 @@ export function PdfFlow() {
   const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && !!p.alt.trim() && !isPlaceholderAlt(p.alt)) : []
   const visionOn = !!visionConfig().apiKey.trim()
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
+  const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
+  const outputProblems = meta ? outputViolations(outputKind, settings()) : []
+  const outputErrors = outputProblems.filter((p) => p.level === 'error')
   const steps = [
     { title: 'Files', hint: wordBook ? 'Word manuscript and cover' : 'print PDF and cover', enabled: true, done: ready },
     { title: 'Book details', hint: 'title, ISBN, copyright', enabled: ready, done: !!meta && isbn13Valid(meta.eisbn) },
@@ -292,8 +301,15 @@ export function PdfFlow() {
               </label>
             </section>
           )}
-          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} next="Build the e-book" nextDisabled={!!busy || !cover}>
-            {!cover ? 'Add the cover in step 1 first.' : ''}
+          {outputProblems.length > 0 && (
+            <ul className="review">
+              {outputProblems.map((p) => (
+                <li key={p.message} className={p.level}>{p.message}</li>
+              ))}
+            </ul>
+          )}
+          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} next="Build the e-book" nextDisabled={!!busy || !cover || outputErrors.length > 0}>
+            {outputErrors.length ? 'Fix the problems above before building.' : !cover ? 'Add the cover in step 1 first.' : ''}
           </StepNav>
         </>
       )}

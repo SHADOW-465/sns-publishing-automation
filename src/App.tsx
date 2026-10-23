@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { IndesignFlow } from './ui/IndesignFlow.tsx'
 import { PdfFlow } from './ui/PdfFlow.tsx'
 import { PdfUaFlow } from './ui/PdfUaFlow.tsx'
 import { CheckFlow } from './ui/CheckFlow.tsx'
 import { SettingsFlow, loadSettings } from './ui/SettingsFlow.tsx'
 import { Icon, type IconName } from './ui/icons.tsx'
+import { OUTPUT_KINDS, type OutputKind } from './engine/output/standards.ts'
+import { CLIENT_FILES } from './clients/index.ts'
+import { store } from './engine/spec/store.ts'
+import { setJobChoice } from './ui/job-choice.ts'
 
 loadSettings() // house settings saved in this browser apply from the first build
 
@@ -119,6 +123,21 @@ export function App() {
 }
 
 function Home({ onPick }: { onPick: (t: Tab) => void }) {
+  const [clients, setClients] = useState<string[]>(CLIENT_FILES.map((c) => c.name))
+  const [client, setClient] = useState(CLIENT_FILES[0]?.name ?? '')
+  const [output, setOutput] = useState<OutputKind>('accessible-epub')
+  useEffect(() => {
+    store().listLayers('client').then((layers) => {
+      const names = [...new Set([...CLIENT_FILES.map((c) => c.name), ...layers.map((l) => l.name)].filter(Boolean))]
+      setClients(names)
+      setClient((cur) => cur || names[0] || '')
+    }).catch(() => { /* the list that ships with the tool is enough */ })
+  }, [])
+  const go = (tab: Tab) => {
+    setJobChoice({ client, output })
+    onPick(tab)
+  }
+  const cards = WORKFLOWS.filter((w) => (output === 'accessible-pdf' ? w.id === 'pdfua' : w.id === 'indd' || w.id === 'word'))
   return (
     <div className="home">
       <section className="hero">
@@ -129,21 +148,39 @@ function Home({ onPick }: { onPick: (t: Tab) => void }) {
           used to be done by hand, marks what needs a person, and checks the result.
         </p>
         <ol className="how">
-          <li>
-            <strong>Add the files</strong> you have for the book.
-          </li>
-          <li>
-            <strong>Review</strong> what the tool found. Anything it is unsure about is marked.
-          </li>
-          <li>
-            <strong>Check and download.</strong> A quality report says whether the file is ready.
-          </li>
+          <li><strong>Pick the client.</strong> Their saved settings are used. Anything they have not set falls back to the standard for the output you pick.</li>
+          <li><strong>Pick the output.</strong> Standard EPUB, Accessible EPUB, or Accessible PDF. Each one has its own rules.</li>
+          <li><strong>Add the files</strong> the next screen asks for. The accepted types are named on each box.</li>
+          <li><strong>Read the settings in effect.</strong> Each value says whether it came from the client, the series, this book, or the standard.</li>
+          <li><strong>Fix anything the check blocks.</strong> Only a real break in the standard stops you. Warnings need a person, then you can go on.</li>
+          <li><strong>Read the result.</strong> It says what passed, what needs a person, and what to do next.</li>
         </ol>
       </section>
-      <h2 className="pick">What do you have?</h2>
+      <section className="card">
+        <h2>1. Client</h2>
+        <p className="muted">Whose book is this? Their house style is applied. A new name is remembered on this computer.</p>
+        <label className="alt">
+          <span>Client</span>
+          <input list="clients" value={client} onChange={(e) => setClient(e.target.value)} />
+          <datalist id="clients">
+            {clients.map((n) => <option key={n} value={n} />)}
+          </datalist>
+        </label>
+        <h2>2. Output</h2>
+        <fieldset className="profiles">
+          <legend>What should this book become?</legend>
+          {OUTPUT_KINDS.map((k) => (
+            <label key={k.id} className={`profile ${output === k.id ? 'on' : ''}`}>
+              <input type="radio" name="output" checked={output === k.id} onChange={() => setOutput(k.id)} />
+              <span><strong>{k.title}</strong><small>{k.line}</small></span>
+            </label>
+          ))}
+        </fieldset>
+      </section>
+      <h2 className="pick">3. What files do you have?</h2>
       <div className="choices">
-        {WORKFLOWS.map((w) => (
-          <button key={w.id} className="choice" onClick={() => onPick(w.id)}>
+        {cards.map((w) => (
+          <button key={w.id} className="choice" onClick={() => go(w.id)}>
             <span className="choice-ic">
               <Icon name={w.icon} size={22} />
             </span>

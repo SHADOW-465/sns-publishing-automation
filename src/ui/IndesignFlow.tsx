@@ -18,7 +18,9 @@ import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec 
 import { CheckFirst } from './CheckFirst.tsx'
 import { reviewList } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
-import { setSettings, houseSettings } from '../engine/settings.ts'
+import { setSettings, houseSettings, settings } from '../engine/settings.ts'
+import { outputViolations } from '../engine/output/standards.ts'
+import { jobChoice, profileFor } from './job-choice.ts'
 import { specHash } from '../engine/spec/layers.ts'
 import type { Decision } from '../engine/spec/store.ts'
 
@@ -95,7 +97,8 @@ export function IndesignFlow() {
       } else setNotice(undefined)
       setAnalysis(a)
       setStyles(a.styles)
-      setMeta(a.meta)
+      const chosen = profileFor(jobChoice()?.output)
+      setMeta(chosen ? { ...a.meta, profile: chosen } : a.meta)
       setImages(a.images)
       setResult(undefined)
       setTypes({})
@@ -185,6 +188,9 @@ export function IndesignFlow() {
   // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
   // (build messages and an untitled page are not decisions: a picture-only page has no title on purpose, and a missing picture description is fixed on its own step)
   const blocking = structureReview.items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !/^(note|nav):/.test(x.id))
+  const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
+  const outputProblems = outputViolations(outputKind, spec?.resolved.settings ?? settings())
+  const outputErrors = outputProblems.filter((p) => p.level === 'error')
   const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
@@ -392,8 +398,15 @@ export function IndesignFlow() {
               )
             })}
           </div>
-          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy}>
-            {needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
+          {outputProblems.length > 0 && (
+            <ul className="review">
+              {outputProblems.map((p) => (
+                <li key={p.message} className={p.level === 'error' ? 'error' : 'warn'}>{p.message}</li>
+              ))}
+            </ul>
+          )}
+          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy || outputErrors.length > 0}>
+            {outputErrors.length ? 'Fix the problems above before building.' : needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
           </StepNav>
         </section>
       )}
