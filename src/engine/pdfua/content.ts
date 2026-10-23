@@ -311,6 +311,12 @@ export function paints(ops: Op[], res: Resources): (Paint | null)[] {
 
 export const isPaint = (op: string) => PATH_PAINT.has(op) || TEXT_SHOW.has(op) || op === 'Do' || op === 'BI' || op === 'sh'
 
+/** The owner of the next painting operator, null for an artifact, undefined when nothing more is painted. */
+function nextPaintOwner(ops: Op[], owners: (Owner | undefined)[], from: number): Owner | null | undefined {
+  for (let j = from + 1; j < ops.length; j++) if (isPaint(ops[j].op)) return owners[j] ?? null
+  return undefined
+}
+
 // ---------------------------------------------------------------------------------------------
 // Rewrite: wrap painting operators in marked content
 // ---------------------------------------------------------------------------------------------
@@ -320,8 +326,9 @@ export type Owner = { el: number; tag: string } | null
 
 /**
  * Rebuild the stream. Existing marked-content operators are dropped (the document is re-tagged
- * from scratch) except optional-content ones (/OC). A marked-content sequence never crosses
- * q/Q or BT/ET, so nesting is always valid; each sequence gets its own MCID.
+ * from scratch) except optional-content ones (/OC). A sequence never crosses BT/ET (a text
+ * object stays its own MCID). It may cross q/Q when the same element continues, so a logo
+ * drawn as many graphics groups stays one figure.
  * Returns the new stream and, per MCID, the element that owns it.
  */
 export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): { stream: string; mcids: number[] } {
@@ -378,8 +385,20 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
       if (ocDepth.pop()) (close(), (out += raw))
       continue
     }
-    if (o.op === 'q' || o.op === 'Q' || o.op === 'BT' || o.op === 'ET') {
+    if (o.op === 'BT' || o.op === 'ET') {
+      // A marked-content sequence may wrap a whole text object or sit inside it, but must not
+      // overlap it in part (PDF 32000). Closing here keeps each text object its own MCID.
       close()
+      out += raw
+      continue
+    }
+    if (o.op === 'q' || o.op === 'Q') {
+      // Keep one sequence when the same element continues on the other side (a logo drawn as many
+      // q/Q groups is one Figure, not a Figure full of separate pieces). Close only when the next
+      // paint belongs to someone else, so a q never glues two elements together.
+      const nxt = nextPaintOwner(ops, owners, i)
+      const nextKey = nxt === undefined ? '' : nxt ? `${nxt.el}` : 'artifact'
+      if (!open || !nextKey || open.key !== nextKey) close()
       out += raw
       continue
     }
