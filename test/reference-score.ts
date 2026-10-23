@@ -16,6 +16,7 @@ import { buildPdfEpub } from '../src/engine/pdfepub/build.ts'
 import { coverFromSpread } from '../src/engine/pdfepub/cover.ts'
 import { rulesFor } from '../src/engine/epub/imprint.ts'
 import { openSpec, applySpec } from '../src/engine/spec/session.ts'
+import { MemoryStore, setStore } from '../src/engine/spec/store.ts'
 import { DEFAULT_SETTINGS, setSettings } from '../src/engine/settings.ts'
 import { scoreEpub, formatScore, type RefScore } from '../src/engine/check/refscore.ts'
 import { nodeRaster } from './raster-node.ts'
@@ -48,16 +49,20 @@ if (want('cambia')) {
   else {
     const ref = unzip(read(resolve(INDD, 'Output/Cambia tu mente.epub')))
     const files = unzip(read(input))
+    setStore(new MemoryStore())
     setSettings(DEFAULT_SETTINGS)
-    let a = analyze(files)
-    // the client's own layer (matched on the publisher) applies, as in the app
-    applySpec(await openSpec({ client: a.meta.publisher, series: '', book: '979-13-88228-26-1' }, DEFAULT_SETTINGS))
-    a = analyze(files)
-    const printPages = await readPrintPages(pdfjs as never, read(resolve(INDD, 'Input/88228-02 Cambia tu mente.pdf')))
-    const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn: '979-13-88228-26-1' }, cover: { name: 'cover.jpg', data: ref.get('OEBPS/images/cover.jpg')! } })
-    save('cambia', r.files)
-    show('Cambia tu mente (InDesign → Accessible EPUB, Arkano Books)', scoreEpub(r.files, ref))
-    setSettings(DEFAULT_SETTINGS)
+    try {
+      let a = analyze(files)
+      // the client's own layer (matched on the publisher) applies, as in the app
+      applySpec(await openSpec({ client: a.meta.publisher, series: '', book: '979-13-88228-26-1', kind: 'accessible-epub' }, DEFAULT_SETTINGS))
+      a = analyze(files)
+      const printPages = await readPrintPages(pdfjs as never, read(resolve(INDD, 'Input/88228-02 Cambia tu mente.pdf')))
+      const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn: '979-13-88228-26-1' }, cover: { name: 'cover.jpg', data: ref.get('OEBPS/images/cover.jpg')! } })
+      save('cambia', r.files)
+      show('Cambia tu mente (InDesign → Accessible EPUB, Arkano Books)', scoreEpub(r.files, ref))
+    } finally {
+      setSettings(DEFAULT_SETTINGS)
+    }
   }
 }
 
@@ -66,13 +71,20 @@ if (want('ceramics')) {
   const pdf = resolve(dir, 'Input/Contemporary_Ceramics_Final.pdf')
   if (!has(pdf)) results.ceramics = { skipped: 'fixtures missing' }
   else {
+    setStore(new MemoryStore())
     setSettings(DEFAULT_SETTINGS)
-    const ref = unzip(read(resolve(dir, 'Output/9780719847127.epub')))
-    const book = await analyzePdf(pdfjs, read(pdf), nodeRaster)
-    const cover = await coverFromSpread(pdfjs, read(resolve(dir, 'Input/9780719847110_Contemporary Ceramics_FAW.pdf')), book.pages[0], nodeRaster, [], 1200)
-    const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '9780719847127', profile: 'standard' }, rules: rulesFor('en'), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
-    save('ceramics', r.files)
-    show('Contemporary Ceramics (print PDF → Standard EPUB, Crowood)', scoreEpub(r.files, ref))
+    try {
+      const ref = unzip(read(resolve(dir, 'Output/9780719847127.epub')))
+      const book = await analyzePdf(pdfjs, read(pdf), nodeRaster)
+      // a Standard EPUB for The Crowood Press: the client's layer, then the Standard EPUB defaults
+      applySpec(await openSpec({ client: book.meta.publisher, series: '', book: '9780719847127', kind: 'standard-epub' }, DEFAULT_SETTINGS))
+      const cover = await coverFromSpread(pdfjs, read(resolve(dir, 'Input/9780719847110_Contemporary Ceramics_FAW.pdf')), book.pages[0], nodeRaster, [], 1200)
+      const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '9780719847127', profile: 'standard' }, rules: rulesFor('en'), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
+      save('ceramics', r.files)
+      show('Contemporary Ceramics (print PDF → Standard EPUB, Crowood)', scoreEpub(r.files, ref))
+    } finally {
+      setSettings(DEFAULT_SETTINGS)
+    }
   }
 }
 

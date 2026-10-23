@@ -13,6 +13,9 @@ import { rulesFor } from '../src/engine/epub/imprint.ts'
 import { nodeRaster } from './raster-node.ts'
 import { epubcheck } from './epubcheck.ts'
 import { AUTOMATION, has, read } from './samples.ts'
+import { openSpec, applySpec } from '../src/engine/spec/session.ts'
+import { MemoryStore, setStore } from '../src/engine/spec/store.ts'
+import { DEFAULT_SETTINGS, setSettings } from '../src/engine/settings.ts'
 
 const DIR = resolve(AUTOMATION, 'WORD-to-EPUB-Automation')
 const pdf = resolve(DIR, 'Input/Contemporary_Ceramics_Final.pdf')
@@ -37,24 +40,32 @@ test('print PDF → EPUB matches the hand-made Contemporary Ceramics EPUB', { sk
   assert.equal(book.meta.authors, 'Jo Taylor')
   assert.equal(book.meta.printIsbn, '978 0 7198 4711 0')
   const review: never[] = []
-  const cover = await coverFromSpread(pdfjs, read(resolve(DIR, 'Input/9780719847110_Contemporary Ceramics_FAW.pdf')), book.pages[0], nodeRaster, review, 1200)
-  const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '9780719847127' }, rules: rulesFor('en'), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
-  // pictures without a caption need a description from a person: the only error allowed here
-  assert.deepEqual(r.review.filter((x) => x.level === 'error' && !/need a description/.test(x.msg)), [], 'no validation errors')
+  // the finished file is a Standard EPUB for The Crowood Press: its client layer and the Standard EPUB defaults decide how it is built
+  setStore(new MemoryStore())
+  setSettings(DEFAULT_SETTINGS)
+  try {
+    applySpec(await openSpec({ client: book.meta.publisher, series: '', book: '9780719847127', kind: 'standard-epub' }))
+    const cover = await coverFromSpread(pdfjs, read(resolve(DIR, 'Input/9780719847110_Contemporary Ceramics_FAW.pdf')), book.pages[0], nodeRaster, review, 1200)
+    const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '9780719847127', profile: 'standard' }, rules: rulesFor('en'), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
+    // pictures without a caption need a description from a person: the only error allowed here
+    assert.deepEqual(r.review.filter((x) => x.level === 'error' && !/need a description/.test(x.msg)), [], 'no validation errors')
 
-  const ref = unzip(read(reference))
-  for (const [p, d] of ref) {
-    const m = p.match(/^OEBPS\/([\w-]+)\.xhtml$/)
-    if (!m || m[1] === 'nav' || m[1] === 'cover') continue
-    const mine = r.files.get(`OEBPS/${RENAME[m[1]] ?? m[1]}.xhtml`)
-    assert.ok(mine, `section ${m[1]} exists`)
-    const sim = similarity(words(text(d)), words(text(mine)))
-    assert.ok(sim >= 0.95, `${m[1]}: text similarity ${sim.toFixed(3)}`)
+    const ref = unzip(read(reference))
+    for (const [p, d] of ref) {
+      const m = p.match(/^OEBPS\/([\w-]+)\.xhtml$/)
+      if (!m || m[1] === 'nav' || m[1] === 'cover') continue
+      const mine = r.files.get(`OEBPS/${RENAME[m[1]] ?? m[1]}.xhtml`)
+      assert.ok(mine, `section ${m[1]} exists`)
+      const sim = similarity(words(text(d)), words(text(mine)))
+      assert.ok(sim >= 0.95, `${m[1]}: text similarity ${sim.toFixed(3)}`)
+    }
+    assert.deepEqual(pageIds(r.files, /id="pg_(\d+)"/g), pageIds(ref, /id="pg_(\d+)"/g), 'a marker for every printed page, named as the client names them')
+    const imgs = (f: Map<string, Uint8Array>) => [...f.keys()].filter((p) => /images\/pg-/.test(p)).length
+    assert.ok(imgs(r.files) >= imgs(ref), `all pictures extracted (${imgs(r.files)} vs ${imgs(ref)})`)
+
+    const ec = epubcheck(r.epub)
+    if (ec) assert.deepEqual(ec.errors, [], 'EPUBCheck reports no errors')
+  } finally {
+    setSettings(DEFAULT_SETTINGS)
   }
-  assert.deepEqual(pageIds(r.files, /id="page-(\d+)"/g), pageIds(ref, /id="pg_(\d+)"/g), 'a marker for every printed page')
-  const imgs = (f: Map<string, Uint8Array>) => [...f.keys()].filter((p) => /images\/pg-/.test(p)).length
-  assert.ok(imgs(r.files) >= imgs(ref), `all pictures extracted (${imgs(r.files)} vs ${imgs(ref)})`)
-
-  const ec = epubcheck(r.epub)
-  if (ec) assert.deepEqual(ec.errors, [], 'EPUBCheck reports no errors')
 })
