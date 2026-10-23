@@ -9,7 +9,8 @@ import { packageEpub, type BookMeta, type ReviewItem, type Section, type ImageOu
 import { transformImprint, PRINT_RIGHTS, type CopyrightRules, type ImprintPara } from '../epub/imprint.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { withRealExt } from '../epub/image.ts'
-import { pdfBookCss } from './css.ts'
+import { pdfBookCss, type PdfTypography } from './css.ts'
+import { bodyAlignment, lineAlignment } from './align.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
@@ -157,6 +158,40 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
   const roleOf = (l: PLine): PdfRole => l.forced ?? role.get(l.key) ?? 'text'
   const printNo = (pdfIdx: number) => String(book.numbers[pdfIdx])
+  // the look: settings first (TYP-01…07, HD-11…13); "as the printed page" is read from where the printed lines sit
+  const typography = (): PdfTypography => {
+    const st = settings()
+    const tocPage = book.contents?.pages[0]
+    const tocTop = tocPage === undefined ? 0 : Math.max(0, ...book.pages[tocPage].lines.map((l) => l.size))
+    return {
+      body: st.bodyAlign === 'print' ? bodyAlignment(book.pages, (l) => roleOf(l) === 'body') : st.bodyAlign,
+      chapterTitle: st.chapterTitleAlign === 'print' ? lineAlignment(book.pages, (l) => roleOf(l) === 'title' || roleOf(l) === 'chapter-number') : st.chapterTitleAlign,
+      chapterTitleFont: st.chapterTitleFont,
+      contentsHeading: st.contentsHeadingAlign === 'print' ? lineAlignment(book.pages.filter((p) => p.index === tocPage), (l) => l.size === tocTop) : st.contentsHeadingAlign,
+      contentsHeadingFont: st.contentsHeadingFont,
+      copyright: st.copyrightAlign === 'print' ? lineAlignment(book.pages.filter((p) => p.index === book.imprintPage), (l) => !!l.imprint) : st.copyrightAlign,
+      extractSizePct: st.extractSizePct,
+      chapterClass: st.pdfChapterClass,
+      numClass: st.pdfChapterNumClass,
+      titleClass: st.pdfChapterTitleClass,
+    }
+  }
+  /** a title or half-title page rebuilt as text: the biggest type is the heading, the next size down a line under it */
+  const titleText = (lines: PLine[], mk: string): string[] => {
+    const ls = lines.filter((l) => l.text.trim()).sort((a, b) => a.y - b.y)
+    const sizes = [...new Set(ls.map((l) => Math.round(l.size)))].sort((a, b) => b - a)
+    const groups: { size: number; ls: PLine[] }[] = []
+    for (const l of ls) {
+      const g = groups[groups.length - 1]
+      if (g && g.size === Math.round(l.size) && l.y - g.ls[g.ls.length - 1].y < l.size * 2) g.ls.push(l)
+      else groups.push({ size: Math.round(l.size), ls: [l] })
+    }
+    return groups.map((g, i) => {
+      const html = (i === 0 ? mk : '') + g.ls.map((l) => segHtml(segsOf(l))).join(' ')
+      const rank = sizes.indexOf(g.size)
+      return rank === 0 ? `<h1 class="title_1">${html}</h1>` : `<p class="${rank === 1 ? 'title-3' : 'title-2'}">${html}</p>`
+    })
+  }
   const lead = book.lead
   const step = book.step
 
@@ -564,6 +599,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const author = meta.authors && p.lines.some((l) => l.text.toLowerCase().includes(meta.authors.toLowerCase()))
       const type: SectionType = !halfDone && !author ? 'halftitle' : 'title'
       if (type === 'halftitle') halfDone = true
+      if (settings().titlePageAs === 'text') {
+        front.push({ type, stem: type, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
+        continue
+      }
       const page = await book.doc.getPage(idx + 1)
       const jpg = await raster.page(page, 1200)
       page.cleanup()
@@ -750,7 +789,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   }
   const { epub, files } = packageEpub({
     meta: ship, sections: navSections, cover, images, review,
-    usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book)),
+    usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book), typography()),
   })
   // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
   for (const p of book.pages) for (const l of p.lines) if (roleOf(l) === 'drop') dropped.push(l.text)
