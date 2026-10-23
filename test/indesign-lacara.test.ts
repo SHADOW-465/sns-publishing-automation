@@ -15,7 +15,8 @@ import { epubcheck } from './epubcheck.ts'
 import { AUTOMATION, has, read } from './samples.ts'
 
 const DIR = resolve(AUTOMATION, '../Outputs/input')
-const input = resolve(DIR, 'La cara oculta de la presidenta_Grijalbo.epub')
+// the export is the .zip in the client's reference folder (fixtures/reference/Automation), or the .epub next to the print PDF
+const input = [resolve(AUTOMATION, 'La cara oculta de la presidenta_Grijalbo.zip'), resolve(DIR, 'La cara oculta de la presidenta_Grijalbo.epub')].find(has) ?? resolve(DIR, 'La cara oculta de la presidenta_Grijalbo.epub')
 const pdf = resolve(DIR, 'La cara oculta de Sheinbaum INT MX.pdf')
 
 test('La cara oculta de Sheinbaum: front matter, metadata, contents, notes, page numbers', { skip: !has(input) && 'sample missing', timeout: 600_000 }, async () => {

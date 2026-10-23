@@ -1,0 +1,138 @@
+{
+  "label": "before-ceramics",
+  "at": "2026-10-23T13:16:51.575Z",
+  "results": {
+    "Contemporary Ceramics (print PDF → Standard EPUB, Crowood)": {
+      "overall": 90,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 99.1,
+          "diffs": [
+            "“19 SUSTAINABILITY” is a heading in the reference but plain text in the build.",
+            "“20 CERAMICS COMMUNITY” is a heading in the reference but plain text in the build.",
+            "3 headings in the build are not headings in the reference, for example “CONTENTS”."
+          ]
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 87.9,
+          "diffs": [
+            "20 reference paragraphs are joined into a longer paragraph in the build (paragraphs merged).",
+            "59 reference paragraphs are cut into pieces in the build (paragraphs split).",
+            "34 reference paragraphs are missing or reworded in the build, for example “while it s a pleasure to admire a beautifully photographed f…”.",
+            "168 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “in high school ceramics was my favourite and we normally got…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 93.1,
+          "diffs": [
+            "20 paragraphs: the reference class → the build class: ch-head1 → TOC-2.",
+            "13 paragraphs: the reference class → the build class: noindent → hang.",
+            "8 paragraphs: the reference class → the build class: extractint → indent.",
+            "8 paragraphs: the reference class → the build class: extract1 → extractt.",
+            "8 paragraphs: the reference class → the build class: noindent-t → noindent.",
+            "4 paragraphs: the reference class → the build class: box-subhead1 → subhead.",
+            "…and 21 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 93.9,
+          "diffs": [
+            "16 italic runs of the reference are not italic in the build, for example “losíng venus” (italics lost).",
+            "16 italic runs in the build are not italic in the reference, for example “losing venus”.",
+            "7 bold runs of the reference are not bold in the build, for example “community ceramics studio case study urban”.",
+            "13 bold runs in the build are not bold in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 88,
+          "diffs": [
+            "The contents entry “title” of the reference is missing or worded differently in the build.",
+            "606 links in the build point nowhere (for example index.xhtml → chapter03.xhtml#page-33)."
+          ]
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 72,
+          "diffs": [
+            "The build has 288 pictures; the reference has 285.",
+            "143 pictures are not after the same paragraph as in the reference (picture placement).",
+            "Picture descriptions: reference 0 real, 284 generic word, 1 empty; build 3 real, 283 generic word, 2 empty."
+          ]
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 62.5,
+          "diffs": [
+            "Package metadata differs: title “Contemporary Ceramics: Twenty Key Themes” (build: “Contemporary Ceramics”).",
+            "Package metadata differs: language en (build: en-GB).",
+            "Package metadata differs: accessibility metadata (the build claims accessibility; the reference does not)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 67.5,
+          "diffs": [
+            ".TOC-5: text-align is left in the reference and not set in the build.",
+            ".TOC-5: font-size is 110% in the reference and not set in the build.",
+            ".TOC-5: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-5: font-family is sans-serif in the reference and not set in the build.",
+            ".TOC-4: text-align is left in the reference and not set in the build.",
+            ".TOC-4: font-size is 110% in the reference and not set in the build.",
+            ".TOC-4: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-4: font-family is sans-serif in the reference and not set in the build.",
+            "…and 47 more"
+          ]
+        }
+      ]
+    }
+  }
+}
