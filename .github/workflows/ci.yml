@@ -1,0 +1,20 @@
+# Type check and tests on every push and pull request. EPUBCheck needs Java and the pinned tools (npm run tools), which are
+# pinned for Windows x64 (scripts/tools.lock.json), so the job runs on Windows. Ace (tools:ace) is optional and not installed.
+# The client's real books (fixtures/reference) are not in git: tests that need them skip.
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc -p . --noEmit
+      - run: npm run tools
+      - run: npm test
