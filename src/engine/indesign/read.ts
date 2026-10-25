@@ -271,7 +271,24 @@ const isTocPageSpan = (el: Element) => {
 }
 
 /** Contents entry with the printed page number taken off. A number that is part of the title ("Capítulo 3") stays. */
+/** A contents line laid out with tabs whose page number has no tab of its own and is glued to the title
+ *  ("Normandy</a>12", "Successors1</a>4"): the digits after the last link, plus the digits that end it. */
+export function fusedTocPage(el: Element): { page: string; cut: number } | undefined {
+  const all = el.textContent ?? ''
+  if (!all.includes('\t') || /\t\s*(\d+|[ivxlcdm]+)\s*$/i.test(all)) return undefined
+  const kids = Array.from(el.childNodes).filter((n) => (n.textContent ?? '').trim() !== '' || n.nodeType === 1)
+  const last = kids[kids.length - 1]
+  const prev = kids[kids.length - 2]
+  if (!last || last.nodeType !== 3 || !/^\s*\d{1,3}\s*$/.test(last.textContent ?? '')) return undefined
+  if (!prev || prev.nodeType !== 1 || !/\p{L}/u.test(prev.textContent ?? '')) return undefined
+  const head = (prev.textContent ?? '').trim().match(/(\d{0,2})$/)![1]
+  const tail = (last.textContent ?? '').trim()
+  return { page: head + tail, cut: head.length + tail.length }
+}
+
 export function tocEntryText(el: Element): string {
+  const fused = fusedTocPage(el)
+  if (fused) return textOf(el).trim().replace(new RegExp(`\\s*${fused.page}$`), '').trim()
   const clone = el.cloneNode(true) as Element
   const drop: Element[] = []
   walkEls(clone, (s) => { if (s.hasAttribute('class') && isTocPageSpan(s)) drop.push(s) })

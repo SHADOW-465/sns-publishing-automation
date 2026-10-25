@@ -1,4 +1,4 @@
-import { type Block, type Export, type Profile, type Role, type StyleInfo, ROLES, readExport, inferProfile, cssClassName, tocEntryText } from './read.ts'
+import { type Block, type Export, type Profile, type Role, type StyleInfo, ROLES, readExport, inferProfile, cssClassName, tocEntryText, fusedTocPage } from './read.ts'
 import { inlineHtml, inlineText, tocPageOf, type InlineCtx } from './inline.ts'
 import { px, em, isOverride, type Decls } from './css.ts'
 import { houseDecls, cellDecls, ruleOf, FIXED_CLASSES } from '../epub/css.ts'
@@ -397,6 +397,22 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       imprint.push(b)
       continue
     }
+    // a stray symbol glyph before a heading ("=Epilogue": a dingbat from another font) is not part of the title
+    if (/^(chapter-title|chapter-label|section-title)$/.test(r) && /^[=~#*]+(?=\p{L})/u.test(b.text)) {
+      const walker = (el: Node): boolean => {
+        for (const c of Array.from(el.childNodes)) {
+          if (c.nodeType === 3 && (c.textContent ?? '').trim()) {
+            c.textContent = (c.textContent ?? '').replace(/^\s*[=~#*]+/, '')
+            if (!c.textContent && c.parentNode && c.parentNode !== b.el && !(c.parentNode.textContent ?? '').trim()) c.parentNode.parentNode?.removeChild(c.parentNode)
+            return true
+          }
+          if (c.nodeType === 1 && walker(c)) return true
+        }
+        return false
+      }
+      walker(b.el)
+      b.text = b.text.replace(/^[=~#*]+/, '')
+    }
     if (r === 'drop') {
       dropped.push(b.text)
       continue
@@ -468,6 +484,35 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         const run = secs.splice(i, j - i)
         for (const r of run) secs[i - 1].items.push(...r.items)
         review.push({ level: 'warn', msg: `${run.length} chapter titles had no text under them (${run.map((r) => r.titleText || r.title.map((t) => t.text).join(' ')).join(', ')}) — treated as page tabs; their pictures stay in the section before. Check the reading order against the print PDF.` })
+      }
+    }
+  }
+
+  // ---- 2a-region. a region opener of a guidebook ("Il Vietnam del Nord": a map, a few lines, then the long
+  // chapters of that region) is a part divider, not a chapter of its own
+  {
+    const words = (x: Sec) => x.items.reduce((n, b) => n + (b.t === 'p' && b.text ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
+    const head = (x: Sec) => x.title.map((t) => t.text).join(' ')
+    if (secs.filter((x) => x.type === 'chapter').length >= 8 && !secs.some((x) => x.type === 'part'))
+      for (let i = 0; i + 1 < secs.length; i++) {
+        const x = secs[i]
+        if (x.type === 'chapter' && !x.label.length && words(x) < 250 && secs[i + 1].type === 'chapter' && words(secs[i + 1]) >= 1000 && /\b(nord|sud|centrale?|north|south|central|norte|sur|centro|norden|s[üu]den)\b/i.test(head(x))) {
+          x.type = 'part'
+          review.push({ level: 'warn', msg: `"${head(x)}" opens a region and is exported as a part divider, not a chapter.` })
+        }
+      }
+  }
+
+  // ---- 2a''. a short unlabelled "chapter" before the contents page (an author's name in the chapter style on the
+  // title pages) is a front page, not a chapter
+  {
+    const words = (x: Sec) => x.items.reduce((n, b) => n + (b.t === 'p' && b.text ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
+    const tocAt = secs.findIndex((x) => x.type === 'toc')
+    for (let i = tocAt - 1; i >= 0; i--) {
+      const x = secs[i]
+      if ((x.type === 'chapter' || x.type === 'other') && !x.label.length && words(x) < 30 && !sectionTypeOf(x.title.map((t) => t.text).join(' '))) {
+        secs.splice(i, 1)
+        opening.push(...x.title, ...x.items)
       }
     }
   }
@@ -576,6 +621,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     const out: { html: string; src: PBlock }[] = []
     if (s.type === 'toc') tocSeen = true
     let lastTarget: Sec | undefined
+    let prose = false
     for (let i = 0; i < entries.length; i++) {
       const e = entries[i]
       const raw = tocEntryText(e.el)
@@ -584,11 +630,17 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       const pg = showPages && page ? `<span class="toc_pg">${esc(page)}</span>` : ''
       const n = norm(raw)
       const ctx = inlineCtx(ex, meta.language, L, () => '', () => '')
-      const html = inlineHtml(e.el, ctx, { heading: true, stripPageNumber: true })
+      const html = fusedTocPage(e.el) ? esc(raw) : inlineHtml(e.el, ctx, { heading: true, stripPageNumber: true })
       // "Autor" in the contents is the section "Der Autor": the same words, with a short article in front
       const sameTitle = (t: string) => {
         const x = norm(t)
         return !!x && (x === n || (n.length >= 4 && x.endsWith(n) && x.length - n.length <= 6))
+      }
+      // running prose set in the same frame after the contents (a foreword and its signature) is not an entry
+      if (!page && (raw.split(/\s+/).length > 20 || (prose && raw.split(/\s+/).length <= 3))) {
+        prose = true
+        out.push({ html: `<p>${html}</p>`, src: e })
+        continue
       }
       const target = all.find((x) => x !== s && n && (norm(x.labelText + x.titleText) === n || norm(x.titleText) === n || norm(x.nav) === n || sameTitle(x.nav) || sameTitle(x.titleText)))
       const labelOnly = !target && all.find((x) => x !== s && x.labelText && norm(x.labelText) === n)

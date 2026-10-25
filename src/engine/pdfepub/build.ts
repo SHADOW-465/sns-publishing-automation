@@ -483,10 +483,21 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       top = bottom
     }
 
+    // the same text drawn twice on the same spot (a second layer, fake bold) is one line
+    for (let i = ordered.length - 1; i > 0; i--) {
+      const l = ordered[i]
+      if (ordered.slice(0, i).some((p) => p.text.trim() === l.text.trim() && Math.abs(p.y - l.y) < 2 && Math.abs(p.x0 - l.x0) < 2)) ordered.splice(i, 1)
+    }
     // ---- feed the lines ----
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       const r = roleOf(l)
+      // a stray symbol glyph before a title ("=Epilogue") is not part of it
+      if ((r === 'title' || r === 'subhead') && /^\s*[=~#*]+(?=\p{L})/u.test(l.text) && l.runs.length) {
+        l.text = l.text.replace(/^\s*[=~#*]+/, '')
+        const r0 = l.runs.find((x) => x.text.trim())
+        if (r0) r0.text = r0.text.replace(/^\s*[=~#*]+/, '')
+      }
       const tbl = tableAt.get(l)
       if (tbl) {
         closePara()

@@ -1,4 +1,5 @@
 import { type Face, type StyleSheet } from './css.ts'
+import { fusedTocPage } from './read.ts'
 import { classesOf, esc, epubType, pageBreakOf, tag } from '../xml.ts'
 
 // Converts one InDesign paragraph into clean inline XHTML — the "remove unnecessary italic/bold"
@@ -63,6 +64,8 @@ function trailingPageSpans(p: Element): Element[] {
 
 /** The printed page number at the end of a contents entry: its page-number spans (a number split over two spans is joined), or ending the text after a tab. */
 export function tocPageOf(p: Element): string | undefined {
+  const fused = fusedTocPage(p)
+  if (fused) return fused.page
   const spans = trailingPageSpans(p).map((e) => (e.textContent ?? '').replace(/\s+/g, '')).join('')
   return spans || (p.textContent ?? '').match(/	[\s	]*(\d+|[ivxlcdm]+)\s*$/i)?.[1]
 }

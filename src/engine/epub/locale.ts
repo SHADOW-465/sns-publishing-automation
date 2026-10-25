@@ -267,21 +267,21 @@ const KEYWORDS: [SectionType, RegExp][] = [
   ['preface', /^(prefacio|preface|vorwort|pr[ée]face|prefazione|pref[áa]cio)\b/i],
   ['foreword', /^(foreword|pre[áa]mbulo|presentaci[óo]n|apresenta[çc][ãa]o|presentazione)\b/i],
   ['prologue', /^(pr[óo]logo|prologue|prolog)\b/i],
-  ['conclusion', /^(conclusi[óo]n|conclusion|schluss(wort)?|conclusione|conclus[ãa]o)\b/i],
+  ['conclusion', /^(conclusi[óo]n(es)?|conclusions?|schluss(wort)?|conclusione|conclus[ãa]o)\b/i],
   ['epilogue', /^(ep[íi]logo|epilogue|epilog|[ée]pilogue)\b/i],
   ['afterword', /^(afterword|nachwort|postfacio|postface|posf[áa]cio)\b/i],
   ['glossary', /^(glosario|glossary|glossar|glossaire|glossario|gloss[áa]rio)\b/i],
   ['appendix', /^(ap[ée]ndices?|appendix|appendices|anhang|annexes?|appendice|anexos?)\b/i],
   ['bibliography', /^(bibliograf[íi]a|bibliography|literatur(verzeichnis)?|quellen(verzeichnis)?|bibliographie|bibliografia|referencias|references|further reading|lecturas recomendadas|obras citadas)\b/i],
   ['notes', /^(notas|notes|anmerkungen|fußnoten|note|endnotes)$/i],
-  ['about', /^(acerca del? autor|sobre el autor|sobre la autora|acerca de la autora|about the authors?|[üu]ber (den|die) autor(?:in)?|[àa] propos de l.auteur|l.autore|sobre (o|a) autor|(?:der|die)\s+autor(?:in)?$|the author$)/i],
+  ['about', /^(acerca del? autor|sobre el autor|sobre (los|las) autor(es|as)|acerca de (los|las) autor(es|as)|sobre la autora|acerca de la autora|about the authors?|[üu]ber (den|die) autor(?:in)?|[àa] propos de l.auteur|l.autore|sobre (o|a) autor|(?:der|die)\s+autor(?:in)?$|(the )?author$)/i],
   ['contributors', /^(the )?contributors$|^(los |las )?colaboradores$|^(die )?mitwirkenden$|^(les )?contributeurs$/i],
   ['acknowledgments', /^(agradecimientos|acknowledge?ments|dank(sagung)?|remerciements|ringraziamenti|agradecimentos)\b/i],
   ['chapter', /^(cap[íi]tulo|chapter|kapitel|chapitre|capitolo|cap[íi]tol|hoofdstuk|rozdzia[łl]|kapittel|b[öo]l[üu]m|глава|κεφ[αά]λαιο|الفصل|פרק)(?![\p{L}])/iu],
 ]
 
 export const sectionTypeOf = (heading: string): SectionType | undefined =>
-  KEYWORDS.find(([, re]) => re.test(heading.trim()))?.[0]
+  KEYWORDS.find(([, re]) => re.test(heading.trim().replace(/^[=~#*]+(?=\p{L})/u, '')))?.[0]
 
 /** epub:type, DPUB-ARIA role and output file stem per section type. */
 export const SECTION_META: Record<SectionType, { epubType: string; role: string; file: string }> = {

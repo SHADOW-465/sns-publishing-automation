@@ -239,12 +239,26 @@ export function packageEpub(p: {
   // PKG-001..005: what the page did not give comes from the workbook
   const meta0 = details ? { ...p.meta, title: p.meta.title || details.title, authors: p.meta.authors || details.author, publisher: p.meta.publisher || details.publisher, eisbn: p.meta.eisbn || details.eisbn } : p.meta
   // an empty title is invalid EPUB (RSC-005): fall back to the first titled section and ask the reviewer to type the real one
-  const fallbackTitle = meta0.title.trim() ? '' : (planned.find((x) => (x.nav || x.title || '').trim())?.nav || planned.find((x) => (x.title || '').trim())?.title || 'Untitled').trim()
+  // the title page's first line is the book's title far more often than the first section's name ("Créditos")
+  const firstLine = (body: string) => {
+    for (const m of body.matchAll(/<(h1|h2|p)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
+      const t = m[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;|\s+/g, ' ').trim()
+      if (t && t.length <= 120 && /\p{L}{3}/u.test(t) && !/©|isbn|copyright/i.test(t)) return t
+    }
+    return ''
+  }
+  const titlePageLine = ['title', 'halftitle'].map((t) => planned.find((x) => x.type === t)).map((x) => (x ? firstLine(x.body) : '')).find(Boolean)
+  // the cataloguing record on the copyright page names it outright ("Título: Dinámicas… / coordinadores")
+  const catalogued = [...planned.filter((x) => x.type === 'copyright'), ...planned.slice(0, Math.max(0, planned.findIndex((x) => x.type === 'chapter' || x.type === 'introduction'))).filter((x) => x.type !== 'copyright')].map((x) => x.body.replace(/<[^>]+>/g, ' ').match(/\b(?:T[íi]tulo|Title|Titel|Titre|Titolo)\s*:\s*([^/\n]{3,200}?)\s*(?:\/|\.\s|$)/))[0]?.[1]?.replace(/\s+/g, ' ').trim()
+  const fallbackTitle = meta0.title.trim() ? '' : catalogued || titlePageLine || (planned.find((x) => (x.nav || x.title || '').trim())?.nav || planned.find((x) => (x.title || '').trim())?.title || 'Untitled').trim()
   const meta = fallbackTitle ? { ...meta0, title: fallbackTitle } : meta0
-  if (fallbackTitle) review.push({ level: 'error', msg: `The book has no title. “${fallbackTitle}” was used for now: type the real title in Book details.` })
+  if (fallbackTitle && catalogued) review.push({ level: 'warn', msg: `The title “${fallbackTitle}” was taken from the cataloguing record on the copyright page: check it in Book details.` })
+  else if (fallbackTitle) review.push({ level: 'error', msg: `The book has no title. “${fallbackTitle}” was used for now: type the real title in Book details.` })
   const sectionsIn0 = fallbackTitle ? planned.map((x) => (x.title?.trim() ? x : { ...x, title: x.nav || fallbackTitle })) : planned
   const prepared = prepareEpubImages(p.cover, p.images)
-  const sectionsIn = sectionsIn0.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
+  // RSC-020: a web address typed with spaces ("facebook.com/Mr Luyen homestay ") is trimmed and its spaces encoded
+  const cleanHrefs = (b: string) => b.replace(/href="(https?:[^"]*)"/g, (_, u: string) => `href="${u.trim().replace(/ /g, '%20')}"`)
+  const sectionsIn = sectionsIn0.map((s) => ({ ...s, body: cleanHrefs(rewriteImagePaths(s.body, prepared.renames)) }))
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
