@@ -135,12 +135,23 @@ export const isNoteRef = (a: Element) =>
 const URLISH = /^(https?:\/\/|www\.)/i
 const EMAIL = /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/
 
+/** A link as typed in the layout can carry trailing spaces, inner spaces, accents or a bare "%": EPUBCheck rejects those, so encode them */
+export function safeUrl(h: string): string {
+  const u = h.trim().replace(/%(?![0-9A-Fa-f]{2})/g, '%25')
+  if (/^mailto:/i.test(u)) return u.replace(/\s+/g, '')
+  try {
+    return new URL(u).href
+  } catch {
+    return encodeURI(u)
+  }
+}
+
 export function normalizeHref(href: string, text: string): string | undefined {
   const t = text.trim()
-  if (href && /^(https?:|mailto:)/i.test(href)) return href
+  if (href && /^(https?:|mailto:)/i.test(href.trim())) return safeUrl(href)
   if (href && href.includes('#') && !href.startsWith('#')) return 'xref:' + href.split('#')[1] // resolved by the builder
   if (href.startsWith('#') && href.length > 1) return 'xref:' + href.slice(1)
-  if (URLISH.test(t)) return t.startsWith('www.') ? 'https://' + t : t
+  if (URLISH.test(t)) return safeUrl(t.startsWith('www.') ? 'https://' + t : t)
   if (EMAIL.test(t)) return 'mailto:' + t
   return undefined // dead link (href="") → plain text
 }

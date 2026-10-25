@@ -4,6 +4,7 @@
 // is a heading in any manuscript.
 import { unzip, text } from '../zip.ts'
 import { languageFromBook } from '../lang.ts'
+import { safeUrl } from '../indesign/inline.ts'
 import { settings } from '../settings.ts'
 
 export interface WordInline {
@@ -241,9 +242,9 @@ function linkHref(target: string): string {
   let t = target.trim()
   try { t = decodeURIComponent(t) } catch { /* keep the raw target */ }
   if (!t) return ''
-  if (/^(https?:|mailto:)/i.test(t)) return t
+  if (/^(https?:|mailto:)/i.test(t)) return safeUrl(t)
   if (t.includes('@') && !/\s/.test(t)) return `mailto:${t}`
-  if (/^www\./i.test(t)) return `https://${t}`
+  if (/^www\./i.test(t)) return safeUrl(`https://${t}`)
   return t
 }
 
