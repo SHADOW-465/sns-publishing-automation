@@ -24,3 +24,14 @@ test('a style named "captions" (plural, Birmingham) is the picture caption: figc
   const all = [...r.files].filter(([k]) => /chapter\d+\.xhtml$/.test(k)).map(([, v]) => text(v)).join('\n')
   assert.match(all, /<figcaption>[^]*Plan of the town/)
 })
+
+test('a space set in a superscript character style is not wrapped in an empty <sup>', () => {
+  const css = SYNTH_CSS + '\nspan.sup { vertical-align: super; }\n'
+  const body = (n: number) => `<p class="Cuerpo">${'Texto del capítulo. '.repeat(40)}Nota<span class="sup">1</span> y <span class="sup"> </span>sigue <span class="sup">2 </span>el texto.</p>`
+  const a = analyze(synthExport(synthBook(3, body), css, 'es-ES'))
+  const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'T', authors: 'A', publisher: 'P', eisbn: '9780306406157', language: 'es-ES' }, cover: { name: 'cover.png', data: png } })
+  const all = [...r.files].filter(([k]) => /chapter\d+\.xhtml$/.test(k)).map(([, v]) => text(v)).join('\n')
+  assert.match(all, /<sup>1<\/sup>/)
+  assert.match(all, /<sup>2<\/sup> el/)
+  assert.doesNotMatch(all, /<sup>\s*<\/sup>/)
+})

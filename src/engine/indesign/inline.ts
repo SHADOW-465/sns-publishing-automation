@@ -298,8 +298,10 @@ function render(segs: Seg[], base: Face, lang: string, heading: boolean): string
       t = f.upper && !base.upper ? esc(s.text.toLocaleUpperCase(lang)) : f.smallCaps ? smallCaps(s.text, lang) : esc(s.text)
       const cls = faceClass(f, base).filter((c) => !whole.includes(c))
       if (cls.length && s.text.trim()) t = `<span class="${cls.join(' ')}">${t}</span>`
-      if (f.sup && !base.sup) t = `<sup>${t}</sup>`
-      if (f.sub && !base.sub) t = `<sub>${t}</sub>`
+      // a space set in the superscript style stays outside the <sup> (and a space alone gets none)
+      const wrap = (tag: string) => (t = t.replace(/^(\s*)([\s\S]*?)(\s*)$/, (_m, a: string, b: string, c: string) => (b ? `${a}<${tag}>${b}</${tag}>${c}` : a + c)))
+      if (f.sup && !base.sup) wrap('sup')
+      if (f.sub && !base.sub) wrap('sub')
     }
     if (s.href) t = `<a href="${esc(s.href)}">${t}</a>`
     html += t
