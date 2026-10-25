@@ -18,7 +18,7 @@ import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec 
 import { CheckFirst } from './CheckFirst.tsx'
 import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
-import { reviewList } from '../engine/review/confidence.ts'
+import { reviewList, blockingItems } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings, settings } from '../engine/settings.ts'
 import { outputViolations } from '../engine/output/standards.ts'
@@ -201,7 +201,7 @@ export function IndesignFlow() {
   const structurePending = structureReview.items.length
   // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
   // (build messages and an untitled page are not decisions: a picture-only page has no title on purpose, and a missing picture description is fixed on its own step)
-  const blocking = structureReview.items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !/^(note|nav):/.test(x.id))
+  const blocking = blockingItems(structureReview.items, acked)
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
   const outputProblems = outputViolations(outputKind, spec?.resolved.settings ?? settings())
   const outputErrors = outputProblems.filter((p) => p.level === 'error')
@@ -320,7 +320,7 @@ export function IndesignFlow() {
             onRule={onRule}
             standard={(meta?.profile ?? 'accessible') === 'standard'}
             acked={acked}
-            onAck={(id) => setAcked(new Set([...acked, id]))}
+            onAck={(id) => setAcked((s) => new Set([...s, id]))}
           />
           )}
           <Outline sections={result.sections.map((s, i) => ({ ...s, type: types[i] ?? s.type }))} files={result.files} titles={navs} onTitle={(i, t) => (setNavs({ ...navs, [i]: t }), setStale(true))} onType={(i, t) => (setTypes({ ...types, [i]: t as SectionType }), setStale(true))} />

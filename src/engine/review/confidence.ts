@@ -109,3 +109,14 @@ export function reviewList(a: ReviewInput): { items: CheckItem[]; sure: number; 
   items.sort((x, y) => x.score - y.score)
   return { items, sure, auto, banner }
 }
+
+/** Items a reviewer may accept as they are (pictures, note findings, unknown sections). Styles and book details need a real choice. */
+export const acceptable = (it: Pick<CheckItem, 'id' | 'area'>) => !it.id.startsWith('note:') && (it.area === 'picture' || it.area === 'note' || (it.area === 'section' && it.id.startsWith('section:')))
+
+/** What still blocks the Structure step: under 0.6, not accepted, and not a build message or an untitled part. */
+export const blockingItems = <T extends Pick<CheckItem, 'id' | 'area' | 'score'>>(items: T[], acked: Set<string>) =>
+  items.filter((x) => x.score < 0.6 && !acked.has(x.id) && !/^(note|nav):/.test(x.id))
+
+/** "Accept all as they are": every acceptable item that still blocks. A real book has dozens (83 pictures, 147 sections in one
+ *  sample), one click each made step 4 impossible to leave. */
+export const acceptAllIds = (items: Pick<CheckItem, 'id' | 'area' | 'score'>[], acked: Set<string>) => blockingItems(items, acked).filter(acceptable).map((x) => x.id)
