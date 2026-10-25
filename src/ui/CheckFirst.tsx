@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ROLES, ROLE_HELP, type Role, type StyleInfo } from '../engine/indesign/read.ts'
-import { reviewList, rulesForTopic, type CheckItem, type ReviewInput } from '../engine/review/confidence.ts'
+import { reviewList, rulesForTopic, acceptable, acceptAllIds, type CheckItem, type ReviewInput } from '../engine/review/confidence.ts'
 import type { Spec } from '../engine/spec/session.ts'
 import type { Rule, RuleValue } from '../engine/spec/rules.ts'
 import { KIND } from './wizard.tsx'
@@ -47,6 +47,7 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
   standard: boolean
 }) {
   const { items, sure, auto, banner } = review ?? reviewList(input)
+  const bulk = acceptAllIds(items, acked ?? new Set())
   const style = (k: string) => input.styles.find((s) => s.key === k)
   const control = (it: CheckItem) => {
     if (it.area === 'style') {
@@ -59,13 +60,13 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
     }
     if (it.area === 'section') {
       return (
-        <select value={String(input.sections[Number(it.ref)].type)} onChange={(e) => onType(Number(it.ref), e.target.value)} aria-label="Kind of section">
+        <><select value={String(input.sections[Number(it.ref)].type)} onChange={(e) => onType(Number(it.ref), e.target.value)} aria-label="Kind of section">
           {Object.entries(KIND).filter(([k]) => k !== 'cover').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        </select>{onAck && (acked?.has(it.id) ? <span className="muted small">kept as it is</span> : <button onClick={() => onAck(it.id)}>Keep as it is</button>)}</>
       )
     }
     if (it.area === 'meta') return <button onClick={onMeta}>Open Book details</button>
-    if ((it.area === 'picture' || it.area === 'note') && !it.id.startsWith('note:') && onAck) return acked?.has(it.id) ? <span className="muted small">accepted as it is</span> : <button onClick={() => onAck(it.id)}>Accept as it is</button>
+    if (acceptable(it) && onAck) return acked?.has(it.id) ? <span className="muted small">accepted as it is</span> : <button onClick={() => onAck(it.id)}>Accept as it is</button>
     return null
   }
   return (
@@ -81,6 +82,9 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
         {items.length ? `${items.length} thing${items.length === 1 ? '' : 's'} the tool was not sure about, least sure first.` : 'Nothing to check: the tool was sure of every decision.'} {sure} decision{sure === 1 ? '' : 's'} were clear-cut and are not listed.
         {auto > 0 ? ` ${auto} change${auto === 1 ? '' : 's'} were made automatically and are not in this list.` : ''}
       </p>
+      {onAck && bulk.length > 1 && (
+        <div className="row"><button onClick={() => bulk.forEach(onAck)}>Accept all {bulk.length} pictures, notes and sections as they are</button><span className="muted small">Styles and book details still need your choice.</span></div>
+      )}
       <ol>
         {items.map((it) => (
           <li key={it.id}>
