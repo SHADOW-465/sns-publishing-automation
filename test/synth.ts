@@ -2,16 +2,17 @@
 import { bytes, type Files } from '../src/engine/zip.ts'
 
 /** `body` is the XHTML inside <body>; `css` the idGeneratedStyles.css text. Blocks come out in the order written. */
-export function synthExport(body: string, css: string, lang = 'en-GB'): Files {
+export function synthExport(body: string, css: string, lang = 'en-GB', images: Record<string, Uint8Array> = {}): Files {
   const f: Files = new Map()
   f.set('mimetype', bytes('application/epub+zip'))
   f.set('META-INF/container.xml', bytes('<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'))
   f.set('OEBPS/content.opf', bytes(`<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid" xml:lang="${lang}">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Sample</dc:title><dc:language>${lang}</dc:language><dc:identifier id="uid">x</dc:identifier></metadata>
-<manifest><item id="c" href="css/s.css" media-type="text/css"/><item id="t" href="book.xhtml" media-type="application/xhtml+xml"/></manifest>
+<manifest><item id="c" href="css/s.css" media-type="text/css"/><item id="t" href="book.xhtml" media-type="application/xhtml+xml"/>${Object.keys(images).map((h, i) => `<item id="im${i}" href="${h}" media-type="image/png"/>`).join('')}</manifest>
 <spine><itemref idref="t"/></spine></package>`))
   f.set('OEBPS/css/s.css', bytes(css))
+  for (const [h, d] of Object.entries(images)) f.set(`OEBPS/${h}`, d)
   f.set('OEBPS/book.xhtml', bytes(`<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Sample</title><link rel="stylesheet" href="css/s.css"/></head><body>
 ${body}

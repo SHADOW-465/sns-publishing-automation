@@ -122,7 +122,9 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
   const tocKeys = new Set([...book.toc, ...book.tocEntries.map((e) => normTitle(e.text))].filter(Boolean))
   const tocBlob = ` ${[...tocKeys].join(' ')} `
   const inContents = (key: string) => tocKeys.has(key) || (key.length >= 6 && tocBlob.includes(` ${key} `))
-  const gated = tocKeys.size > 0
+  // a contents list that names fewer than two of the headings (typed by hand, or another edition's) cannot be trusted to split the book
+  const headKeys = book.blocks.filter((b) => b.role === 'heading' && b.level <= 2).map((b) => normTitle((b as WordPara).text))
+  const gated = tocKeys.size > 0 && headKeys.filter(inContents).length >= 2
   const images: ImageOut[] = []
   const pictures: WordBuildResult['pictures'] = []
   const spoken: string[] = []
@@ -276,7 +278,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
-  const { epub, files } = packageEpub({
+  const { epub, files, renames } = packageEpub({
     meta: ship,
     sections,
     cover,
@@ -287,7 +289,10 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     css: WORD_CSS,
   })
   const source: CheckSource = { words: wordsOf(spoken.join('\n')), dropped: book.tocLines, pendingAi }
-  return { epub, files, sections, review, pictures, source }
+  // a PNG stored as JPEG gets a new name: the picture list must point at the file that is really in the book
+  const moved = new Map(renames)
+  for (const p of pictures) p.path = moved.get(p.path) ?? p.path
+  return { epub, files, sections, review, pictures: pictures.filter((p) => files.has(`OEBPS/${p.path}`)), source }
 }
 
 function tableHtml(t: WordTable, page: (n: string) => string): string {

@@ -220,7 +220,7 @@ export function packageEpub(p: {
   printPictures?: number
   /** ruled tables in the print PDF: the e-book must hold as many (TBL-001) */
   printTables?: number
-}): { epub: Uint8Array; files: Files } {
+}): { epub: Uint8Array; files: Files; renames: [string, string][] } {
   const { meta, review } = p
   const prepared = prepareEpubImages(p.cover, p.images)
   const sectionsIn = p.sections.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
@@ -457,5 +457,5 @@ ${settings().writeGuide ? `<guide>
   review.push(...scriptGuards(files))
   review.push(...altGuards(files))
   review.push(...imageSpecGuards(files))
-  return { epub: zipEpub(files), files }
+  return { epub: zipEpub(files), files, renames: prepared.renames }
 }

@@ -122,6 +122,15 @@ export function readExport(files: Files): Export {
         }
         return
       }
+      if (/^(p|h[1-6])$/.test(tg) && !textOf(c).trim() && c.querySelector('img')) {
+        // a paragraph holding only an anchored picture (<p><span><img/></span></p>): the picture, in its place
+        for (const el of Array.from(c.querySelectorAll('img, *'))) {
+          const pn = pageBreakOf(el)
+          if (pn !== null) (blocks.push({ t: 'pb', n: pn }), (page = pn))
+          else if (tag(el) === 'img') blocks.push({ t: 'img', src: resolvePath(it.href, el.getAttribute('src') ?? ''), page, alt: (el.getAttribute('alt') ?? '').trim(), frame: 'flow' })
+        }
+        return
+      }
       if (/^(p|h[1-6])$/.test(tg)) {
         // inline page markers inside the paragraph still count for "page of this block"
         blocks.push({ t: 'p', el: c, key: styleKey(c), classes: classesOf(c), text: textOf(c), page })
