@@ -13,6 +13,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.
 // ponytail: main() is started, not awaited. With an ES-module main, Electron waits for the module to finish before it
 // emits "ready", so awaiting app.whenReady() at the top level would never return.
 async function main() {
+  try { process.loadEnvFile(join(app.getAppPath(), '.env.local')) } catch { /* no .env.local: settings stay on this computer */ }
   const i = process.argv.indexOf('--epubcheck-selftest')
   if (i > 0) {
     const [book, out] = process.argv.slice(i + 1)

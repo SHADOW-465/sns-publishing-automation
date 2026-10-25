@@ -5,6 +5,7 @@ import { MemoryStore, type SpecStore } from './store.ts'
 import type { Layer } from './layers.ts'
 import type { Decision } from './store.ts'
 import { SupabaseStore } from './supabase-store.ts'
+import { supabaseFromEnv } from './env.ts'
 
 export class JsonFileStore extends MemoryStore {
   private readonly filePath: string
@@ -25,9 +26,10 @@ export class JsonFileStore extends MemoryStore {
   }
 }
 
-/** Supabase when both env vars are set; otherwise the JSON file at SNS_STORE, or an in-memory store. The key is never printed. */
+/** Supabase when the URL and key are set under any name supabaseFromEnv knows; otherwise the JSON file at SNS_STORE, or an in-memory store. The key is never printed. */
 export function openStoreFromEnv(env: Record<string, string | undefined> = process.env): SpecStore {
-  if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) return new SupabaseStore(env.SUPABASE_URL, env.SUPABASE_ANON_KEY)
+  const sb = supabaseFromEnv(env)
+  if (sb) return new SupabaseStore(sb.url, sb.key)
   if (env.SNS_STORE) return new JsonFileStore(env.SNS_STORE)
   return new MemoryStore()
 }
