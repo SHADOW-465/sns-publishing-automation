@@ -450,6 +450,23 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     } else (cur ? cur.items : opening).push(b)
   }
 
+  // ---- 2a'. a run of chapter titles with (almost) nothing under them is a set of page tabs the layout placed
+  // apart from the text they label (the export lists those frames after the story): keep their pictures and
+  // captions in the section before, rather than a row of empty chapter files
+  {
+    const words = (x: Sec) => x.items.reduce((n, b) => n + (b.t === 'p' && b.text ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
+    const tiny = (x: Sec) => x.type === 'chapter' && !x.label.length && words(x) < 30
+    for (let i = 1; i < secs.length; i++) {
+      let j = i
+      while (j < secs.length && tiny(secs[j])) j++
+      if (j - i >= 3) {
+        const run = secs.splice(i, j - i)
+        for (const r of run) secs[i - 1].items.push(...r.items)
+        review.push({ level: 'warn', msg: `${run.length} chapter titles had no text under them (${run.map((r) => r.titleText || r.title.map((t) => t.text).join(' ')).join(', ')}) — treated as page tabs; their pictures stay in the section before. Check the reading order against the print PDF.` })
+      }
+    }
+  }
+
   // ---- 2b. front pages by content: half-title, title page, copyright, dedication, epigraph ----
   const mk = (type: SectionType, items: Block[]): Sec => ({ type, stem: '', headId: '', label: [], title: [], items, labelText: '', titleText: '', nav: '' })
   const front: Sec[] = []

@@ -74,3 +74,17 @@ p.Titoli_Titolo-capitolo { font-size:1.2em; text-align:left; font-family:serif; 
   assert.equal(a.styles.find((s) => s.key === 'Titoli_Titolo-capitolo')?.role, 'chapter-title')
   assertGoodSplit(r, 6)
 })
+
+test('a run of chapter titles with no text under them (page tabs exported after the story) does not become empty chapter files', () => {
+  const css = `p.Basic { font-size:1em; text-align:justify; font-family:serif; }
+p.Titolo-capitolo { font-size:2.2em; text-align:center; font-family:sans-serif; }
+p.Dida { font-size:0.8em; font-style:italic; font-family:sans-serif; }`
+  let html = '<p class="Basic">Front line.</p>\n<p class="Titolo-capitolo">Introduzione</p>\n' + body('Basic', 1)
+  for (const t of ['Storia', 'Economia', 'Lingua', 'Sport']) html += `<p class="Titolo-capitolo">${t}</p>\n<p class="Dida">A short caption.</p>\n`
+  for (const t of ['Hanoi', 'Saigon']) html += `<p class="Titolo-capitolo">${t}</p>\n${body('Basic', 2)}\n`
+  const { r } = run(html, css, { 'Titolo-capitolo': 'chapter-title', Dida: 'caption' })
+  const ch = r.sections.filter((s) => s.type === 'chapter' || s.type === 'introduction')
+  assert.deepEqual(ch.map((s) => s.nav), ['Introduzione', 'Hanoi', 'Saigon'], r.sections.map((s) => `${s.file}:${s.type}:${s.nav}`).join(' | '))
+  assert.ok(text(r.files.get(`OEBPS/${ch[0].file}`)!).includes('A short caption.'), 'tab captions kept')
+  assert.ok(r.review.some((x) => /page tabs/.test(x.msg)))
+})
