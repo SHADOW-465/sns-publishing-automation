@@ -213,11 +213,14 @@ export function matchHeadings(
     let cand: number[] = []
     if (e.page !== undefined) {
       const at = numbers.findIndex((n, i) => n === e.page && !skip.has(i) && i >= searchFrom - 3)
-      if (at >= 0) cand = [at, at + 1, at - 1]
+      // printed numbers worked out from the folios can be a few pages off in the front of the book (unnumbered openers, split spreads)
+      if (at >= 0) cand = [at, at + 1, at - 1, at + 2, at - 2, at + 3, at - 3].filter((x) => x >= searchFrom - 3 && !skip.has(x))
     }
     if (!cand.length) cand = pages.map((_, i) => i).filter((i) => i >= searchFrom && !skip.has(i))
     let hit: HeadingMatch | undefined
-    for (const pi of cand) {
+    // not on (or near) the printed page: the page numbers drifted (pages added by split spreads): look on from the last match
+    const later = pages.map((_, i) => i).filter((i) => i >= searchFrom && i < searchFrom + 120 && !skip.has(i) && !cand.includes(i))
+    for (const pi of e.page !== undefined ? [...cand, ...later] : cand) {
       const ls = (pages[pi]?.lines ?? []).filter((l) => l.text.trim()).sort((a, b) => a.y - b.y || a.x0 - b.x0)
       for (let i = 0; i < ls.length && !hit; i++) {
         let acc = ''

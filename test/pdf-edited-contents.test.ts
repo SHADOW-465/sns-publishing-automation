@@ -53,3 +53,11 @@ test('edited volume: the chapter titles in body-font capitals at the top of the 
   const third = m.find((x) => x.entry.page === 85)!
   assert.deepEqual(third.lines.map((l) => l.text), ['3. RELACIONES INTERGUBERNAMENTALES', 'Y TEORÍA CONSTITUCIONAL'])
 })
+
+test('edited volume: headings found when the printed page numbers drifted (split spreads add pages)', () => {
+  const { pages } = book()
+  const c = readContents(pages, 11.5)!
+  // numbers off by several pages: 85 now points to the TOC page area
+  const m = matchHeadings(c, pages, [1, 7, 2, 3, 4, 9], () => true)
+  assert.equal(m.length, 4)
+})
