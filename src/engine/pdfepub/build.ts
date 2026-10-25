@@ -811,7 +811,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
   const printPictures = book.pages.reduce((n, p) => n + p.images.length, 0)
-  const { epub, files } = packageEpub({
+  const { epub, files, sections: planned } = packageEpub({
     meta: ship, sections: navSections, cover, images, review,
     usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book), typography()),
     printPictures,
@@ -827,7 +827,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     .join('\n')
     .replace(/(\p{L}+)[-­]\n(\p{Ll}+)/gu, (_, a: string, b: string) => (keepHyphen(a, b) ? `${a}-${b}` : a + b))
   const source: CheckSource = { words: wordsOf(srcText), dropped, printIsbn: book.meta.printIsbn, printPages: book.numbers.filter((_, i) => book.pages[i].lines.length || book.pages[i].images.length).map(String), pendingAi }
-  return { epub, files, sections: navSections, review, pictures, source }
+  return { epub, files, sections: planned, review, pictures, source }
 
   // ================================================================ helpers (need closure state)
   /** A table as the InDesign workflow writes it: colgroup widths that add up to 100%, header row as <thead><th> (Settings can keep plain cells). */

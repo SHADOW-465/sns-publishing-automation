@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Preview } from './Preview.tsx'
-import { isbn13Valid, type BookMeta, type ReviewItem, type Section } from '../engine/epub/package.ts'
+import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import { settings } from '../engine/settings.ts'
 import { imageMime } from '../engine/epub/image.ts'
-import type { Files } from '../engine/zip.ts'
 
 export function download(data: Uint8Array | string, name: string, type: string) {
   const url = URL.createObjectURL(new Blob([data as BlobPart], { type }))
@@ -78,50 +76,6 @@ export function BookDetails({ meta, onChange, note, sources = {}, certifyBlocked
           </label>
         ))}
       </fieldset>
-    </section>
-  )
-}
-
-export function Result({ result, meta }: { result: { epub: Uint8Array; files: Files; sections: Section[]; review: ReviewItem[] }; meta: BookMeta }) {
-  const [open, setOpen] = useState<string>(result.sections.find((s) => s.type === 'chapter')?.file ?? result.sections[0]?.file)
-  const by = (l: ReviewItem['level']) => result.review.filter((r) => r.level === l)
-  const errors = by('error')
-  return (
-    <section className="card">
-      <h2>Review and download</h2>
-      <div className={`summary ${errors.length ? 'has-err' : 'ok'}`}>
-        {errors.length ? `${errors.length} problem(s) to fix before delivery` : 'No blocking problems found'} · {by('warn').length} to check · {by('info').length} automatic changes
-      </div>
-      <ul className="review">
-        {(['error', 'warn', 'info'] as const).flatMap((l) =>
-          by(l).map((r, i) => (
-            <li key={l + i} className={l}>
-              <span className="lvl">{l === 'error' ? 'Fix' : l === 'warn' ? 'Check' : 'Done'}</span> {r.msg} {r.where && <code>{r.where}</code>}
-            </li>
-          )),
-        )}
-      </ul>
-      <div className="row">
-        <button className="primary" onClick={() => download(result.epub, `${meta.title || 'book'}.epub`, 'application/epub+zip')}>
-          Download EPUB
-        </button>
-        <span className="muted">Then run EPUBCheck and Ace by DAISY as the final QA step.</span>
-      </div>
-      <div className="preview-grid">
-        <nav aria-label="EPUB files">
-          <ol>
-            {result.sections.map((s) => (
-              <li key={s.file}>
-                <button className={open === s.file ? 'on' : ''} onClick={() => setOpen(s.file)}>
-                  {s.nav || s.file}
-                  <small>{s.file}</small>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </nav>
-        <Preview files={result.files} file={open} />
-      </div>
     </section>
   )
 }

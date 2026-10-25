@@ -5,7 +5,6 @@ import { deliveryCounts, extraReview } from '../engine/check/counts.ts'
 import type { ReviewItem, Section } from '../engine/epub/package.ts'
 import { text, unzip, type Files } from '../engine/zip.ts'
 import { Preview } from './Preview.tsx'
-import { download } from './shared.tsx'
 import { httpValidator, type ValidatorResult } from '../engine/check/gate.ts'
 import { axePages, iframeAxe } from '../engine/check/axe.ts'
 import { Icon, type IconName } from './icons.tsx'
@@ -345,7 +344,7 @@ export function EpubcheckBox({ result }: { result: ValidatorResult | null | unde
   if (!result.errors.length) return <p className="note small">EPUBCheck: no errors{result.warnings.length ? `, ${result.warnings.length} warning${result.warnings.length === 1 ? '' : 's'}` : ''}.</p>
   return (
     <div className="box err small" role="status">
-      <strong>EPUBCheck found {result.errors.length} error{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but stores may reject it.
+      <strong>EPUBCheck found {result.errors.length} error{result.errors.length === 1 ? '' : 's'}.</strong> The download stays off until this is fixed, unless the file is exported with a typed reason; stores may reject it.
       <ul>{result.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
       {result.errors.length > 8 && <p className="muted">…and {result.errors.length - 8} more.</p>}
     </div>
@@ -370,21 +369,9 @@ export function AccessibilityBox({ result }: { result: A11yResult | null | undef
   if (!result.errors.length) return <p className="note small">{result.by}: no serious accessibility problems{result.warnings.length ? `, ${result.warnings.length} to look at` : ''}{result.by === 'axe-core' ? ' (the page checks inside Ace; the full Ace run is an optional extra install)' : ''}.</p>
   return (
     <div className="box err small" role="status">
-      <strong>{result.by} found {result.errors.length} serious accessibility problem{result.errors.length === 1 ? '' : 's'}.</strong> You can still download the file, but it does not meet the accessibility standard yet.
+      <strong>{result.by} found {result.errors.length} serious accessibility problem{result.errors.length === 1 ? '' : 's'}.</strong> The download stays off until this is fixed, unless the file is exported with a typed reason.
       <ul>{result.errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul>
       {result.errors.length > 8 && <p className="muted">…and {result.errors.length - 8} more.</p>}
     </div>
-  )
-}
-
-/** Download button. A file with problems still downloads (the decision is the reviewer's), with the problems stated beside it. */
-export function DeliverButton({ data, name, type, errors, label }: { data: Uint8Array; name: string; type: string; errors: number; label: string }) {
-  return (
-    <span className="row" style={{ marginTop: 0 }}>
-      <button className="primary big" onClick={() => download(data, name, type)}>
-        <Icon name="download" size={17} /> {label}
-      </button>
-      {errors > 0 && <span className="err small">{errors} problem{errors === 1 ? '' : 's'} left: this file is not ready to publish.</span>}
-    </span>
   )
 }

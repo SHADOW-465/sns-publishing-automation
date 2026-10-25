@@ -50,7 +50,7 @@ export interface CheckSource {
 }
 
 const KNOWN_TYPES = new Set([
-  'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'titlepage', 'copyright-page', 'dedication', 'epigraph',
+  'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'halftitle', 'fulltitle', 'titlepage', 'copyright-page', 'dedication', 'epigraph',
   'toc', 'landmarks', 'page-list', 'loi', 'lot', 'introduction', 'preface', 'foreword', 'prologue', 'part', 'chapter', 'division',
   'conclusion', 'epilogue', 'afterword', 'glossary', 'appendix', 'bibliography', 'endnotes', 'endnote', 'footnotes', 'footnote',
   'index', 'contributors', 'acknowledgments', 'pagebreak', 'noteref', 'backlink', 'titlepage', 'subtitle', 'title', 'imprint',

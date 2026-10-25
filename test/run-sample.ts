@@ -8,6 +8,7 @@ import { unzip } from '../src/engine/zip.ts'
 import { analyze, build } from '../src/engine/indesign/build.ts'
 import { readPrintPages } from '../src/engine/pdf/pages.ts'
 import { INDD, read } from './samples.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const out = resolve(process.argv[2] ?? 'out')
 const a = analyze(unzip(read(resolve(INDD, 'Input/88228-02 Cambia tu mente.zip'))))
@@ -19,7 +20,7 @@ const r = build(a, {
   cover: { name: 'cover.jpg', data: cover },
 })
 mkdirSync(out, { recursive: true })
-writeFileSync(resolve(out, `${a.meta.title}.epub`), r.epub)
+await gatedWrite('epub', r.epub, resolve(out, `${a.meta.title}.epub`), r.review, { source: r.source, client: a.meta.publisher, book: a.meta.title })
 for (const [p, d] of r.files) {
   mkdirSync(resolve(out, 'unzipped', p, '..'), { recursive: true })
   writeFileSync(resolve(out, 'unzipped', p), d)

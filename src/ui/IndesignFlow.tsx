@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { unzip, text } from '../engine/zip.ts'
 import { analyzeSteps, build, usePdfPictures, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
@@ -14,7 +14,10 @@ import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
-import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec } from '../engine/spec/session.ts'
+import { GatedDownload } from './GatedDownload.tsx'
+import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, applyBookDetailsToSpec, type Spec } from '../engine/spec/session.ts'
+import { readRequirements } from '../engine/spec/requirements.ts'
+import { collectGate, uiStages, type ExportGate } from '../engine/check/exportgate.ts'
 import { CheckFirst } from './CheckFirst.tsx'
 import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
@@ -35,6 +38,7 @@ export function IndesignFlow() {
   const [exp, setExp] = useState<Picked>()
   const [cover, setCover] = useState<Picked>()
   const [pdf, setPdf] = useState<Picked>()
+  const [bookDetails, setBookDetails] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
   const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
@@ -49,6 +53,7 @@ export function IndesignFlow() {
   const [report, setReport] = useState<CheckReport>()
   const [ec, setEc] = useState<ValidatorResult | null>()
   const [a11y, setA11y] = useState<A11yResult | null>()
+  const [gate, setGate] = useState<ExportGate>()
   const [stale, setStale] = useState(true)
   const [types, setTypes] = useState<Record<number, SectionType>>({})
   const [navs, setNavs] = useState<Record<number, string>>({})
@@ -135,9 +140,16 @@ export function IndesignFlow() {
   const rebuild = (then?: number) =>
     run('Building the e-book…', async () => {
       // the rules the client set (or accepted) in the Spec step are the rules the build follows
-      const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
-      if (!spec) setSpec(sp)
+      let sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+      // the client's Book_Details file is a book-layer setting, read by the spec loader and recorded in the log
+      if (bookDetails && sp.layers.find((l) => l.level === 'book')?.bookDetails?.source !== bookDetails.name) {
+        const bd = readRequirements(bookDetails.name, bookDetails.data).bookDetails
+        if (!bd) throw new Error(`“${bookDetails.name}” is not a Book_Details file: it has no NAV-NCX sheet with a “Chapter Name” column.`)
+        sp = await applyBookDetailsToSpec(sp, 'book', bd, actorName() || 'reviewer')
+      }
+      if (sp !== spec) setSpec(sp)
       applySpec(sp)
+      setGate(undefined)
       try {
         setProgress({ done: 0, total: 2 })
         await new Promise((r) => setTimeout(r, 30))
@@ -146,11 +158,16 @@ export function IndesignFlow() {
         setBusy('Checking the e-book…')
         setProgress({ done: 1, total: 2 })
         await new Promise((r) => setTimeout(r, 30))
-        setReport(checkEpub(r.files, r.source))
+        const rep = checkEpub(r.files, r.source)
+        setReport(rep)
         setBusy('Running EPUBCheck…')
-        setEc(await runEpubcheck(r.epub))
+        const ecNow = await runEpubcheck(r.epub)
+        setEc(ecNow)
         setBusy('Checking accessibility…')
-        setA11y(await runAccessibility(r.epub))
+        const a11yNow = await runAccessibility(r.epub)
+        setA11y(a11yNow)
+        // VAL-001: every guard and EPUBCheck, before any download
+        setGate(collectGate({ report: rep, review: r.review, stages: uiStages(r.files, settings(), ecNow, a11yNow) }))
       } finally {
         setSettings(houseSettings()) // other workflows keep building with the house settings
       }
@@ -258,11 +275,13 @@ export function IndesignFlow() {
             <FileDrop label="InDesign EPUB export" hint="the .epub (or .zip) InDesign made" accept=".zip,.epub" value={exp} onPick={setExp} required />
             <FileDrop label="Cover image" hint="final front cover, JPG or PNG, 1600×2560 px ideal" accept="image/jpeg,image/png" value={cover} onPick={changed(setCover)} required />
             <FileDrop label="Print PDF" hint="the printed book: used to check every page number" accept="application/pdf" value={pdf} onPick={setPdf} />
+            <FileDrop label="Book_Details" hint="the client’s .xlsx: file names, epub:type and roles" accept=".xlsx" value={bookDetails} onPick={changed(setBookDetails)} />
           </div>
           <Help title="Why these files?">
             <ul>
               <li><strong>InDesign export</strong> — the book text. InDesign’s export has leftovers (file names as titles, empty links, unneeded bold/italic, missing page numbers) that people used to fix by hand.</li>
               <li><strong>Cover</strong> — the export only has a placeholder cover.</li>
+              <li><strong>Book_Details</strong> — the client’s workbook for this book. Each file takes the name, epub:type and role of its row; a row that matches nothing is reported.</li>
               <li><strong>Print PDF</strong> — e-books carry the printed page numbers (“go to page 45”), so classes and citations match the paper book. The PDF lets the tool put back any InDesign dropped and check all of them.</li>
             </ul>
             Nothing is uploaded: the files are read in this browser.
@@ -446,7 +465,7 @@ export function IndesignFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
             <button onClick={() => rebuild()} disabled={!!busy}>Build and check again</button>
           </div>
           <Help title="What happens after download?">

@@ -14,6 +14,7 @@ import { text } from '../zip.ts'
 import type { Decision } from './store.ts'
 import { yesNo, type SpecPicture } from '../epub/alt.ts'
 import { layerDataFromWorkbook, layerDataFromReport, markupSheets, type LayerData } from './markup.ts'
+import { bookDetailsFromWorkbook, type BookDetails } from './bookdetails.ts'
 
 export interface Requirement {
   text: string
@@ -32,10 +33,12 @@ export interface Suggestion {
 }
 
 /** Split a client file into requirements: paragraphs, table rows, spreadsheet rows. */
-export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[]; pictures?: SpecPicture[]; labels?: LabelOverrides; layerData?: LayerData } {
+export function readRequirements(name: string, data: Uint8Array): { template?: Suggestion[]; items: Requirement[]; pictures?: SpecPicture[]; labels?: LabelOverrides; layerData?: LayerData; bookDetails?: BookDetails } {
   const ext = name.toLowerCase().split('.').pop()
   if (ext === 'xlsx') {
     const sheets = readXlsx(data)
+    const bookDetails = bookDetailsFromWorkbook(sheets, name)
+    if (bookDetails) return { bookDetails, items: bookDetails.files.map((f) => ({ text: `${f.file || '(no file name)'} | ${f.title} | ${f.epubType} ${f.role}`.trim(), where: `NAV-NCX, row ${f.row}` })) }
     const labels = labelsFromWorkbook(sheets)
     const pictures = pictureAltsFromWorkbook(sheets)
     const template = fromSpecWorkbook(sheets)

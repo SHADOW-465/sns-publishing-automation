@@ -4,7 +4,7 @@
 // EPUBCheck needs Java and Ace a headless Chrome, so the browser reaches both through a local service. axe-core runs in the browser.
 import { unzip, text, type Files } from '../zip.ts'
 import type { HouseSettings } from '../settings.ts'
-import { checkEpubBytes, type CheckSource } from './epub.ts'
+import { checkEpubBytes, type CheckReport, type CheckSource } from './epub.ts'
 import { conformance } from './conform.ts'
 import { refdiff } from './refdiff.ts'
 import { axePages, type AxeRunner } from './axe.ts'
@@ -72,11 +72,11 @@ export function pageRules(files: Files): { errors: string[]; warnings: string[] 
 }
 
 /** `validator` is EPUBCheck, `ace` the Ace service (same answer shape), `axe` runs axe-core on one page. */
-export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: CheckSource; validator?: EpubValidator; ace?: EpubValidator; axe?: AxeRunner; reference?: Files; conformance?: boolean } = {}): Promise<GateReport> {
+export async function gate(epub: Uint8Array, s: HouseSettings, o: { source?: CheckSource; report?: CheckReport; validator?: EpubValidator; ace?: EpubValidator; axe?: AxeRunner; reference?: Files; conformance?: boolean } = {}): Promise<GateReport> {
   const files = unzip(epub)
   const stages: GateStage[] = []
   const notes: string[] = []
-  const flat = checkEpubBytes(epub, o.source).groups.flatMap((g) => g.findings)
+  const flat = (o.report ?? checkEpubBytes(epub, o.source)).groups.flatMap((g) => g.findings)
   stages.push({ id: 'structure', title: 'Structure checks', ran: true, errors: flat.filter((f) => f.level === 'error').map((f) => f.msg), warnings: flat.filter((f) => f.level === 'warn').map((f) => f.msg) })
   // conformance only makes sense for a book built under these settings, not for any EPUB dropped into the checker
   if (o.conformance !== false) stages.push({ id: 'conformance', title: 'Spec conformance', ran: true, errors: conformance(files, s), warnings: [] })

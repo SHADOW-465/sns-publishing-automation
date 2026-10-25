@@ -13,6 +13,7 @@
 import { DEFAULT_SETTINGS, type HouseSettings, type MarkupTemplate, type MarkupRole, type StyleRule } from '../settings.ts'
 import { RULES, ruleById, needsWaiver, type RuleValue } from './rules.ts'
 import { baseSettings, defaultFor, type OutputKind } from '../output/standards.ts'
+import type { BookDetails } from './bookdetails.ts'
 
 export const LEVELS = ['house', 'client', 'series', 'book'] as const
 export type Level = (typeof LEVELS)[number]
@@ -43,6 +44,8 @@ export interface Layer {
   styleMap?: Record<string, StyleRule>
   /** the client's CSS, appended after the house CSS */
   css?: string
+  /** the client's Book_Details workbook (a book's file plan); the last layer that has one wins */
+  bookDetails?: BookDetails
   updatedAt: string
 }
 
@@ -89,6 +92,7 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
     for (const [role, t] of Object.entries(layer.markup ?? {})) (markup[role] = t), (from[`markup:${role}`] = who)
     for (const [key, r] of Object.entries(layer.styleMap ?? {})) (styleMap[key] = r), (from[`style:${key}`] = who)
     if (layer.css?.trim()) css.push(layer.css.trim())
+    if (layer.bookDetails) (settings.bookDetails = layer.bookDetails), (from['bookDetails'] = who)
   }
   settings.markup = markup
   settings.styleMap = styleMap

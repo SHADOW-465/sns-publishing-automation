@@ -85,6 +85,7 @@ put(EPUB, 'CSS-01', T('How the CSS file is laid out does not change how the book
 put(EPUB, 'PKG-03', T('The EPUB 2 guide is written for older readers.', 'EPUB 3.3 §A (legacy)'))
 put(EPUB, 'PKG-02', T('The cover is the first page of the reading order.', 'EPUB 3.3 §5 (spine)'))
 put(EPUB, 'NAV-04', T('The navigation lists are named on the wrapping section, which EPUBCheck accepts.', 'EPUB 3.3 §5.4'))
+put(EPUB, 'FIL-01', T('The client’s own file list is what the menu shows, when one is given. The sheet is the only statement of the menu titles we have; no finished file of that book exists to compare.', 'Client Book_Details sheet; rulebook NAV-001, NAV-002', 'plan'))
 put(EPUB, 'NAV-05', T('The menu goes three levels deep.', 'EPUB 3.3 §5.4 (nav)'))
 
 // ---- Accessible PDF: PDF/UA-1 and the Matterhorn Protocol ----

@@ -7,6 +7,7 @@ import { expandPageEnd } from '../pdfua/indexlinks.ts'
 import type { ReviewItem } from '../epub/package.ts'
 import { settings } from '../settings.ts'
 import { imageFacts } from '../epub/image-spec.ts'
+import type { BookDetails } from '../spec/bookdetails.ts'
 
 const textOf = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -278,5 +279,56 @@ export function imageSpecGuards(files: Files): ReviewItem[] {
     if (facts.dpi !== dpi)
       out.push({ level: 'error', msg: `IMG-006: ${name} ${facts.dpi ? `is tagged at ${facts.dpi} ppi, not ${dpi}` : 'has no resolution tag'}. Pictures are tagged at ${dpi} ppi.` })
   }
+  return out
+}
+
+const foldTitle = (t: string) => t.toLocaleLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+
+/**
+ * The client's Book_Details workbook against the finished book. FIL-001: every row's file exists (a chapter row without a file is an
+ * error, other rows a warning). SEM-001: its epub:type and role are the row's. NAV-002: the menu entry has the row's title (rule FIL-01 "plan").
+ * PKG-001/003/004/005: the title, author, publisher and e-ISBN in the package are the workbook's.
+ */
+export function bookDetailsGuards(files: Files, d: BookDetails, nav: 'plan' | 'keep' = 'plan'): ReviewItem[] {
+  const out: ReviewItem[] = []
+  const get = (name: string) => {
+    const b = files.get(`OEBPS/${name}`)
+    return b && text(b)
+  }
+  const opf = text([...files].find(([p]) => p.endsWith('.opf'))?.[1] ?? new Uint8Array())
+  const accessible = /schema:accessMode/.test(opf)
+  const menu = [...(get('nav.xhtml')?.match(/<a\b[^>]*\bhref="[^"#]+"[^>]*>[\s\S]*?<\/a>/g) ?? [])].map((a) => [a.match(/href="([^"#]+)/)![1], textOf(a)] as const)
+  for (const f of d.files) {
+    if (!f.file || f.epubType === 'cover') continue
+    const html = get(f.file)
+    const who = `Book_Details row ${f.row} (“${f.file}”${f.title ? `, “${f.title}”` : ''})`
+    if (html === undefined) {
+      out.push({ level: f.epubType === 'chapter' ? 'error' : 'warn', msg: `FIL-001: ${who} matched nothing: the e-book has no file with that name. Check the book has this part, or correct the workbook.` })
+      continue
+    }
+    if (accessible && (f.epubType || f.role)) {
+      const tag = html.match(/<section\b[^>]*>/)?.[0] ?? ''
+      const has = [tag.match(/epub:type="([^"]*)"/)?.[1] ?? '', tag.match(/\brole="([^"]*)"/)?.[1] ?? '']
+      if ((f.epubType && has[0] !== f.epubType) || has[1] !== f.role) out.push({ level: 'error', msg: `SEM-001: ${f.file} should be epub:type="${f.epubType}"${f.role ? ` role="${f.role}"` : ' with no role'} (${who}) but is epub:type="${has[0]}"${has[1] ? ` role="${has[1]}"` : ' with no role'}.` })
+    }
+    const entry = menu.find(([h]) => h === f.file)
+    if (nav === 'plan' && entry && f.title && foldTitle(entry[1]) !== foldTitle(f.title)) out.push({ level: 'warn', msg: `NAV-002: the menu calls ${f.file} “${entry[1]}” but ${who} says “${f.title}”.` })
+    if (nav === 'plan' && entry && !f.level) out.push({ level: 'warn', msg: `NAV-001: ${f.file} is in the menu but ${who} gives it no navigation level.` })
+  }
+  const one = (re: RegExp) => opf.match(re)?.[1]?.replace(/&amp;/g, '&').trim() ?? ''
+  const isbn = one(/<dc:identifier\b[^>]*>\s*urn:isbn:([^<]+)</)
+  if (d.eisbn && isbn && isbn.replace(/\D/g, '') !== d.eisbn.replace(/\D/g, '')) {
+    // an ISBN-13 sums to a multiple of 10 (weights 1, 3, 1, 3 …); a workbook with a typo in its own e-ISBN is the faulty side
+    const valid = (s: string) => /^\d{13}$/.test(s.replace(/\D/g, '')) && [...s.replace(/\D/g, '')].reduce((n, c, i) => n + Number(c) * (i % 2 ? 3 : 1), 0) % 10 === 0
+    out.push(!valid(d.eisbn) && valid(isbn)
+      ? { level: 'warn', msg: `PKG-001: Book_Details gives the e-ISBN ${d.eisbn}, which is not a valid ISBN-13 (wrong check digit); the package uses ${isbn}. Ask the client which is right.` }
+      : { level: 'error', msg: `PKG-001: the e-book ISBN in the package is ${isbn}, but Book_Details gives ${d.eisbn}.` })
+  }
+  const publisher = one(/<dc:publisher\b[^>]*>([^<]*)</)
+  if (d.publisher && publisher && foldTitle(publisher) !== foldTitle(d.publisher)) out.push({ level: 'warn', msg: `PKG-005: the publisher in the package is “${publisher}”, but Book_Details gives “${d.publisher}”.` })
+  const title = one(/<dc:title\b[^>]*>([^<]*)</)
+  if (d.title && title && !foldTitle(title).startsWith(foldTitle(d.title))) out.push({ level: 'warn', msg: `PKG-003: the title in the package is “${title}”, but Book_Details gives “${d.title}”.` })
+  const creators = [...opf.matchAll(/<dc:creator\b[^>]*>([^<]*)</g)].map((m) => foldTitle(m[1]))
+  if (d.author && creators.length && !creators.includes(foldTitle(d.author))) out.push({ level: 'warn', msg: `PKG-004: the author in the package is “${creators.join(', ')}”, but Book_Details gives “${d.author}”.` })
   return out
 }

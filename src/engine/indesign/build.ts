@@ -1144,7 +1144,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
-  const { epub, files } = packageEpub({
+  const { epub, files, sections: planned } = packageEpub({
     meta: ship, sections, cover, images: imgOut, usedClasses,
     bodyDecls,
     review,
@@ -1160,7 +1160,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     ...[...fnSeen.keys()].map((id) => textOf(ex.footnotes.get(id))),
   ]
   const source: CheckSource = { words: srcText.flatMap(wordsOf), dropped, printIsbn: meta.printIsbn, printPages: input.printPages?.filter((p) => !p.blank && !p.bare && !movedPages.has(p.n)).map((p) => p.n), printLayout: input.printPages, pendingAi }
-  return { epub, files, sections, review, source, pictures }
+  return { epub, files, sections: planned, review, source, pictures }
 }
 
 // ---------------------------------------------------------------------------------------------

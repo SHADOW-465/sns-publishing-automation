@@ -6,6 +6,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { analyzeUa, buildUa } from '../src/engine/pdfua/index.ts'
 import { nodeRaster } from './raster-node.ts'
 import { AUTOMATION, read } from './samples.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const which = process.argv[2] ?? 'medium'
 const out = resolve(process.argv[3] ?? 'out')
@@ -22,7 +23,7 @@ for (const f of a.figures) console.log(' ', f.key, f.vector ? 'vector' : 'image'
 for (const r of a.review) console.log(r.level, r.msg)
 const r = await buildUa(a, { styles: a.styles, meta: { ...a.meta, isbn: which === 'simple' ? '9781036130527' : '' }, alt: Object.fromEntries(a.figures.map((f) => [f.key, f.alt || (which === 'simple' ? 'Pen & Sword History logo' : '')])), cropToTrim: true, sourceName: which === 'simple' ? 'Gladiators in the Greek World.pdf' : 'DD_Evers-Woelk_2124-6.pdf' })
 mkdirSync(out, { recursive: true })
-writeFileSync(resolve(out, r.fileName), r.pdf)
+await gatedWrite('pdf', r.pdf, resolve(out, r.fileName), r.review, { book: which })
 console.log('STATS', r.stats)
 for (const x of r.review) console.log(x.level, x.msg)
 console.log(`→ ${resolve(out, r.fileName)} (${((Date.now() - t) / 1000).toFixed(0)} s)`)

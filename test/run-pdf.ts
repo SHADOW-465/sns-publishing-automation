@@ -10,6 +10,7 @@ import { nodeRaster } from './raster-node.ts'
 import { read } from './samples.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { printReport } from './check-epub.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const [pdf, cover, outDir = 'out', eisbn = '9780000000002'] = process.argv.slice(2)
 const out = resolve(outDir)
@@ -21,7 +22,7 @@ console.log('CONTENTS', book.contents ? book.contents.entries.length + ' entries
 console.log('FRONT', book.front, 'imprint', book.imprintPage)
 const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn }, rules: rulesFor(book.meta.language), cover: { name: 'cover.jpg', data: read(resolve(cover)) } }, nodeRaster)
 mkdirSync(out, { recursive: true })
-writeFileSync(resolve(out, 'book.epub'), r.epub)
+await gatedWrite('epub', r.epub, resolve(out, 'book.epub'), r.review, { source: r.source, client: book.meta.publisher, book: eisbn })
 for (const [p, d] of r.files) {
   mkdirSync(resolve(out, 'unzipped', p, '..'), { recursive: true })
   writeFileSync(resolve(out, 'unzipped', p), d)

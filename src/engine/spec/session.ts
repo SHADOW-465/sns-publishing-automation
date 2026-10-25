@@ -6,6 +6,7 @@ import { emptyLayer, layerFromSettings, resolve, specHash, LEVEL_LABEL, type Lay
 import { bundledLayer } from './clients.ts'
 import type { OutputKind } from '../output/standards.ts'
 import type { LayerData } from './markup.ts'
+import type { BookDetails } from './bookdetails.ts'
 import { store, type Decision, type DecisionAction } from './store.ts'
 
 export interface SpecContext {
@@ -83,6 +84,17 @@ export async function applyLayerData(spec: Spec, level: Level, data: LayerData, 
   await store().saveLayer(next)
   const out = withLayer(spec, next)
   await log(out, actor, 'import', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: ${Object.keys(data.markup).length} markup template(s), ${Object.keys(data.styleMap).length} style meaning(s)${file ? ` — from ${file}` : ''}`)
+  return out
+}
+
+/** The client's Book_Details workbook, onto one layer (the book's): the file names, epub:type, roles and titles of every file. Recorded in the log. */
+export async function applyBookDetailsToSpec(spec: Spec, level: Level, details: BookDetails, actor: string): Promise<Spec> {
+  const layer = spec.layers.find((l) => l.level === level)
+  if (!layer) throw new Error(`There is no ${LEVEL_LABEL[level].toLowerCase()} layer for this book (name it first).`)
+  const next: Layer = { ...layer, bookDetails: details }
+  await store().saveLayer(next)
+  const out = withLayer(spec, next)
+  await log(out, actor, 'import', `${LEVEL_LABEL[level]}${layer.name ? ` (${layer.name})` : ''}: Book_Details with ${details.files.length} file row(s)${details.eisbn ? `, e-ISBN ${details.eisbn}` : ''} — from ${details.source || 'the workbook'}`)
   return out
 }
 

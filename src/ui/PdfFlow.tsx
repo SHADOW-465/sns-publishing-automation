@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { reviewList } from '../engine/review/confidence.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
@@ -17,7 +17,10 @@ import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts
 import { readRequirements } from '../engine/spec/requirements.ts'
 import type { WordBook } from '../engine/wordepub/read.ts'
 import { jobChoice, profileFor } from './job-choice.ts'
-import { settings } from '../engine/settings.ts'
+import { settings, setSettings, houseSettings } from '../engine/settings.ts'
+import { GatedDownload } from './GatedDownload.tsx'
+import { openSpec, applyBookDetailsToSpec } from '../engine/spec/session.ts'
+import { collectGate, uiStages, type ExportGate } from '../engine/check/exportgate.ts'
 import { outputViolations } from '../engine/output/standards.ts'
 
 // Print PDF, or a Word manuscript read from its heading styles, → EPUB 3. A .docx is the source when
@@ -44,6 +47,7 @@ export function PdfFlow() {
   const [pdf, setPdf] = useState<Picked>()
   const [docx, setDocx] = useState<Picked>()
   const [cover, setCover] = useState<Picked>()
+  const [bookDetails, setBookDetails] = useState<Picked>()
   const [busy, setBusy] = useState<string>()
   const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
@@ -57,6 +61,7 @@ export function PdfFlow() {
   const [report, setReport] = useState<CheckReport>()
   const [ec, setEc] = useState<ValidatorResult | null>()
   const [a11y, setA11y] = useState<A11yResult | null>()
+  const [gate, setGate] = useState<ExportGate>()
   const [alt, setAlt] = useState<Record<string, string>>({})
   const [ai, setAi] = useState<Record<string, AiDraft>>({})
   const [specPictures, setSpecPictures] = useState<SpecPicture[]>([])
@@ -122,7 +127,28 @@ export function PdfFlow() {
       setStep(1)
     })
 
+  /** the client's Book_Details file, read by the spec loader onto the book's layer (recorded in the log); only it is taken from the spec here */
+  const bookDetailsSettings = async () => {
+    if (!bookDetails) return undefined
+    let sp = await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title })
+    if (sp.layers.find((l) => l.level === 'book')?.bookDetails?.source !== bookDetails.name) {
+      const bd = readRequirements(bookDetails.name, bookDetails.data).bookDetails
+      if (!bd) throw new Error(`“${bookDetails.name}” is not a Book_Details file: it has no NAV-NCX sheet with a “Chapter Name” column.`)
+      sp = await applyBookDetailsToSpec(sp, 'book', bd, 'reviewer')
+    }
+    return { bookDetails: sp.resolved.settings.bookDetails, bookDetailsNav: sp.resolved.settings.bookDetailsNav }
+  }
   const rebuild = async (then?: number, over?: Over) => {
+    const details = await bookDetailsSettings()
+    if (details) setSettings({ ...houseSettings(), ...details })
+    try {
+      await rebuildBook(then, over)
+    } finally {
+      if (details) setSettings(houseSettings())
+    }
+  }
+  const rebuildBook = async (then?: number, over?: Over) => {
+    setGate(undefined)
     const altNow = over?.alt ?? alt
     const aiNow = over?.ai ?? ai
     const picsNow = over?.pictures ?? specPictures
@@ -182,9 +208,14 @@ export function PdfFlow() {
     }
     setBusy('Checking the e-book…')
     setProgress({ done: 2, total: 2 })
-    setReport(checkEpub(r.files, { ...r.source, printLayout: lay }))
-    setEc(await runEpubcheck(r.epub))
-    setA11y(await runAccessibility(r.epub))
+    const rep = checkEpub(r.files, { ...r.source, printLayout: lay })
+    setReport(rep)
+    const ecNow = await runEpubcheck(r.epub)
+    setEc(ecNow)
+    const a11yNow = await runAccessibility(r.epub)
+    setA11y(a11yNow)
+    // VAL-001: every guard and EPUBCheck, before any download
+    setGate(collectGate({ report: rep, review: r.review, stages: uiStages(r.files, settings(), ecNow, a11yNow) }))
     setStale(false)
     if (book) remember('pdfprofile', meta!.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     remember('copyright', meta!.publisher, rules)
@@ -282,6 +313,7 @@ export function PdfFlow() {
             <FileDrop label="Word manuscript" hint="a .docx — heading styles become the chapters" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" value={docx} onPick={setDocx} />
             <FileDrop label="Print PDF" hint={docx ? 'optional — compare the e-book with the printed pages' : 'the final print PDF of the book'} accept="application/pdf" value={pdf} onPick={setPdf} required={!docx} />
             <FileDrop label="Cover image" hint="front cover, JPG or PNG" accept="image/jpeg,image/png" value={cover} onPick={(c) => (setCover(c), setStale(true))} required />
+            <FileDrop label="Book_Details" hint="the client’s .xlsx: file names, epub:type and roles" accept=".xlsx" value={bookDetails} onPick={(b) => (setBookDetails(b), setStale(true))} />
           </div>
           <Help title="Word manuscript or print PDF?">
             <ul>
@@ -451,7 +483,7 @@ export function PdfFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <DeliverButton data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" errors={errors} label="Download EPUB" />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
           </div>
           <Help title="What happens after download?">
             Run EPUBCheck (file validity) and Ace by DAISY (accessibility) as the final check before delivery, and look through the book in a reader such as Apple Books

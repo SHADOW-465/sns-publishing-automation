@@ -321,6 +321,14 @@ export const RULES: Rule[] = [
     keywords: ['front matter in toc', 'back matter in nav', 'frontmatter nav', 'material preliminar en el índice'],
     origin: 'Design 4.3',
   },
+  {
+    id: 'FIL-01', group: 'Contents pages', title: 'Menu entries from the client’s Book_Details file', kind: 'free', type: 'choice', key: 'bookDetailsNav',
+    help: 'When the client gave a Book_Details workbook for the book, each file takes the title and menu level of its row (a row with no level has no menu entry). The file names, epub:type and roles from the workbook always apply; this only decides the menu. Keep the build’s own entries if the workbook’s titles are not the words the menu should show.',
+    choices: [['plan', 'As in the Book_Details file'], ['keep', 'As the build wrote them']],
+    example: (v) => (v === 'keep' ? '(the titles the build found on the pages)' : '<li><a href="chapter01.xhtml">Natur: Ackerland, Grünfläche, Urban Gardening</a></li>'),
+    keywords: ['book_details', 'book details', 'navigation level', 'chapter name', 'nav-ncx', 'file names', 'nombres de archivo'],
+    origin: 'Book_Details 24-10-26; rulebook FIL-001, NAV-001, NAV-002',
+  },
   // ---- package ----
   {
     id: 'PKG-01', group: 'Package', title: 'Text and data mining reservation', kind: 'free', type: 'choice', key: 'tdmReservation',

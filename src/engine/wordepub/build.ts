@@ -310,7 +310,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
-  const { epub, files } = packageEpub({
+  const { epub, files, sections: planned } = packageEpub({
     meta: ship,
     sections,
     cover,
@@ -328,7 +328,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     pendingAi,
     printPages: printPageCount ? input.printPages?.filter((p) => p.text.trim().length >= 24).map((p) => p.n) : undefined,
   }
-  return { epub, files, sections, review, pictures, source }
+  return { epub, files, sections: planned, review, pictures, source }
 }
 
 function tableHtml(t: WordTable, page: (n: string) => string, lang: string): string {

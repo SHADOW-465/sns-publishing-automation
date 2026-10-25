@@ -3,6 +3,7 @@
 // The UI edits them on the Settings screen (saved in the browser, exportable as JSON); tests use
 // the defaults. Every option is described in SETTING_HELP so the UI and the README say the same.
 // ponytail: one module-level value, set before a build; pass it explicitly if builds ever run concurrently.
+import type { BookDetails } from './spec/bookdetails.ts'
 
 /** Groups of CSS properties whose one-off change on a paragraph is worth a class of its own. */
 export const VARIANT_GROUPS = {
@@ -80,6 +81,8 @@ interface StructuredSettings {
   houseCss: string
   /** which kinds of override are worth a class of their own (others are typesetting noise) */
   variantOn: VariantGroup[]
+  /** the client's Book_Details workbook for this book (book layer): file names, epub:type, roles, menu titles. Absent = the engine's own names. */
+  bookDetails?: BookDetails
 }
 
 /** a CSS class name: letters, digits, - and _, not starting with a digit */
@@ -144,6 +147,8 @@ const SCHEMA = {
   headingLevels: { def: 'one', choices: ['one', 'size'] },
   /** NAV-05: deepest level of the navigation menu (1 = parts and chapters only) */
   navDepth: { def: 3, min: 1, max: 3 },
+  /** FIL-01: the menu entries (title and level) of a book come from the client's Book_Details file, or stay as the build wrote them */
+  bookDetailsNav: { def: 'plan', choices: ['plan', 'keep'] },
   /** NAV-06: front and back matter in the menu: every section, only those the book titles, or none (chapters and parts only) */
   navFront: { def: 'all', choices: ['all', 'named', 'none'] },
   /** FM-02: the title page lines follow the printed page (needs the print PDF), stay in the order of the export,
@@ -312,6 +317,7 @@ function sanitize(s: HouseSettings): HouseSettings {
     extraCss: typeof s.extraCss === 'string' ? s.extraCss : d.extraCss,
     houseCss: typeof s.houseCss === 'string' ? s.houseCss : d.houseCss,
     ...(Object.fromEntries(Object.entries(STD_CHOICES).map(([k, v]) => [k, (v as readonly unknown[]).includes(raw[k]) ? raw[k] : (d as unknown as Record<string, unknown>)[k]])) as StdOptions),
+    bookDetails: s.bookDetails && typeof s.bookDetails === 'object' && Array.isArray(s.bookDetails.files) ? s.bookDetails : undefined,
     variantOn: Array.isArray(s.variantOn) ? s.variantOn.filter((g) => g in VARIANT_GROUPS) : d.variantOn,
   }
 }
