@@ -130,7 +130,9 @@ export function Result({ result, meta }: { result: { epub: Uint8Array; files: Fi
 export function useObjectUrls(entries: [string, Uint8Array][], type?: string): Map<string, string> {
   const [urls, setUrls] = useState(() => new Map<string, string>())
   useEffect(() => {
-    const m = new Map(entries.map(([k, d]): [string, string] => {
+    const missing = entries.filter(([, d]) => !d).map(([k]) => k)
+    if (missing.length) console.warn('useObjectUrls: no data for', missing.join(', '))
+    const m = new Map(entries.filter(([, d]) => !!d).map(([k, d]): [string, string] => {
       // a zip entry is often a view into a larger buffer; copy it or the blob can be the wrong bytes
       const copy = new ArrayBuffer(d.byteLength)
       new Uint8Array(copy).set(d)

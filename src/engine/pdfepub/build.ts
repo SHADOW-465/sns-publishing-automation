@@ -16,6 +16,7 @@ import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 import { linkIndexLocators } from '../pdfua/indexlinks.ts'
+import { mergeLabelSections } from '../structure/labels.ts'
 
 // =============================================================================================
 // Print PDF → EPUB, step 2: rebuild the text flow, pictures and navigation.
@@ -596,6 +597,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   }
   closePara()
   flushFloats(Infinity)
+  // a chapter cut in two at its opener ("CHAPTER 1" | title + body) becomes one chapter
+  secs.splice(0, secs.length, ...mergeLabelSections(secs, (x) => titleCase(x.title.map(plain).join(' '))).map((x) => x as PSec))
 
   // ---------------------------------------------------------------- front matter pages
   const front: PSec[] = []

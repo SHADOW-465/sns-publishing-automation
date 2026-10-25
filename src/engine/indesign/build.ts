@@ -12,6 +12,7 @@ import {
   type AltMemory, type AltSource, type SpecPicture,
 } from '../epub/alt.ts'
 import { crossChecks } from '../structure/score.ts'
+import { isLabelLine, PART_LABEL } from '../structure/labels.ts'
 import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
 import { indesignNotes } from './notes.ts'
 import { type NoteFinding } from '../structure/notes.ts'
@@ -311,11 +312,6 @@ function withStyleMap<T extends { key: string; role: string; outClass: string }>
     return r ? { ...s, role: r.role, outClass: r.class || s.outClass } : s
   })
 }
-
-const NUM_WORD = '(\\d{1,3}|[ivxlcdm]{1,7}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|first|second|third|fourth|fifth|eins|zwei|drei|vier|f[üu]nf|uno|due|tre|quattro|cinque|dos|tres|cuatro)'
-/** A line that is only a chapter / part number: "CHAPTER 1", "Kapitel 3", "Part II", "ACT ONE", "7". */
-export const isLabelLine = (t: string) => new RegExp(`^\\s*((chapter|chapitre|kapitel|capitolo|cap[ií]tulo|part|partie|teil|parte|act|book|buch|libro)\\s+${NUM_WORD}|${NUM_WORD})\\s*[.:]?\\s*$`, 'i').test(t)
-const PART_LABEL = /^\s*(part|partie|teil|parte|act|book|buch|libro)\b/i
 
 export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const input = { ...rawInput, styles: withStyleMap(rawInput.styles, a.styles) }
