@@ -9,7 +9,7 @@ const isBody = (b: WordBlock): b is WordPara => b.role === 'body'
 
 /** Headings for a book that has none. Returns the blocks unchanged when there is no typed contents to go by. */
 export function headingsFromTypedContents(blocks: WordBlock[]): WordBlock[] {
-  if (blocks.some((b) => b.role === 'heading' && b.level <= 2)) return blocks
+  const heads = blocks.filter((b) => b.role === 'heading' && b.level <= 2)
   const limit = Math.max(40, Math.floor(blocks.length * 0.2))
   const at = blocks.findIndex((b, i) => i < limit && isBody(b) && CONTENTS.test(b.text.trim()))
   if (at < 0) return blocks
@@ -32,7 +32,10 @@ export function headingsFromTypedContents(blocks: WordBlock[]): WordBlock[] {
     } else if (lines.length > 4) break
   }
   if (entries.length < 2) return blocks
-  const out = blocks.slice()
+  // headings the reader guessed from formatting count only when they are the book's own: as many as the contents lists.
+  // A PDF converted to Word gives a few stray ones ("52 JOHN KINCAID", a running head set bold): the contents decides then.
+  if (heads.length >= Math.ceil(entries.length / 2)) return blocks
+  const out = blocks.map((b) => (b.role === 'heading' && b.level <= 2 ? ({ ...b, role: 'body' } as WordBlock) : b))
   out[at] = { role: 'tocmark' }
   for (let i = at + 1; i < end; i++) if (isBody(out[i])) (out[i] as WordPara).text.trim() && (out[i] = { ...(out[i] as WordPara), text: '', inlines: [] })
   let from = end
