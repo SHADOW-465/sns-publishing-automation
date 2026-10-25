@@ -29,3 +29,11 @@ test('a stray guessed heading (a bold running head in a PDF-converted file) does
   const heads = headingsFromTypedContents(blocks).filter((x) => x.role === 'heading').map((x) => (x as { text: string }).text)
   assert.deepEqual(heads, ['INTRODUCCIÓN', 'EL FEDERALISMO COERCITIVO', 'FEDERALISMO EN BRASIL', 'RECENTRALIZACIÓN EN MÉXICO'])
 })
+
+test('numbered entries and titles read as list items still name the chapters', () => {
+  const li = (text: string) => ({ ...(b(text) as object), role: 'list' }) as WordBlock
+  const blocks = [b('ÍNDICE'), b('Introducción . . . . . . 9'), li('Constituciones estatales:'), b('control federal en Brasil'), b('Cláudio Couto 23'), li('El federalismo coercitivo'), b('John Kincaid 51'),
+    b('INTRODUCCIÓN'), b(filler), li('CONSTITUCIONES ESTATALES:'), b('CONTROL FEDERAL EN BRASIL'), b('Cláudio Couto'), b(filler), li('EL FEDERALISMO COERCITIVO'), b('John Kincaid'), b(filler)]
+  const heads = headingsFromTypedContents(blocks).filter((x) => x.role === 'heading').map((x) => (x as { text: string }).text)
+  assert.deepEqual(heads, ['INTRODUCCIÓN', 'CONSTITUCIONES ESTATALES: CONTROL FEDERAL EN BRASIL', 'EL FEDERALISMO COERCITIVO'])
+})

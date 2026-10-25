@@ -5,7 +5,8 @@ import { normTitle, type WordBlock, type WordPara } from './read.ts'
 const CONTENTS = /^(contents|table of contents|indice|índice|indice general|contenido|sumario|inhalt|inhaltsverzeichnis|sommaire|table des matieres|table des matières|sommario|indice dei contenuti)$/i
 const ENDS_PAGE = /(?:\.\s*){0,}\s*\d{1,4}$/
 
-const isBody = (b: WordBlock): b is WordPara => b.role === 'body'
+// a numbered entry or chapter title ("1. Constituciones…") comes in as a list item: it is a line of text all the same
+const isBody = (b: WordBlock): b is WordPara => b.role === 'body' || (b.role === 'list' && typeof (b as WordPara).text === 'string')
 
 /** Headings for a book that has none. Returns the blocks unchanged when there is no typed contents to go by. */
 export function headingsFromTypedContents(blocks: WordBlock[]): WordBlock[] {
