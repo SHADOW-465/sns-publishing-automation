@@ -24,8 +24,11 @@ test('index locators are the page numbers after the name, not numbers inside the
   assert.deepEqual(indexNumberSpans('World War 2, 14').map((s) => s.pageNo), [14])
   assert.deepEqual(indexNumberSpans('Smith, John, 12, 14').map((s) => s.pageNo), [12, 14])
   const range = indexNumberSpans('Rome, 48–9')
-  assert.deepEqual(range.map((s) => s.pageNo), [48])
+  assert.deepEqual(range.map((s) => s.pageNo), [48, 49])
   assert.equal(range[0].end - range[0].start, 2)
+  assert.equal('Rome, 48–9'.slice(range[1].start, range[1].end), '9')
+  assert.deepEqual(indexNumberSpans('Writers, 266-69, 105-8').map((s) => s.pageNo), [266, 269, 105, 108])
+  assert.equal(indexNumberSpans('Edge, 199-02')[1].pageNo, 202)
 })
 
 test('an accessible EPUB refuses a chapter opening that is not a heading', () => {

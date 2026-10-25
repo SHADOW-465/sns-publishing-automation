@@ -1,6 +1,21 @@
 // Pixel work the pipelines need, implemented per platform: browser (OffscreenCanvas) in
 // src/ui/raster-browser.ts, Node (@napi-rs/canvas) in test/raster-node.ts.
 
+/** pdf.js decodes pictures asynchronously: wait for the object instead of polling it */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function imageObject(page: any, id: string): Promise<unknown> {
+  const store = id.startsWith('g_') ? page.commonObjs : page.objs
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 20000)
+    try {
+      store.get(id, (o: unknown) => (clearTimeout(timer), resolve(o)))
+    } catch {
+      clearTimeout(timer)
+      resolve(null)
+    }
+  })
+}
+
 export interface Crop {
   l: number
   t: number

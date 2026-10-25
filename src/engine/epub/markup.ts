@@ -31,7 +31,8 @@ export function noteRef(href: string, id: string, label: string): string {
   const attrs = attrsOf(t?.attrs)
   const a = `<a epub:type="noteref" href="${href}"${id ? ` id="${id}"` : ''} role="doc-noteref"${attrs}>${label}</a>`
   const wrap = t?.wrap ?? 'sup'
-  return wrap ? `<${wrap}>${a}</${wrap}>` : a
+  const cls = wrap && t?.class ? ` class="${esc(t.class)}"` : ''
+  return wrap ? `<${wrap}${cls}>${a}</${wrap}>` : a
 }
 
 /** NOTE-05: the number a note shows: the source's own mark, its place in the book, or its place in its chapter. */

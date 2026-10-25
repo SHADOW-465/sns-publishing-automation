@@ -4,7 +4,7 @@ import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
 import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { unzip, text } from '../engine/zip.ts'
-import { analyze, build, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
+import { analyzeSteps, build, usePdfPictures, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
 import { ALT_SOURCE_LABEL, decorativeReason, isPlaceholderAlt, matchSpecPicture, needsLongDescription, settleAlt } from '../engine/epub/alt.ts'
 import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
@@ -16,6 +16,8 @@ import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
 import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec } from '../engine/spec/session.ts'
 import { CheckFirst } from './CheckFirst.tsx'
+import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
+import { browserRaster } from './raster-browser.ts'
 import { reviewList } from '../engine/review/confidence.ts'
 import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings, settings } from '../engine/settings.ts'
@@ -73,12 +75,12 @@ export function IndesignFlow() {
   const onAnalyse = () =>
     run('Reading the InDesign export…', async () => {
       const files = unzip(exp!.data)
-      let a = analyze(files)
+      let a = await analyzeSteps(files, {}, [], (label) => setBusy(label))
       // the client's own style decisions (its layer's styleMap) apply before any guess
       const sp0 = await openSpec({ client: a.meta.publisher, series: '', book: a.meta.title })
       applySpec(sp0)
       try {
-        a = analyze(files)
+        a = await analyzeSteps(files, {}, [], (label) => setBusy(label))
       } finally {
         setSettings(houseSettings())
       }
@@ -89,7 +91,7 @@ export function IndesignFlow() {
         remember('profile', a.meta.publisher, {})
         applySpec(moved)
         try {
-          a = analyze(files)
+          a = await analyzeSteps(files, {}, [], (label) => setBusy(label))
         } finally {
           setSettings(houseSettings())
         }
@@ -109,10 +111,22 @@ export function IndesignFlow() {
       if (pdf) {
         setBusy('Reading the print PDF…')
         const { printPagesOf } = await import('./pdf.ts') // pdf.js is large: load it only when needed
-        setPrintPages(await printPagesOf(pdf.data, (done, total) => {
+        const pp = await printPagesOf(pdf.data, (done, total) => {
           setBusy(`Reading the print PDF, page ${done} of ${total}…`)
           setProgress({ done, total })
-        }))
+        })
+        setPrintPages(pp)
+        // the package lacks pictures the export refers to: take them from the print PDF (IMG-009)
+        if (missingPictures(a.ex).length) {
+          const { pdfjs } = await import('./pdf.ts')
+          const pics = await readPdfPictures(pdfjs, pdf.data, browserRaster, pp, (done, total) => {
+            setBusy(`Taking the pictures from the print PDF, page ${done} of ${total}…`)
+            setProgress({ done, total })
+          })
+          usePdfPictures(a, pics)
+          setAnalysis({ ...a })
+          setImages(a.images)
+        }
       } else setPrintPages(undefined)
       setStep(1)
     })

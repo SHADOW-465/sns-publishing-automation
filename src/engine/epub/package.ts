@@ -6,7 +6,7 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
-import { postBuildGuards } from '../check/guards.ts'
+import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards } from '../check/guards.ts'
 
 export interface BookMeta {
   title: string
@@ -88,6 +88,7 @@ export function toStandard(body: string, L: Pick<Labels, 'imageAlt' | 'decorativ
   if (o.stdFigures === 'div') {
     out = out.replace(/<figure\b([^>]*)>/g, '<div$1>').replace(/<\/figure>/g, '</div>')
     out = out.replace(/(<div class="fig_group">\s*)(<img\b[^>]*\/>)/g, '$1<p class="image_Container">$2</p>') // the picture sits in its own paragraph
+    out = out.replace(/<figcaption\b[^>]*>\s*(<p\b[\s\S]*?<\/p>)\s*<\/figcaption>/g, '$1')
     out = out.replace(/<figcaption\b([^>]*)>/g, '<p$1>').replace(/<\/figcaption>/g, '</p>')
   }
   // tables: bare rows, header cells as plain cells (class tbl-h keeps them bold)
@@ -214,6 +215,10 @@ export function packageEpub(p: {
   review: ReviewItem[]
   /** ready-made stylesheet (PDF pipeline); otherwise generated from InDesign styles */
   css?: string
+  /** pictures in the print PDF: the e-book must hold as many (IMG-011) */
+  printPictures?: number
+  /** ruled tables in the print PDF: the e-book must hold as many (TBL-001) */
+  printTables?: number
 }): { epub: Uint8Array; files: Files } {
   const { meta, review } = p
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
@@ -439,5 +444,11 @@ ${settings().writeGuide ? `<guide>
 
   review.push(...validateEpub(files).filter((x) => !(standard && x.msg === "Document has no heading."))) // a standard EPUB has paragraphs, not heading elements
   for (const msg of postBuildGuards(files)) review.push({ level: 'warn', msg })
+  review.push(...pictureGuards(files, p.printPictures))
+  review.push(...figureGuards(files))
+  review.push(...noteRefGuards(files, settings().markup.noteref?.wrap))
+  review.push(...indexRangeGuards(files))
+  review.push(...tableGuards(files, p.printTables))
+  review.push(...scriptGuards(files))
   return { epub: zipEpub(files), files }
 }

@@ -130,7 +130,7 @@ export function inlineText(p: Element, css: StyleSheet, lang: string): string {
 }
 
 export const isNoteRef = (a: Element) =>
-  epubType(a) === 'noteref' || a.getAttribute('role') === 'doc-noteref' || classesOf(a).includes('_idFootnoteLink')
+  epubType(a) === 'noteref' || a.getAttribute('role') === 'doc-noteref' || classesOf(a).some((c) => c === '_idFootnoteLink' || c === '_idEndnoteLink')
 
 const URLISH = /^(https?:\/\/|www\.)/i
 const EMAIL = /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/

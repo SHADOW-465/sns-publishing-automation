@@ -1,7 +1,7 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
 import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
-import type { ImgBox, FillBox } from '../pdf/layout.ts'
+import { joinRaisedLines, type ImgBox, type FillBox } from '../pdf/layout.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type SectionType } from '../epub/locale.ts'
@@ -15,6 +15,7 @@ import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
+import { linkIndexLocators } from '../pdfua/indexlinks.ts'
 
 // =============================================================================================
 // Print PDF → EPUB, step 2: rebuild the text flow, pictures and navigation.
@@ -103,7 +104,13 @@ function autolink(escaped: string) {
 }
 
 const noteMark = (id: number, label: string) => noteRef(`#fn-${id}`, `fnr-${id}`, esc(label))
-const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => (r.noteId ? { t: noteMark(r.noteId, r.text.trim()), raw: true } : { t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }))
+const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => {
+  if (r.noteId) return { t: noteMark(r.noteId, r.text.trim()), raw: true }
+  const bit = r.text.trim()
+  if (bit && r.sup) return { t: `<sup>${esc(bit)}</sup>`, raw: true }
+  if (bit && r.sub) return { t: `<sub>${esc(bit)}</sub>`, raw: true }
+  return { t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }
+})
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
 
 /**
@@ -153,6 +160,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = []
   // matched footnotes become real notes; the foot lines leave the page text (once, however often the book is rebuilt)
+  if (!book.footnotes) for (const p of book.pages) p.lines = joinRaisedLines(p.lines)
   const footnotes = (book.footnotes ??= extractFootnotes(book.pages, book.bodySize))
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
@@ -238,6 +246,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   type Para = { kind: 'body' | 'extract' | 'text' | 'caption' | 'hang' | 'li'; first: string; segs: Seg[]; last?: PLine; lastPage: number; dropcap?: string; cont?: boolean; bx?: number }
   let para: Para | null = null
   let pending = '' // page marker waiting for the next text
+  let tableCount = 0
   let floats: Float[] = []
   const lastPdf = { page: 0 }
   const tocLike = (s: PSec | null) => s?.type === 'toc' || s?.type === 'index' || s?.type === 'list'
@@ -396,6 +405,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const used = new Set([...capOf.values()])
     // ruled grids are tables: their text goes into cells, and the table is placed where its first line stands
     const tables = detectTables(page)
+    tableCount += tables.filter((t) => t.lines.length).length
     const inTable = new Set<PLine>(tables.flatMap((t) => t.lines))
     const tableAt = new Map<PLine, PdfTable<PLine>>(tables.map((t) => [[...t.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0)[0], t]))
     const flow = lines.filter((l) => !inBox.has(l) && (!inTable.has(l) || tableAt.has(l)) && !(roleOf(l) === 'caption' && groups.some((g) => used.has(g) && g.lines.includes(l))))
@@ -750,9 +760,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     let body = bodyOf.get(s)!
     // index links: page N → the file that holds page N's marker (or the closest page before it)
     body = body.replace(/href="#pg:(\d+)"/g, (_, n: string) => {
-      let k = Number(n)
+      const want = Number(n)
+      let k = want
       while (k > 0 && !pageFile.has(String(k))) k--
       if (!pageFile.has(String(k))) return 'href="#"'
+      if (k < want) review.push({ level: 'error', msg: `IDX-002: an index link asked for page ${want} and fell back to page ${k}, an earlier page. The abbreviated end should expand to the page that holds the marker.` })
       return `href="${pageFile.get(String(k))}#page-${k}"`
     })
     const named = s.title.length && !(s.type === 'chapter' && settings().chapterOpener === 'split')
@@ -787,9 +799,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
+  const printPictures = book.pages.reduce((n, p) => n + p.images.length, 0)
   const { epub, files } = packageEpub({
     meta: ship, sections: navSections, cover, images, review,
     usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book), typography()),
+    printPictures,
+    printTables: tableCount,
   })
   // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
   for (const p of book.pages) for (const l of p.lines) if (roleOf(l) === 'drop') dropped.push(l.text)
@@ -1046,7 +1061,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     }
     return entries
       .map((e) => {
-        const html = segHtml(e.segs).replace(/(^|[\s,–-])(\d{1,4})(?=$|[\s,–-])/g, (_, pre: string, n: string) => `${pre}<a href="#pg:${n}">${n}</a>`)
+        const html = linkIndexLocators(segHtml(e.segs))
         return `<p class="${e.level === 2 ? 'Index2' : e.groupStart ? 'Index1-t' : 'Index1'}">${html}</p>`
       })
       .join('\n')

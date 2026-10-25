@@ -68,6 +68,15 @@ export function indesignFeatures(ex: Export, ctx: FeatureCtx): Map<PBlock, Block
   })
   const navEntries = ctx.nav.map((n) => ({ ...n, n: norm(n.text) })).filter((n) => n.n.length > 3)
 
+  const nextAt: (PBlock | undefined)[] = new Array(stream.length)
+  {
+    let nxt: PBlock | undefined
+    for (let i = stream.length - 1; i >= 0; i--) {
+      nextAt[i] = nxt
+      const b = stream[i]
+      if (b.t === 'p' && b.text) nxt = b
+    }
+  }
   let prevPb = false
   for (const [i, b] of stream.entries()) {
     if (b.t === 'pb') {
@@ -84,7 +93,7 @@ export function indesignFeatures(ex: Export, ctx: FeatureCtx): Map<PBlock, Block
     const d = ctx.decl(b.key)
     const face = ex.css.paragraphFace(b.classes)
     const toc = ctx.isTocLine(b)
-    const nb = nextText(stream, i)
+    const nb = nextAt[i]
     const nk = norm(b.text)
     const nav = !toc && b.text.length <= 140 ? navEntries.find((n) => n.n === nk || (nk.length >= 6 && n.n.startsWith(nk))) : undefined
     const cont = !toc && (at.get(b) ?? 0) > lastToc ? entries.get(nk) : undefined
@@ -115,9 +124,3 @@ export function indesignFeatures(ex: Export, ctx: FeatureCtx): Map<PBlock, Block
   return out
 }
 
-function nextText(stream: Block[], i: number): PBlock | undefined {
-  for (let j = i + 1; j < stream.length; j++) {
-    const n = stream[j]
-    if (n.t === 'p' && n.text) return n
-  }
-}

@@ -16,7 +16,20 @@ export function indesignNotes(ex: Export, roleOf: (b: PBlock) => Role): NoteFind
 
   // InDesign's own notes: the reference is a link, the note is a collected element; ids tie them together
   const refs: NoteMark[] = []
-  for (const b of ps) for (const a of Array.from(b.el.querySelectorAll('a')).filter(isNoteRef)) {
+  const els = (el: Element, tagName: string) => {
+    const out: Element[] = []
+    const walk = (e: Element) => {
+      for (const n of Array.from(e.childNodes)) {
+        if (n.nodeType !== 1) continue
+        const c = n as Element
+        if (c.localName === tagName) out.push(c)
+        walk(c)
+      }
+    }
+    walk(el)
+    return out
+  }
+  for (const b of ps) for (const a of els(b.el, 'a').filter(isNoteRef)) {
     const id = (a.getAttribute('href') ?? '').split('#')[1] ?? ''
     if (id) refs.push({ label: textOf(a).trim() || id, scope: 'book', where: b.page ? `page ${b.page}` : '', id })
   }
@@ -66,7 +79,7 @@ export function indesignNotes(ex: Export, roleOf: (b: PBlock) => Role): NoteFind
     for (const b of ps) {
       if (roleOf(b) === 'chapter-title' && b.text) chapter = short(b.text)
       if (seen.has(b)) continue
-      for (const s of Array.from(b.el.querySelectorAll('sup'))) {
+      for (const s of els(b.el, 'sup')) {
         if (s.closest('a') || classesOf(s).includes('_idFootnoteLink')) continue
         const t = textOf(s).trim()
         if (/^\d{1,3}$/.test(t)) typedRefs.push({ label: t, scope: scoped ? chapter : 'book', where: b.page ? `page ${b.page}` : '' })

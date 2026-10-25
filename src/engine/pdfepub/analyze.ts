@@ -1,4 +1,5 @@
 import { pageLayout, splitSpread, isBoldFont, type Line, type PageLayout } from '../pdf/layout.ts'
+import { clusterDrawings } from '../pdf/drawings.ts'
 import { isSlug } from '../pdf/slug.ts'
 import { readContents, readLists, matchHeadings, type Contents } from './contents.ts'
 import { fillNumbers } from '../pdf/numbers.ts'
@@ -7,7 +8,7 @@ import { languageFromBook } from '../lang.ts'
 import { COMPANY, CREDIT, FILEISH } from '../indesign/front.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
-import type { Raster } from '../pdf/raster.ts'
+import { imageObject, type Raster } from '../pdf/raster.ts'
 import { decide, evidence, scoreStyle, type Canon, type Evidence } from '../structure/score.ts'
 import { styleStats, type StyleStats } from '../structure/features.ts'
 import { pdfFeatures } from './features.ts'
@@ -103,20 +104,6 @@ export function titleCase(s: string): string {
   return s.toLowerCase().replace(/\p{L}[\p{L}'’]*/gu, (w, i: number) => (i > 0 && small.test(w) ? w : w[0].toUpperCase() + w.slice(1)))
 }
 
-/** pdf.js decodes pictures asynchronously: wait for the object instead of polling it */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function imageObject(page: any, id: string): Promise<unknown> {
-  const store = id.startsWith('g_') ? page.commonObjs : page.objs
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), 20000)
-    try {
-      store.get(id, (o: unknown) => (clearTimeout(timer), resolve(o)))
-    } catch {
-      clearTimeout(timer)
-      resolve(null)
-    }
-  })
-}
 
 /** column starts of a set of lines: clusters of left edges at least 60pt apart */
 export function columnStarts(lines: Line[]): number[] {
@@ -147,9 +134,22 @@ export async function analyzePdf(
   const raw: PageLayout[] = []
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i)
-    const layout = await pageLayout(pdfjs, page, i - 1)
+    const layout = await pageLayout(pdfjs, page, i - 1, { unrotate: opts.structure !== false })
+    // a chart drawn as vectors has no image XObject: rasterise the drawing and drop the labels that sit inside it.
+    // PDF/UA (structure: false) keeps the vectors and the labels; it tags the chart itself.
+    for (const box of opts.structure === false ? [] : clusterDrawings(layout)) {
+      const jpeg = await raster.page(page, Math.min(MAX_IMAGE_SIDE, Math.max(80, Math.round((box.y1 - box.y0) * 3))), box).catch(() => null)
+      if (!jpeg) continue
+      layout.images.push({ id: `vector-${layout.images.length}`, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, crop: { l: 0, t: 0, r: 1, b: 1 }, jpeg })
+      layout.lines = layout.lines.filter((l) => {
+        const cx = (l.x0 + l.x1) / 2
+        const cy = l.y + l.size / 2
+        return !(cx > box.x0 && cx < box.x1 && cy > box.y0 && cy < box.y1)
+      })
+    }
     // pictures are decoded while the page is read: encode them now instead of decoding twice
     for (const im of layout.images) {
+      if (im.jpeg) continue
       const obj = await imageObject(page, im.id)
       im.jpeg = obj ? await raster.image(obj, im.crop, MAX_IMAGE_SIDE).catch(() => null) : null
     }

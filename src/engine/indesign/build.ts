@@ -23,6 +23,7 @@ import { settings, isHousePrintOnly, variantProps, type StyleRule } from '../set
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
+import { pairPictures, type PdfPicture } from './pdfpictures.ts'
 
 // =============================================================================================
 // InDesign EPUB export  →  house-style accessible EPUB 3
@@ -64,6 +65,8 @@ export interface Analysis {
   review: ReviewItem[]
   /** the kinds of notes the book has, each reference matched to its note (design §3.4) */
   notes: NoteFinding[]
+  /** pictures counted in the print PDF, once it was read for them (IMG-011) */
+  printPictures?: number
 }
 
 export interface BuildInput {
@@ -116,37 +119,12 @@ export function styleRuleFor(key: string): StyleRule | undefined {
   return rules.findLast((x) => x.match === key) ?? rules.find((x) => x.match && hits(x))
 }
 
-export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture[] = []): Analysis {
-  const ex = readExport(files)
-  const styles = inferProfile(ex, { ...saved, ...styleMapProfile(ex) })
-  const role = new Map(styles.map((s) => [s.key, s.role]))
-  const review: ReviewItem[] = []
-
-  const fm = detectMeta(ex, (b) => role.get(b.key) ?? 'p')
-  const meta: BookMeta = {
-    title: fm.title,
-    subtitle: fm.subtitle,
-    authors: fm.author,
-    publisher: fm.publisher,
-    language: ex.lang,
-    eisbn: '',
-    printIsbn: fm.printIsbn,
-    rights: fm.rights,
-    certifiedBy: '',
-    conformsTo: '',
-  }
-  const publisher = fm.publisher
-  for (const [k, label] of [['title', 'Title'], ['author', 'Author'], ['publisher', 'Publisher']] as const) {
-    const v = k === 'author' ? fm.author : fm[k]
-    if (!v) review.push({ level: 'warn', msg: `${label} could not be found in the book — type it in under Book details.` })
-    else if (/check/.test(fm.source[k])) review.push({ level: 'warn', msg: `${label} “${v}” was taken from the ${fm.source[k]}.` })
-  }
-
-  // images: guess where each belongs (cover placeholder is replaced by the uploaded cover)
+/** Where each picture of the export belongs (the cover placeholder is replaced by the uploaded cover). */
+function imageChoices(ex: Export, publisher: string, pictures: SpecPicture[]): ImageChoice[] {
   const lastText = ex.blocks.findLastIndex((b) => b.t === 'p' && !!b.text)
   const images: ImageChoice[] = []
   for (const [src, data] of ex.images) {
-    if (src === ex.coverImage) continue
+    if (src === ex.coverImage || !data.length) continue
     const { width, height } = imageSize(data)
     const at = ex.blocks.findIndex((b) => b.t === 'img' && b.src === src)
     const given = at < 0 ? '' : (ex.blocks[at] as { alt: string }).alt // alt text set in InDesign's object export options
@@ -173,11 +151,78 @@ export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture
     }
     images.push(settleAlt(choice))
   }
+  return images
+}
+
+/** The package lacks pictures the export refers to: take them from the print PDF (IMG-009). Returns what could not be paired. */
+export function usePdfPictures(a: Analysis, pics: PdfPicture[], pictures: SpecPicture[] = []): string[] {
+  a.printPictures = pics.length
+  const { paired, unmatched } = pairPictures(a.ex, pics)
+  for (const [src, data] of paired) a.ex.images.set(src, data)
+  if (paired.size) {
+    a.images = imageChoices(a.ex, a.meta.publisher, pictures)
+    a.review.push({ level: 'info', msg: `${paired.size} picture(s) were not in the InDesign package; taken from the print PDF.` })
+  }
+  if (unmatched.length) a.review.push({ level: 'error', msg: `${unmatched.length} picture(s) are not in the InDesign package and could not be matched to the print PDF (${unmatched.slice(0, 3).map((s) => s.split('/').pop()).join(', ')}).` })
+  return unmatched
+}
+
+export type StageFn = (label: string) => void
+
+function finishAnalysis(ex: Export, styles: StyleInfo[], pictures: SpecPicture[]): Analysis {
+  const role = new Map(styles.map((s) => [s.key, s.role]))
+  const review: ReviewItem[] = []
+
+  const fm = detectMeta(ex, (b) => role.get(b.key) ?? 'p')
+  const meta: BookMeta = {
+    title: fm.title,
+    subtitle: fm.subtitle,
+    authors: fm.author,
+    publisher: fm.publisher,
+    language: ex.lang,
+    eisbn: '',
+    printIsbn: fm.printIsbn,
+    rights: fm.rights,
+    certifiedBy: '',
+    conformsTo: '',
+  }
+  for (const [k, label] of [['title', 'Title'], ['author', 'Author'], ['publisher', 'Publisher']] as const) {
+    const v = k === 'author' ? fm.author : fm[k]
+    if (!v) review.push({ level: 'warn', msg: `${label} could not be found in the book — type it in under Book details.` })
+    else if (/check/.test(fm.source[k])) review.push({ level: 'warn', msg: `${label} “${v}” was taken from the ${fm.source[k]}.` })
+  }
+
+  const images = imageChoices(ex, fm.publisher, pictures)
   if (!ex.footnotes.size && ex.blocks.some((b) => b.t === 'p' && b.el.querySelector('a[href*="footnote"]')))
     review.push({ level: 'warn', msg: 'Footnote references found but no footnote text — check the InDesign export options.' })
   const sources = { title: fm.source.title, subtitle: fm.source.subtitle, authors: fm.source.author, publisher: fm.source.publisher, printIsbn: fm.printIsbn ? 'copyright page' : '' }
   const notes = indesignNotes(ex, (b) => role.get(b.key) ?? 'p')
   return { ex, styles, meta, sources, images, review, notes }
+}
+
+/** Read the export, decide styles, then the front matter. `onStage` fires before each step (the caller can paint between them). */
+export function analyze(files: Files, saved: Profile = {}, pictures: SpecPicture[] = [], onStage?: StageFn): Analysis {
+  onStage?.('Reading the export')
+  const ex = readExport(files)
+  onStage?.('Deciding styles')
+  const styles = inferProfile(ex, { ...saved, ...styleMapProfile(ex) })
+  onStage?.('Front matter and pictures')
+  return finishAnalysis(ex, styles, pictures)
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0))
+
+/** Same as analyze, yielding between stages so a status line can paint while a long book is read. */
+export async function analyzeSteps(files: Files, saved: Profile = {}, pictures: SpecPicture[] = [], onStage: StageFn = () => {}): Promise<Analysis> {
+  onStage('Reading the export')
+  await tick()
+  const ex = readExport(files)
+  onStage('Deciding styles')
+  await tick()
+  const styles = inferProfile(ex, { ...saved, ...styleMapProfile(ex) })
+  onStage('Front matter and pictures')
+  await tick()
+  return finishAnalysis(ex, styles, pictures)
 }
 
 /** The caption after a picture, and a little of the text before it. */
@@ -204,14 +249,20 @@ function textAround(blocks: Block[], at: number): { caption: string; nearby: str
   return { caption, nearby }
 }
 
-/** Alt text written into the e-book. Decorative pictures are empty on purpose. A missing description stays empty: the word "Bild" is not a description. */
-function pictureHtml(c: ImageChoice, name: string, longId: string, lang: string): string {
+/** A picture caption style (German BU / Bildunterschrift, Spanish pie / leyenda, or a name that says caption). */
+const CAPTION_STYLE = /(?:^|[\s_-])(?:caption\d*|bildunterschrift|bildlegende|figcaption|leyenda|bu|pie)(?:$|[\s_-])/i
+
+/** Alt text written into the e-book. Decorative pictures are empty on purpose. A missing description stays empty: the word "Bild" is not a description.
+ *  The caption, when the next paragraph is a caption style, is a figcaption inside the figure (FIG-001, FIG-003). */
+function pictureHtml(c: ImageChoice, name: string, longId: string, lang: string, caption?: { cls: string; inner: string }): string {
   const described = longId ? ` aria-describedby="${longId}"` : ''
   const long = longId ? longDescHtml(longId, c.longDesc, lang) : ''
   const f = figureWrap('fig_group')
-  if (c.decorative) return `${f.open}<img alt="" role="presentation" src="${name}"/>${f.close}`
+  const tag = settings().markup.figure?.tag === 'div' ? 'div' : 'figure'
+  const cap = caption ? (tag === 'figure' ? `<figcaption><p class="${esc(caption.cls)}">${caption.inner}</p></figcaption>` : `<p class="${esc(caption.cls)}">${caption.inner}</p>`) : ''
+  if (c.decorative) return `${f.open}<img alt="" role="presentation" src="${name}"/>${cap}${f.close}`
   const alt = c.alt.trim() && !isPlaceholderAlt(c.alt) ? c.alt.trim() : ''
-  return `${f.open}<img alt="${esc(alt)}"${described} src="${name}"/>${long}${f.close}`
+  return `${f.open}<img alt="${esc(alt)}"${described} src="${name}"/>${long}${cap}${f.close}`
 }
 
 export const norm = (s: string) =>
@@ -579,6 +630,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const variants = new Map<string, string>() // "p.Style|rule" → variant class name
   const alignTally = new Map<string, Map<string, number>>() // how the source aligns each style's paragraphs
   const imgOut: ImageOut[] = []
+  const lostPics: string[] = [] // pictures the export refers to that the package does not hold
   const imgChoice = new Map(input.images.map((i) => [i.src, i]))
   const imgName = (src: string) => withRealExt('images/' + src.split('/').pop()!.toLowerCase().replace(/[^a-z0-9._-]+/g, '_'), ex.images.get(src) ?? new Uint8Array())
   let linkedNotes = 0
@@ -820,6 +872,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       return classFor('td', cls, majority(`td.${cls}`) ?? d, d, 'all', (x) => x)
     }
     let body = ''
+    const consumed = new Set<Block>()
     const meta0 = SECTION_META[s.type]
     const heading = renderHeading(s, ctx, classOf, styleDeclsOf, use, bodyDecls)
     const items: Item[] = []
@@ -833,13 +886,16 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       items.push({ kind: 'other', html: hold.figure })
       hold = undefined
     }
-    for (const b of isFront || tocHtml.has(s) ? [] : s.items) {
+    for (let bi = 0; bi < (isFront || tocHtml.has(s) ? 0 : s.items.length); bi++) {
+      const b = s.items[bi]
+      if (consumed.has(b)) continue
       if (b.t === 'pb') {
         items.push({ kind: 'other', html: ctx.pageMarker(b.n) })
         continue
       }
       if (b.t === 'img') {
         const c = imgChoice.get(b.src)
+        if (!c && b.src !== ex.coverImage && !lostPics.includes(b.src)) lostPics.push(b.src)
         if (!c || c.placement !== 'inline') continue
         const name = imgName(b.src)
         imgOut.push({ path: name, data: ex.images.get(b.src)! })
@@ -847,9 +903,24 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         if (!filled && !c.decorative) review.push({ level: settings().altRequired, msg: `Picture ${name.replace('images/', '')} needs a description (alt text), or mark it as decorative.`, where: file })
         const longId = filled && !c.decorative && c.longDesc.trim() ? `longdesc-${longNo++}` : ''
         if (longId) use('p', 'longdesc', { 'font-size': '0.9em', 'margin-top': '0.4em', 'text-indent': '0' })
-        const figure = pictureHtml(c, name, longId, meta.language)
+        let cap: { cls: string; inner: string } | undefined
+        for (let j = bi + 1; j < s.items.length && j < bi + 6; j++) {
+          const n = s.items[j]
+          if (n.t === 'pb' || (n.t === 'p' && !n.text)) continue
+          if (n.t === 'p' && roleOf(n) === 'p' && CAPTION_STYLE.test(`${n.key} ${classOf(n)}`)) {
+            consumed.add(n)
+            cap = { cls: classAttr('p', n, classOf(n)), inner: inlineHtml(n.el, ctx) }
+          }
+          break
+        }
+        const figure = pictureHtml(c, name, longId, meta.language, cap)
         const target = moveImg.get(b)
-        if (target) {
+        if (target && cap) {
+          releaseHold()
+          const token = `figpark${parkNo++}`
+          parked.push({ target, home: file, html: figure, token, src: b.src })
+          items.push({ kind: 'other', html: `<!--${token}-->` })
+        } else if (target) {
           releaseHold()
           hold = { target, figure, src: b.src }
         } else {
@@ -953,6 +1024,8 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   for (const page of sections.filter((x) => x.type === 'notes'))
     for (const m of page.body.matchAll(/<(?:figure|div)\b[^>]*><img[^>]*src="images\/([^"]+)"/g))
       (onNotes.add(m[1]), review.push({ level: 'warn', msg: `Picture ${m[1]} is still on the notes page: the export put it there and no caption tells which printed page it belongs to. Move it to its chapter.`, where: page.file }))
+  if (lostPics.length)
+    review.push({ level: 'error', msg: `IMG-011: ${lostPics.length} picture${lostPics.length === 1 ? ' is' : 's are'} not in the InDesign package (for example ${lostPics[0].split('/').pop()}) and not taken from the print PDF, so ${lostPics.length === 1 ? 'it is' : 'they are'} missing from the e-book. Upload the print PDF to take them from there.` })
   const placedNames = new Set(imgOut.map((i) => i.path))
   const placedImages = new Set(imgOut.map((i) => i.path))
   for (const c of input.images) {
@@ -1075,6 +1148,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     meta: ship, sections, cover, images: imgOut, usedClasses,
     bodyDecls,
     review,
+    printPictures: a.printPictures,
   })
   // pages that held only the imprint moved to the copyright page: they keep no marker of their own
   const sq = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')

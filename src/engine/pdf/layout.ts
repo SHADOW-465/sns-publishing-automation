@@ -15,6 +15,11 @@ export interface Run {
   italic: boolean
   /** a footnote reference mark that was matched to its note at the foot of the page (pdfepub/notes.ts) */
   noteId?: number
+  /** baseline, top-down, so a raised digit can be told from the line it sits on */
+  base?: number
+  /** smaller and raised (or lowered) against the line's own size */
+  sup?: boolean
+  sub?: boolean
 }
 
 export interface Line {
@@ -77,6 +82,8 @@ export interface PageLayout {
   lines: Line[]
   images: ImgBox[]
   fills: FillBox[]
+  /** path boxes that are neither hairlines nor a page tint (a chart drawn as vectors) */
+  drawings?: { x0: number; y0: number; x1: number; y1: number }[]
 }
 
 type M = number[]
@@ -100,7 +107,7 @@ export const isItalicFont = (f: string) => /italic|oblique|-it$|-\w*it$|It$/.tes
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
 
-export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<PageLayout> {
+export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /** a landscape page drawn sideways: read it upright. Off for PDF/UA, whose tags use the PDF's own coordinates. */ unrotate?: boolean } = {}): Promise<PageLayout> {
   const OPS = pdfjs.OPS
   const opName: Record<number, string> = Object.fromEntries(Object.entries(OPS).map(([k, v]) => [v as number, k]))
   const [vx0, vy0, vx1, vy1] = page.view as number[]
@@ -109,6 +116,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
 
   // ---- images and filled boxes from the operator list ----
   const images: ImgBox[] = []
+  const drawings: { x0: number; y0: number; x1: number; y1: number }[] = []
   const fills: FillBox[] = []
   const rules: { h: Rule[]; v: Rule[] } = { h: [], v: [] }
   const shades: FillBox[] = []
@@ -162,6 +170,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
             else if (w <= 1.6 && h > 3) rules.v.push({ a: H - b.y1, b: H - b.y0, p: (b.x0 + b.x1) / 2 })
             else if (w > 8 && h > 8 && w * h < (vx1 - vx0) * (vy1 - vy0) * 0.5) shades.push({ x0: b.x0, x1: b.x1, y0: H - b.y1, y1: H - b.y0, color: fill })
           }
+          if (w > 6 && h > 6 && w * h < (vx1 - vx0) * (vy1 - vy0) * 0.5) drawings.push({ x0: b.x0, x1: b.x1, y0: H - b.y1, y1: H - b.y0 })
           if (/stroke/i.test(kind)) {
             // stroked path: every horizontal or vertical segment is a rule (a rectangle gives its four sides)
             const path = (Array.isArray(args[1]) ? (args[1] as Any[])[0] : undefined) as ArrayLike<number> | undefined
@@ -221,14 +230,49 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
     return fontCache.get(id)!
   }
   type Item = { str: string; x: number; x1: number; base: number; size: number; font: string }
-  const items: Item[] = []
+  const horizontal: Item[] = []
+  const vertical: { str: string; pdfX: number; pdfY: number; width: number; size: number; font: string; up: boolean }[] = []
   for (const it of tc.items as Any[]) {
     if (typeof it.str !== 'string' || !it.str) continue
-    const [a, b, c, d, e, f] = it.transform
+    const [a, b, c, d, e, f] = it.transform as number[]
     const size = Math.hypot(c, d) || Math.hypot(a, b)
-    if (Math.abs(b) > 0.01 * Math.abs(a)) continue // rotated text (spines, credits): not body text
-    items.push({ str: it.str, x: e, x1: e + it.width, base: H - f, size, font: fontOf(it.fontName) })
+    const advance = Math.hypot(a, b) || size
+    // a quarter turn: a landscape table set on a portrait page. Anything else rotated (a spine) is not body text.
+    const quarter = Math.abs(a) < advance * 0.25 && Math.abs(d) < advance * 0.25 && Math.abs(b) > advance * 0.75
+    if (quarter && opts.unrotate) vertical.push({ str: it.str, pdfX: e, pdfY: f, width: it.width, size, font: fontOf(it.fontName), up: b > 0 })
+    else if (!quarter && Math.abs(b) <= 0.01 * Math.abs(a || 1)) horizontal.push({ str: it.str, x: e, x1: e + it.width, base: H - f, size, font: fontOf(it.fontName) })
   }
+  const vChars = vertical.reduce((n, it) => n + it.str.length, 0)
+  const hChars = horizontal.reduce((n, it) => n + it.str.length, 0)
+  // the page is turned when the text is: read it upright, and turn the rules with it
+  const turned = !!opts.unrotate && vChars > 80 && vChars > hChars * 2
+  let pageW = vx1 - vx0
+  let pageH = vy1 - vy0
+  const items: Item[] = []
+  if (turned) {
+    const up = vertical.filter((it) => it.up).length >= vertical.length / 2
+    for (const it of vertical) {
+      if (it.up !== up) continue
+      const x = up ? it.pdfY : H - it.pdfY
+      const x1 = x + Math.abs(it.width)
+      const base = up ? it.pdfX : pageW - it.pdfX
+      items.push({ str: it.str, x: Math.min(x, x1), x1: Math.max(x, x1), base, size: it.size, font: it.font })
+    }
+    const rh: Rule[] = []
+    const rv: Rule[] = []
+    if (up) {
+      for (const r of rules.v) rh.push({ a: H - r.b, b: H - r.a, p: r.p })
+      for (const r of rules.h) rv.push({ a: r.a, b: r.b, p: H - r.p })
+    } else {
+      for (const r of rules.v) rh.push({ a: r.a, b: r.b, p: pageW - r.p })
+      for (const r of rules.h) rv.push({ a: H - r.b, b: H - r.a, p: r.p })
+    }
+    rules.h = rh
+    rules.v = rv
+    drawings.length = 0
+    pageW = vy1 - vy0
+    pageH = vx1 - vx0
+  } else items.push(...horizontal)
   items.sort((p, q) => p.base - q.base || p.x - q.x)
   const lines: Line[] = []
   const rows: Item[][] = []
@@ -260,7 +304,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
     emit()
   }
 
-  return { index, width: vx1 - vx0, height: vy1 - vy0, lines: lines.filter((l) => l.text.trim() || l.marker), images, fills, rules, shades }
+  return { index, width: pageW, height: pageH, lines: liftScripts(lines.filter((l) => l.text.trim() || l.marker)), images, fills, rules, shades, drawings }
 
   function makeLine(its: Item[]): Line {
     const runs: Run[] = []
@@ -279,7 +323,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
         last.x1 = it.x1
       } else {
         if (last && it.x - last.x1 > it.size * 0.12 && !/\s$/.test(last.text) && !/^\s/.test(text)) last.text += ' '
-        runs.push({ text, x0: it.x, x1: it.x1, font: it.font, size: it.size, bold: isBoldFont(it.font), italic: isItalicFont(it.font) })
+        runs.push({ text, x0: it.x, x1: it.x1, font: it.font, size: it.size, bold: isBoldFont(it.font), italic: isItalicFont(it.font), base: it.base })
       }
     }
     // dominant font = most characters
@@ -312,6 +356,71 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number): Promise<
       sc: sc || undefined,
     }
   }
+}
+
+/** Mark raised and lowered runs that already share a line. A lone raised line stays a line: PDF/UA matches each glyph to it. */
+function liftScripts(lines: Line[]): Line[] {
+  for (const l of lines) {
+    const dom = l.runs.filter((r) => r.base !== undefined && Math.abs(r.size - l.size) < 0.35)
+    const base0 = dom.length ? dom.reduce((s, r) => s + r.base!, 0) / dom.length : l.base
+    for (const r of l.runs) {
+      if (r.base === undefined) continue
+      if (r.size <= l.size * 0.82 && r.base < base0 - Math.max(0.6, l.size * 0.08)) r.sup = true
+      else if (r.size <= l.size * 0.82 && r.base > base0 + Math.max(0.6, l.size * 0.08)) r.sub = true
+    }
+  }
+  return lines
+}
+
+/**
+ * Pull a lone raised ordinal onto the line it sits on. pdf.js reads "13th" as two lines, and the "th" is often
+ * in the middle of the host, not at its end. Footnote digits stay their own lines so the note matcher can see them.
+ * EPUB only: dropping the line here would leave the PDF/UA tagger with a glyph and no line.
+ */
+export function joinRaisedLines<L extends Line>(lines: L[]): L[] {
+  const drop = new Set<Line>()
+  for (const l of lines) {
+    const t = l.text.trim()
+    if (!/^(st|nd|rd|th)$/i.test(t)) continue
+    const endHost = lines.find((h) => h !== l && !drop.has(h) && h.size >= l.size * 1.2 && Math.abs(h.base - l.base) < h.size * 0.85 && l.x0 + 1 >= h.x1 - h.size * 0.35 && l.x0 - h.x1 < h.size * 1.6)
+    if (endHost) {
+      for (const r of l.runs) endHost.runs.push({ ...r, sup: true, base: l.base })
+      endHost.text = `${endHost.text}${t}`.replace(/\s+/g, ' ')
+      endHost.x1 = Math.max(endHost.x1, l.x1)
+      drop.add(l)
+      continue
+    }
+    let best: { host: Line; run: number; at: number; dist: number } | undefined
+    for (const h of lines) {
+      if (h === l || drop.has(h) || h.size < l.size * 1.15 || Math.abs(h.base - l.base) > h.size * 0.9) continue
+      h.runs.forEach((r, ri) => {
+        if (l.x0 < r.x0 - h.size * 0.4 || l.x0 > r.x1 + h.size * 0.4 || !r.text.length) return
+        const avg = (r.x1 - r.x0) / r.text.length
+        if (!(avg > 0)) return
+        const at = Math.max(0, Math.min(r.text.length, Math.round((l.x0 - r.x0) / avg)))
+        const dist = Math.abs(r.x0 + at * avg - l.x0)
+        if (dist > h.size * 0.45) return
+        if (!/\d$/.test(r.text.slice(0, at))) return
+        if (!best || dist < best.dist) best = { host: h, run: ri, at, dist }
+      })
+    }
+    if (!best) continue
+    const host = best.host
+    const r = host.runs[best.run]
+    const avg = (r.x1 - r.x0) / r.text.length
+    const before = r.text.slice(0, best.at)
+    const after = r.text.slice(best.at)
+    const supRun: Run = { ...l.runs[0], text: t, sup: true, base: l.base, x0: l.x0, x1: l.x1, size: l.size }
+    const next = []
+    if (before) next.push({ ...r, text: before, x1: r.x0 + best.at * avg })
+    next.push(supRun)
+    if (after) next.push({ ...r, text: after, x0: l.x1 })
+    host.runs.splice(best.run, 1, ...next)
+    host.text = host.runs.map((run) => run.text).join('').replace(/\s+/g, ' ')
+    host.x1 = Math.max(host.x1, l.x1)
+    drop.add(l)
+  }
+  return lines.filter((l) => !drop.has(l))
 }
 
 /** A 2-up spread (two printed pages side by side) as two pages, left then right; things are placed by their centre. */

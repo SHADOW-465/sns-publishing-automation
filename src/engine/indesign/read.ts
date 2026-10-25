@@ -125,7 +125,17 @@ export function readExport(files: Files): Export {
       if (/^(p|h[1-6])$/.test(tg)) {
         // inline page markers inside the paragraph still count for "page of this block"
         blocks.push({ t: 'p', el: c, key: styleKey(c), classes: classesOf(c), text: textOf(c), page })
-        const inner = Array.from(c.querySelectorAll('*')).map(pageBreakOf).filter((x) => x !== null)
+        const inner: string[] = []
+        const walkBreaks = (el: Element) => {
+          for (const n of Array.from(el.childNodes)) {
+            if (n.nodeType !== 1) continue
+            const ch = n as Element
+            const pn = pageBreakOf(ch)
+            if (pn !== null) inner.push(pn)
+            else walkBreaks(ch)
+          }
+        }
+        walkBreaks(c)
         if (inner.length) page = inner[inner.length - 1]!
       } else if (tg === 'ul' || tg === 'ol') {
           // a real list: every item keeps its place (and depth) in it
@@ -216,17 +226,32 @@ export type Profile = Record<string, { role: Role; outClass: string }>
 
 const PAGE_NUM_CLASS = /seitenzahl|pagenum(?:ber)?|page[-_ ]?number|toc[-_ ]?page/i
 
+/** Walk this element's descendants. Returns true when `fn` returns true (stop). Local childNodes only: jsdom's querySelectorAll is quadratic on a long file. */
+function walkEls(el: Element, fn: (e: Element) => boolean | void): boolean {
+  for (const n of Array.from(el.childNodes)) {
+    if (n.nodeType !== 1) continue
+    const c = n as Element
+    if (fn(c) === true || walkEls(c, fn)) return true
+  }
+  return false
+}
+
+const pageNumberSpan = (el: Element) => {
+  const cls = el.getAttribute('class') ?? ''
+  if (PAGE_NUM_CLASS.test(cls)) return true
+  return /optisch|toc|ihv/i.test(cls) && /^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')
+}
+
 /** A contents page-number span: a named page-number class, or a trailing optical span that is only the number.
  *  A chapter number earlier in the line ("Capítulo 1") is not a page number. */
 const isTocPageSpan = (el: Element) => {
-  const cls = el.getAttribute('class') ?? ''
-  if (PAGE_NUM_CLASS.test(cls)) return true
-  if (!/optisch|toc|ihv/i.test(cls) || !/^\s*(\d{1,4}|[ivxlcdm]{1,8})\s*$/i.test(el.textContent ?? '')) return false
+  if (!pageNumberSpan(el)) return false
+  if (PAGE_NUM_CLASS.test(el.getAttribute('class') ?? '')) return true
   let n: Node | null = el
   while (n && (n as Element).localName !== 'body') {
     // a page number split over two spans ("1" "21" → 121) is still a page number; words after it are the title
     for (let s = n.nextSibling; s; s = s.nextSibling) {
-      if (s.nodeType === 1 && isTocPageSpan(s as Element)) continue
+      if (s.nodeType === 1 && pageNumberSpan(s as Element)) continue
       if ((s.textContent ?? '').trim()) return false
     }
     const parent: Node | null = n.parentNode
@@ -239,7 +264,9 @@ const isTocPageSpan = (el: Element) => {
 /** Contents entry with the printed page number taken off. A number that is part of the title ("Capítulo 3") stays. */
 export function tocEntryText(el: Element): string {
   const clone = el.cloneNode(true) as Element
-  for (const s of Array.from(clone.querySelectorAll('[class]'))) if (isTocPageSpan(s)) s.remove()
+  const drop: Element[] = []
+  walkEls(clone, (s) => { if (s.hasAttribute('class') && isTocPageSpan(s)) drop.push(s) })
+  for (const s of drop) s.remove()
   // textOf turns the tab before a page number into a space, so remember the tab first
   const hadTab = /\t\s*(\d+|[ivxlcdm]+)\s*$/i.test(clone.textContent ?? '')
   const t = textOf(clone)
@@ -247,7 +274,7 @@ export function tocEntryText(el: Element): string {
 }
 
 const hasPageSpan = (el: Element) =>
-  Array.from(el.querySelectorAll('[class]')).some((s) => PAGE_NUM_CLASS.test(s.getAttribute('class') ?? '') && /\d/.test(s.textContent ?? ''))
+  walkEls(el, (s) => (PAGE_NUM_CLASS.test(s.getAttribute('class') ?? '') && /\d/.test(s.textContent ?? '') ? true : undefined))
 
 const headingRoleOfTag = (tg: string): Role | undefined =>
   tg === 'h1' ? 'chapter-title' : tg === 'h2' ? 'h2' : tg === 'h3' ? 'h3' : tg === 'h4' ? 'h4' : tg === 'h5' || tg === 'h6' ? 'h5' : undefined
