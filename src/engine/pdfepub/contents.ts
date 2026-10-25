@@ -86,7 +86,11 @@ export function rowsOf(lines: PLine[], width: number, pageIdx: number): Row[] {
   return rows.sort((a, b) => a.base - b.base)
 }
 
-const isTocHeading = (l: PLine, bodySize: number) => l.size >= bodySize * 1.2 && sectionTypeOf(l.text.trim().replace(/\s+/g, ' ')) === 'toc'
+// "ÍNDICE" set larger than the text, or in capitals in the text size
+const isTocHeading = (l: PLine, bodySize: number) => {
+  const t = l.text.trim().replace(/\s+/g, ' ')
+  return (l.size >= bodySize * 1.2 || (l.size >= bodySize * 0.95 && /\p{Lu}/u.test(t) && t === t.toLocaleUpperCase())) && sectionTypeOf(t) === 'toc'
+}
 
 /** Entries of one page's rows: wrapped titles joined, centred part headings and labels told apart. */
 export function entriesOf(rows: Row[], pageIdx: number, skipLine?: (l: PLine) => boolean): ContentsEntry[] {
@@ -139,14 +143,30 @@ export function readContents(pages: { index: number; width: number; lines: PLine
     const rows = rowsOf(pages[i].lines, pages[i].width, i)
     const withRef = rows.filter((r) => r.ref !== undefined).length
     // continuation pages: mostly rows that end in page numbers (plus centred part headings)
-    if (withRef >= 3 && withRef >= rows.filter((r) => !r.centred).length * 0.5) tocPages.push(i)
+    const runningHead = pages[i].lines.some((l) => sectionTypeOf(l.text.trim().replace(/^\d+\s*|\s*\d+$/g, '')) === 'toc')
+    if (withRef >= 3 && (withRef >= rows.filter((r) => !r.centred).length * 0.5 || runningHead)) tocPages.push(i)
     else break
   }
-  const entries = tocPages.flatMap((pi) => entriesOf(rowsOf(pages[pi].lines, pages[pi].width, pi), pi, (l) => isTocHeading(l, bodySize)))
+  const entries0 = tocPages.flatMap((pi) => entriesOf(rowsOf(pages[pi].lines, pages[pi].width, pi), pi, (l) => isTocHeading(l, bodySize) || sectionTypeOf(l.text.trim()) === 'toc' || /^\d{1,4}\s*[•·]?$/.test(l.text.trim())))
+  // an edited volume: "1. Title that wraps / over lines" then "Author Name . . . 23". The title rows have no page number
+  // and read as a label; the row with the number is the byline. The entry is the title, pointing at the byline's page.
+  const entries: ContentsEntry[] = []
+  for (let k = 0; k < entries0.length; k++) {
+    const e = entries0[k]
+    const n = entries0[k + 1]
+    if (e.kind === 'label' && n?.kind === 'entry' && n.on === e.on && (e.lines.length >= 2 || /^\d{1,2}\.\s/.test(e.text)) && !sectionTypeOf(n.text) && Math.abs(n.lines[0].x0 - e.lines[0].x0) < 3) {
+      entries.push({ ...n, text: e.text, lines: e.lines })
+      k++
+    } else entries.push(e)
+  }
   // a contents page with two levels sets the second one in: its entries are subheads of the chapters, not sections of their own
-  const xs = entries.filter((e) => e.kind === 'entry').map((e) => e.lines[0].x0)
-  const left = xs.length ? xs.sort((a, b) => a - b)[Math.floor(xs.length * 0.1)] : 0
-  for (const e of entries) e.level = e.kind === 'entry' && e.lines[0].x0 > left + 8 && !sectionTypeOf(e.text) ? 2 : 1
+  // (measured per page: left and right pages have different margins)
+  const leftOf = new Map<number, number>()
+  for (const pi of tocPages) {
+    const xs = entries.filter((e) => e.kind === 'entry' && e.on === pi).map((e) => e.lines[0].x0).sort((a, b) => a - b)
+    leftOf.set(pi, xs.length ? xs[Math.floor(xs.length * 0.1)] : 0)
+  }
+  for (const e of entries) e.level = e.kind === 'entry' && e.lines[0].x0 > (leftOf.get(e.on) ?? 0) + 8 && !sectionTypeOf(e.text) ? 2 : 1
   return entries.filter((e) => e.kind !== 'label').length >= 3 ? { pages: tocPages, entries } : undefined
 }
 
@@ -202,14 +222,29 @@ export function matchHeadings(
       for (let i = 0; i < ls.length && !hit; i++) {
         let acc = ''
         const got: PLine[] = []
-        for (let j = i; j < ls.length && j < i + 6; j++) {
+        for (let j = i; j < ls.length && j < i + 10; j++) {
           acc += norm(ls[j].text)
           got.push(ls[j])
-          if (acc.length > want.length) break
-          if (!want.startsWith(acc)) break
+          if (acc.length > want.length || !want.startsWith(acc)) {
+            // the contents ran the byline into the title ("… en México Joaquín García"): the capitals at the top of the page are the title
+            const caps = (l: PLine) => /\p{Lu}/u.test(l.text) && l.text === l.text.toLocaleUpperCase()
+            const prev: PLine[] = []
+            for (const l of got) if (caps(l)) prev.push(l); else break
+            const a0 = prev.map((l) => norm(l.text)).join('')
+            if (prev.length && i <= 2 && a0.length >= want.length * 0.5 && want.startsWith(a0) && prev.every((l) => /\p{Lu}/u.test(l.text) && l.text === l.text.toLocaleUpperCase())) hit = { entry: e, lines: prev }
+            break
+          }
           if (acc === want || (acc.length >= want.length * 0.9 && want.startsWith(acc))) {
             // a heading is not set in the body font
-            if (got.some((l) => !isBody(l))) hit = { entry: e, lines: [...got] }
+            // …unless it is set in capitals at the top of its page (a chapter title in the text face, all caps: dinamicas)
+            const capsTop = i <= 2 && got.every((l) => /\p{Lu}/u.test(l.text) && l.text === l.text.toLocaleUpperCase())
+            if (got.some((l) => !isBody(l)) || capsTop) hit = { entry: e, lines: [...got] }
+            else if (i <= 2) {
+              // the whole entry matched, byline included: the title is the run of capitals it starts with
+              const prev: PLine[] = []
+              for (const l of got) if (/\p{Lu}/u.test(l.text) && l.text === l.text.toLocaleUpperCase()) prev.push(l); else break
+              if (prev.length && prev.map((l) => norm(l.text)).join('').length >= want.length * 0.5) hit = { entry: e, lines: prev }
+            }
             break
           }
         }

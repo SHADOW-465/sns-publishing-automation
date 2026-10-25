@@ -518,7 +518,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
           cur.title.push(segsOf(l))
           continue
         }
-        newSec(sectionTypeOf(text) ?? 'other', 'title', book.numbers[page.index]).title.push(segsOf(l))
+        // a numbered title ("3. Relaciones intergubernamentales…") opens a chapter of an edited volume
+        newSec(sectionTypeOf(text) ?? (/^\d{1,3}[.)]\s+\p{L}/u.test(text.trim()) ? 'chapter' : 'other'), 'title', book.numbers[page.index]).title.push(segsOf(l))
         continue
       }
       if (r === 'subhead' || r === 'subhead2') {
