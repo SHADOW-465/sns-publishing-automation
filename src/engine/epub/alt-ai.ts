@@ -8,7 +8,7 @@ import { extOf, mediaType } from './image.ts'
 
 export const VISION_KEY = 'automation:vision'
 export const GROQ_VISION_BASE = 'https://api.groq.com/openai/v1'
-export const GROQ_VISION_MODEL = 'qwen/qwen3.6-27b'
+export const GROQ_VISION_MODEL = 'qwen/qwen3.8-27b'
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1'
 
 export interface VisionConfig {

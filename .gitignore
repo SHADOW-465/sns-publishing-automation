@@ -7,3 +7,6 @@ release
 # client reference books (inputs and finished outputs): large, client-owned, never in git
 fixtures/reference/
 scratch/
+
+.env
+.env.*
