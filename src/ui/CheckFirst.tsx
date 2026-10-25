@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ROLES, ROLE_HELP, type Role, type StyleInfo } from '../engine/indesign/read.ts'
-import { targetId } from './needs.ts'
+import { targetId, keepStylePatch } from './needs.ts'
 import { reviewList, rulesForTopic, acceptable, acceptAllIds, type CheckItem, type ReviewInput } from '../engine/review/confidence.ts'
 import type { Spec } from '../engine/spec/session.ts'
 import type { Rule, RuleValue } from '../engine/spec/rules.ts'
@@ -54,9 +54,10 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
     if (it.area === 'style') {
       const s = style(String(it.ref))!
       return (
-        <select value={s.role} onChange={(e) => setStyle(s.key, { role: e.target.value as Role, reason: 'chosen by the reviewer' })} aria-label={`Meaning of ${s.key}`}>
+        <><select value={s.role} onChange={(e) => setStyle(s.key, { role: e.target.value as Role, reason: 'chosen by the reviewer' })} aria-label={`Meaning of ${s.key}`}>
           {ROLES.map((r) => <option key={r} value={r}>{ROLE_HELP[r]}</option>)}
         </select>
+        {' '}<button onClick={() => setStyle(s.key, keepStylePatch(s.role))}>Keep as it is</button></>
       )
     }
     if (it.area === 'section') {

@@ -43,3 +43,7 @@ export function structureNeeds<T extends { id: string; area: string; title: stri
     return { id: it.id, label: it.title, group, kind: isAcceptable(it) ? 'acceptable' : 'choice', target: targetId(it.id) }
   })
 }
+
+/** "Keep as it is" on a style the tool was unsure of: the reviewer confirms the tool's reading. Without it the only way to
+ *  keep the guess was to pick another meaning and back, and Next asked again and again (dinamicas "subtitulo-1"). */
+export const keepStylePatch = <R extends string>(role: R) => ({ role, reason: 'kept as read by the reviewer' })

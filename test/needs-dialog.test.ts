@@ -90,3 +90,12 @@ test('status line: amber and calm, says what is needed, absent when nothing is',
   await act(async () => root.unmount())
   host.remove()
 })
+
+test('a style the tool was unsure of can be kept as read: same role, a reviewer reason (no pick-another-and-back loop)', async () => {
+  const { keepStylePatch } = await import('../src/ui/needs.ts')
+  assert.deepEqual(keepStylePatch('h3'), { role: 'h3', reason: 'kept as read by the reviewer' })
+  const src = (await import('node:fs')).readFileSync(new URL('../src/ui/CheckFirst.tsx', import.meta.url), 'utf8')
+  const styleBlock = src.slice(src.indexOf("it.area === 'style'"), src.indexOf("it.area === 'section'"))
+  assert.match(styleBlock, /keepStylePatch\(s\.role\)/)
+  assert.match(styleBlock, /Keep as it is/)
+})
