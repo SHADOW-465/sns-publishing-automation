@@ -5,6 +5,7 @@
 
 import { ALT_AIM, fitAlt, repeatsCaption } from './alt.ts'
 import { extOf, mediaType } from './image.ts'
+import { settings } from '../settings.ts'
 
 export const VISION_KEY = 'automation:vision'
 export const GROQ_VISION_BASE = 'https://api.groq.com/openai/v1'
@@ -42,28 +43,84 @@ const LANG_NAME: Record<string, string> = {
   pl: 'Polish', sv: 'Swedish', da: 'Danish', tr: 'Turkish', ru: 'Russian', ar: 'Arabic', he: 'Hebrew', ca: 'Catalan', el: 'Greek',
 }
 
-/** The instruction sent with the picture. German books get a German instruction. */
-export function visionPrompt(lang: string, caption: string, nearby: string): string {
+export const PICTURE_KINDS = ['decorative', 'photo', 'portrait', 'artwork', 'chart', 'diagram', 'map', 'table', 'text', 'cover'] as const
+export type PictureKind = (typeof PICTURE_KINDS)[number]
+
+const COMPLEX_KIND = new Set<PictureKind>(['chart', 'diagram', 'map', 'table'])
+
+export interface ClassifiedAlt {
+  kind: PictureKind
+  decorative: boolean
+  alt: string
+  longDesc: string
+}
+
+const KIND_WORD: Record<string, PictureKind> = {
+  decorative: 'decorative', ornament: 'decorative', decoration: 'decorative',
+  photo: 'photo', photograph: 'photo', portrait: 'portrait', artwork: 'artwork', art: 'artwork',
+  chart: 'chart', graph: 'chart', diagram: 'diagram', map: 'map',
+  table: 'table', 'table-as-image': 'table',
+  text: 'text', logo: 'text', cover: 'cover',
+}
+
+/** The instruction sent with the picture. The model classifies first, then describes, in the book's language. */
+export function visionPrompt(lang: string, caption: string, nearby: string, max = ALT_AIM): string {
   const code = lang.toLowerCase().slice(0, 2)
+  const name = LANG_NAME[code] ?? lang
   const cap = caption.trim()
   const near = nearby.trim()
-  if (code === 'de') {
-    return [
-      'Beschreibe nur, was auf dem Bild zu sehen ist.',
-      `Höchstens etwa ${ALT_AIM} Zeichen, ein Satz.`,
-      'Wiederhole nicht die Bildunterschrift und erfinde nichts, was nicht zu sehen ist.',
-      cap ? `Bildunterschrift (nicht wiederholen): ${cap}` : 'Es gibt keine Bildunterschrift.',
-      near ? `Text daneben: ${near}` : '',
-    ].filter(Boolean).join('\n')
-  }
-  const name = LANG_NAME[code] ?? lang
   return [
-    `Describe only what is visible in the picture. Write in ${name}.`,
-    `At most about ${ALT_AIM} characters, one sentence.`,
-    'Do not repeat the caption, and do not invent anything that is not visible.',
+    'Classify the picture, then describe it.',
+    'Reply with one JSON object and nothing else, no markdown:',
+    '{"kind":"photo","decorative":false,"alt":"...","longdesc":""}',
+    'kind is one of: decorative, photo, portrait, artwork, chart, diagram, map, table, text, cover.',
+    'decorative is true only for an ornament, a rule, a background, or a picture that adds no information. Then alt and longdesc are empty strings.',
+    `Write alt and longdesc in ${name}.`,
+    `alt is at most ${max} characters. Do not start alt with "image of", "picture of", or "Bild von".`,
+    'Do not repeat the caption. Do not invent anything that is not visible.',
+    'chart, diagram, map, or table: alt says what the figure is; longdesc gives the data a reader cannot get from the short alt.',
+    'text or cover: alt transcribes the visible words, and longdesc is empty.',
+    'photo, portrait, or artwork: one sentence in alt, and longdesc is empty.',
     cap ? `Caption (do not repeat it): ${cap}` : 'There is no caption.',
     near ? `Nearby text: ${near}` : '',
   ].filter(Boolean).join('\n')
+}
+
+const LEADING = /^(?:image of|picture of|bild von)\s+/i
+
+function asKind(raw: unknown): PictureKind {
+  const k = String(raw ?? '').toLowerCase().trim()
+  return KIND_WORD[k] ?? 'photo'
+}
+
+/** Turn the model's reply into a classified description. Plain text (no JSON) is kept as a photo alt. */
+export function parseVisionReply(raw: string, caption: string, max = ALT_AIM): ClassifiedAlt {
+  const text = raw.replace(/```(?:json)?/gi, '').trim()
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  let parsed: Record<string, unknown> | null = null
+  if (start >= 0 && end > start) {
+    try {
+      const value = JSON.parse(text.slice(start, end + 1)) as unknown
+      const obj = Array.isArray(value) ? value[0] : value
+      if (obj && typeof obj === 'object') parsed = obj as Record<string, unknown>
+    } catch {
+      parsed = null
+    }
+  }
+  if (!parsed) {
+    const alt = fitAlt(text, max).replace(LEADING, '')
+    return { kind: 'photo', decorative: false, alt: repeatsCaption(alt, caption) ? '' : alt, longDesc: '' }
+  }
+  const kind = asKind(parsed.kind)
+  const decorative = parsed.decorative === true || parsed.decorative === 'true' || kind === 'decorative'
+  if (decorative) return { kind: 'decorative', decorative: true, alt: '', longDesc: '' }
+  let alt = fitAlt(String(parsed.alt ?? parsed.description ?? ''), max).replace(LEADING, '').trim()
+  if (LEADING.test(alt)) alt = alt.replace(LEADING, '').trim()
+  if (repeatsCaption(alt, caption)) alt = ''
+  const longRaw = String(parsed.longdesc ?? parsed.longDesc ?? parsed.long_desc ?? '').replace(/\s+/g, ' ').trim()
+  const longDesc = COMPLEX_KIND.has(kind) ? longRaw : ''
+  return { kind, decorative: false, alt, longDesc }
 }
 
 export function mimeOf(path: string, bytes: Uint8Array): string {
@@ -122,6 +179,9 @@ export interface AltDraftRequest {
 export interface AltDraftResult {
   id: string
   alt: string
+  longDesc: string
+  decorative: boolean
+  kind: PictureKind | ''
   error?: string
 }
 
@@ -141,7 +201,7 @@ async function once(cfg: VisionConfig, prompt: string, image: string, doFetch: F
         model: cfg.model,
         temperature: 0.2,
         messages: [
-          { role: 'system', content: 'You write alt text for one picture in an e-book. Reply with the description only.' },
+          { role: 'system', content: 'You classify one picture in an e-book and describe it. Reply with one JSON object only.' },
           { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] },
         ],
       }),
@@ -164,7 +224,7 @@ async function once(cfg: VisionConfig, prompt: string, image: string, doFetch: F
       throw new Error(last)
     }
     const body = (await res.json()) as { choices?: { message?: { content?: string } }[] }
-    return fitAlt(body.choices?.[0]?.message?.content ?? '')
+    return body.choices?.[0]?.message?.content ?? ''
   }
   throw new Error(last)
 }
@@ -187,13 +247,21 @@ export async function draftPictureAlts(
     const item = items[i]
     try {
       const shrunk = await shrinkForVision(item.bytes, item.mime)
-      const text = await once(cfg, visionPrompt(lang, item.caption, item.nearby), dataUrl(shrunk.bytes, shrunk.mime), doFetch)
-      const alt = text && !repeatsCaption(text, item.caption) ? text : ''
-      out.push({ id: item.id, alt, error: alt ? undefined : text ? 'The draft repeated the caption, so it was not kept.' : 'The model returned no description.' })
+      const text = await once(cfg, visionPrompt(lang, item.caption, item.nearby, settings().altMaxChars), dataUrl(shrunk.bytes, shrunk.mime), doFetch)
+      const parsed = parseVisionReply(text, item.caption, settings().altMaxChars)
+      const kept = parsed.decorative || !!parsed.alt
+      out.push({
+        id: item.id,
+        alt: parsed.alt,
+        longDesc: parsed.longDesc,
+        decorative: parsed.decorative,
+        kind: parsed.kind,
+        error: kept ? undefined : text.trim() ? 'The draft repeated the caption, so it was not kept.' : 'The model returned no description.',
+      })
     } catch (e) {
       const message = (e as Error).message
       if (/refused|API key/i.test(message)) throw new Error(message)
-      out.push({ id: item.id, alt: '', error: message })
+      out.push({ id: item.id, alt: '', longDesc: '', decorative: false, kind: '', error: message })
     }
   }
   onProgress?.(items.length, items.length)

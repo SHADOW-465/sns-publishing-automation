@@ -17,7 +17,7 @@ export interface WordBuildInput {
   /** typed descriptions keyed by the picture path (images/foto.png). They win over the spec and a draft. */
   alt?: Record<string, string>
   pictures?: SpecPicture[]
-  ai?: Record<string, { alt: string; approved?: boolean }>
+  ai?: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
 }

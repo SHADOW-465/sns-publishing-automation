@@ -2,7 +2,7 @@
 // The export names each picture (its src) and keeps the order; the PDF holds the pixels.
 import { pageLayout } from '../pdf/layout.ts'
 import { imageObject, type Raster } from '../pdf/raster.ts'
-import { MAX_IMAGE_SIDE } from '../pdfepub/analyze.ts'
+import { settings } from '../settings.ts'
 import type { PrintPage } from '../pdf/pages.ts'
 import type { Export } from './read.ts'
 
@@ -37,7 +37,7 @@ export async function readPdfPictures(
       const h = im.y1 - im.y0
       if (Math.max(w / h, h / w) > 20 || (w * h > layout.width * layout.height * 0.9 && !spread)) continue
       const obj = await imageObject(page, im.id)
-      const jpeg = obj ? await raster.image(obj, im.crop, MAX_IMAGE_SIDE).catch(() => null) : null
+      const jpeg = obj ? await raster.image(obj, im.crop, settings().imageMaxPx).catch(() => null) : null
       if (jpeg) out.push({ page: labelOf(i, spread ? (im.x0 >= layout.width / 2 ? 1 : 0) : undefined), data: jpeg })
     }
     page.cleanup()

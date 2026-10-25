@@ -1,7 +1,9 @@
 // Browser implementation of Raster: OffscreenCanvas (works in the desktop shell too).
 import { toRGBA, type Raster } from '../engine/pdf/raster.ts'
+import { settings } from '../engine/settings.ts'
 
 const jpeg = async (c: OffscreenCanvas, q: number) => new Uint8Array(await (await c.convertToBlob({ type: 'image/jpeg', quality: q })).arrayBuffer())
+const quality = () => Math.min(0.95, Math.max(0.4, settings().imageJpegQuality / 100))
 
 export const browserRaster: Raster = {
   async image(obj, crop, maxSide) {
@@ -28,7 +30,7 @@ export const browserRaster: Raster = {
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, out.width, out.height)
     ctx.drawImage(src, sx, sy, sw, sh, 0, 0, out.width, out.height)
-    return jpeg(out, 0.85)
+    return jpeg(out, quality())
   },
   async page(page, height, rect) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,6 +47,6 @@ export const browserRaster: Raster = {
     await p.render({ canvasContext: ctx, viewport: vp, canvas, intent: 'print' }).promise
     const out = new OffscreenCanvas(Math.round((box.x1 - box.x0) * scale), Math.round(height))
     out.getContext('2d')!.drawImage(canvas, box.x0 * scale, box.y0 * scale, out.width, out.height, 0, 0, out.width, out.height)
-    return jpeg(out, 0.88)
+    return jpeg(out, quality())
   },
 }

@@ -32,7 +32,7 @@ export interface AltLayers {
   file?: { alt: string; longDesc?: string } | null
   /** a tiny image, ornament, rule, or background */
   decorative?: boolean
-  ai?: { alt: string; longDesc?: string } | null
+  ai?: { alt: string; longDesc?: string; decorative?: boolean } | null
   /** caption beside the picture: a description that only repeats it is not used */
   caption?: string
 }
@@ -126,6 +126,9 @@ export function resolveAlt(layers: AltLayers): AltChoice {
   if (layers.decorative) {
     return { alt: '', longDesc: '', decorative: true, source: 'decorative', approved: true }
   }
+  if (layers.ai?.decorative) {
+    return { alt: '', longDesc: '', decorative: true, source: 'ai', approved: false }
+  }
   const aiAlt = usable(layers.ai?.alt, caption)
   if (aiAlt) {
     return { alt: aiAlt, longDesc: clean(layers.ai?.longDesc), decorative: false, source: 'ai', approved: false }
@@ -163,6 +166,8 @@ export interface AltMemory {
   decorativeHint: boolean
   aiAlt: string
   aiLong: string
+  /** the vision model classified this picture as decoration */
+  aiDecorative?: boolean
 }
 
 export interface AltState {
@@ -185,7 +190,7 @@ export function settleAlt<T extends AltState>(p: T): T {
     spec: p.spec,
     file: p.layers.fileAlt ? { alt: p.layers.fileAlt, longDesc: p.layers.fileLong } : null,
     decorative: p.layers.decorativeHint,
-    ai: p.layers.aiAlt ? { alt: p.layers.aiAlt, longDesc: p.layers.aiLong } : null,
+    ai: p.layers.aiAlt || p.layers.aiLong || p.layers.aiDecorative ? { alt: p.layers.aiAlt, longDesc: p.layers.aiLong, decorative: p.layers.aiDecorative } : null,
     caption: p.caption,
   })
   const sameAi = choice.source === 'ai' && p.source === 'ai' && p.approved && choice.alt === p.alt

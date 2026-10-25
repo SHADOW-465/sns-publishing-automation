@@ -224,12 +224,13 @@ export function IndesignFlow() {
       const byId = new Map(drafted.map((d) => [d.id, d]))
       setImages(images.map((im) => {
         const d = byId.get(im.src)
-        if (!d?.alt) return im
-        return settleAlt({ ...im, userSet: false, approved: false, layers: { ...im.layers, aiAlt: d.alt } })
+        if (!d || (!d.alt && !d.longDesc && !d.decorative)) return im
+        return settleAlt({ ...im, userSet: false, approved: false, layers: { ...im.layers, aiAlt: d.alt, aiLong: d.longDesc, aiDecorative: d.decorative } })
       }))
       setStale(true)
       const failed = drafted.filter((d) => d.error)
-      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt).length} description(s). Each one needs approval.`)
+      const kept = drafted.filter((d) => d.alt || d.decorative).length
+      setNotice(failed[0]?.error ?? `Drafted ${kept} description(s). Each one needs approval.`)
     })
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const steps = [
@@ -355,7 +356,7 @@ export function IndesignFlow() {
         <section className="card">
           <h2>5. Describe the pictures</h2>
           <p className="muted">
-            People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows, in about 140 characters, and do not repeat the caption.
+            People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows, in about {settings().altMaxChars} characters, and do not repeat the caption.
             Tick “decorative” only for ornaments that carry no information: those get an empty description so a screen reader skips them.
           </p>
           {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
@@ -392,7 +393,7 @@ export function IndesignFlow() {
                         <span>Description</span>
                         <textarea rows={2} value={im.alt} disabled={im.decorative} placeholder="e.g. Black-and-white photo of … at …, 1968" onChange={(e) => setImage(im, { alt: e.target.value, userSet: true, source: 'typed', approved: true, decorative: false })} />
                       </label>
-                      {!im.decorative && im.alt.trim().length > 180 && <p className="muted small">About 140 characters is easier to follow. This one is {im.alt.trim().length}.</p>}
+                      {!im.decorative && im.alt.trim().length > settings().altMaxChars && <p className="muted small">About {settings().altMaxChars} characters is easier to follow. This one is {im.alt.trim().length}.</p>}
                       <label className={`alt ${chart ? 'needed' : ''}`}>
                         <span>Long description {chart ? <strong>needed for this chart or map</strong> : <span className="muted">for a chart or map</span>}</span>
                         <textarea rows={chart ? 4 : 2} value={im.longDesc} disabled={im.decorative} placeholder="Only when the short description is not enough" onChange={(e) => setImage(im, { longDesc: e.target.value, userSet: true, source: 'typed', approved: true })} />
@@ -404,7 +405,7 @@ export function IndesignFlow() {
                         <p className="muted small">{decorativeReason({ name: im.src, width: im.width, height: im.height }) ?? 'Suggested as decorative.'} Untick this if the picture carries information.</p>
                       )}
                       {im.source === 'ai' && !im.approved && <button onClick={() => setImage(im, { approved: true })}>Approve</button>}
-                      {visionOn && !im.decorative && <button className="ghost" onClick={() => draftImages([im])} disabled={!!busy}>Draft again</button>}
+                      {visionOn && <button className="ghost" onClick={() => draftImages([im])} disabled={!!busy}>Draft again</button>}
                     </>
                   )}
                 </div>

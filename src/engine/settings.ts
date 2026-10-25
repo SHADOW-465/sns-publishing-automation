@@ -236,6 +236,16 @@ const SCHEMA = {
   blockClass: { def: 'extract1', choices: ['extract1', 'extract'] },
   /** a picture with no description stops delivery (accessible) or only warns */
   altRequired: { def: 'error', choices: ['error', 'warn'] },
+  /** short picture description, in characters (Börsenverein aim). A chart's long description is separate. */
+  altMaxChars: { def: 140, min: 40, max: 500 },
+  /** resolution tag written on every JPEG and PNG, and the render size of a picture taken from a PDF (points × this / 72) */
+  imageDpi: { def: 300, min: 72, max: 600 },
+  /** longest side of a picture, in pixels. Larger pictures are scaled down; none are scaled up.
+   *  FLAGGED: the client's Birmingham cover is 1949×2764, so 1900 is the written spec, not what that file does. */
+  imageMaxPx: { def: 1900, min: 200, max: 8000 },
+  /** JPEG quality when a picture is encoded (a file that is already a small RGB JPEG is only tagged, not re-encoded).
+   *  FLAGGED: the client did not name a quality; 85 is the quality the PDF raster already used. */
+  imageJpegQuality: { def: 85, min: 40, max: 95 },
 
   // ---- quality check ----
   /** shortest acceptable long side of the cover */

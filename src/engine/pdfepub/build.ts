@@ -32,7 +32,7 @@ export interface PdfBuildInput {
   /** spec-workbook picture rows, matched to pictures by file name (same layered alt system as InDesign) */
   pictures?: SpecPicture[]
   /** vision-model drafts keyed by picture path. Not typed text: a typed description still wins. */
-  ai?: Record<string, { alt: string; approved?: boolean }>
+  ai?: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
 }
@@ -128,7 +128,7 @@ export function pdfPictureAlt(o: {
   height: number
   caption?: string
   /** vision-model draft; `approved` sticks only while this exact draft is the one in use */
-  ai?: { alt: string; approved?: boolean } | null
+  ai?: { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean } | null
 }): AltChoice {
   const meta = o.jpeg ? readImageMetadata(o.jpeg) : undefined
   const choice = resolveAlt({
@@ -136,7 +136,7 @@ export function pdfPictureAlt(o: {
     spec: matchSpecPicture(o.name, o.pictures ?? []) ?? null,
     file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
     decorative: !!decorativeReason({ name: o.name, width: Math.abs(Math.round(o.width)), height: Math.abs(Math.round(o.height)) }),
-    ai: o.ai?.alt?.trim() ? { alt: o.ai.alt } : null,
+    ai: o.ai && (o.ai.alt?.trim() || o.ai.decorative) ? { alt: o.ai.alt ?? '', longDesc: o.ai.longDesc, decorative: o.ai.decorative } : null,
     caption: o.caption,
   })
   // resolveAlt always marks an AI draft unapproved. The reviewer approves it; a new draft clears the flag.

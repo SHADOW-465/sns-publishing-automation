@@ -10,13 +10,16 @@ const cfg: VisionConfig = { apiKey: 'test-key', baseUrl: GROQ_VISION_BASE, model
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 8, 0, 0, 0, 8])
 const item = { id: 'images/photo.jpg', bytes: png, mime: 'image/jpeg', caption: 'Die alte Halle', nearby: 'Sie steht am Rand des Feldes.' }
 
-test('a German book asks for a short description that does not repeat the caption', () => {
+test('a German book asks for a classified description that does not repeat the caption', () => {
   const p = visionPrompt('de-DE', 'Die alte Halle', 'Sie steht am Rand des Feldes.')
-  assert.match(p, /Beschreibe/)
+  assert.match(p, /Classify the picture/)
+  assert.match(p, /"kind"/)
   assert.match(p, /140/)
-  assert.match(p, /Bildunterschrift/)
+  assert.match(p, /German/)
+  assert.match(p, /Caption \(do not repeat it\)/)
   assert.match(p, /Die alte Halle/)
-  assert.match(visionPrompt('en-GB', '', ''), /Write in English/)
+  assert.match(p, /decorative/)
+  assert.match(visionPrompt('en-GB', '', ''), /Write alt and longdesc in English/)
 })
 
 test('without a key nothing is sent', async () => {
@@ -46,7 +49,8 @@ test('the request uses the configured model and retries after a rate limit', asy
   assert.equal(seen[0].url, 'https://api.groq.com/openai/v1/chat/completions')
   assert.equal(seen[0].auth, 'Bearer test-key')
   assert.equal(seen[0].model, GROQ_VISION_MODEL)
-  assert.match(seen[0].prompt, /Beschreibe/)
+  assert.match(seen[0].prompt, /Classify the picture/)
+  assert.match(seen[0].prompt, /German/)
   assert.match(seen[0].image, /^data:image\/jpeg;base64,/)
   assert.equal(out[0].alt, 'Eine rote Halle am Rand des Feldes.')
   assert.equal(out[0].error, undefined)

@@ -5,6 +5,7 @@ import { Help, Status } from './wizard.tsx'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
 import { specForFigures, type UaAnalysis } from '../engine/pdfua/index.ts'
+import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
 import { jobChoice } from './job-choice.ts'
 import type { ReviewItem } from '../engine/epub/package.ts'
@@ -28,6 +29,7 @@ export function PdfUaFlow() {
   const [alt, setAlt] = useState<Record<string, string>>({})
   const [decorative, setDecorative] = useState<Record<string, boolean>>({})
   const [spec, setSpec] = useState<Record<string, { alt: string; longDesc?: string; decorative?: boolean }>>({})
+  const [ai, setAi] = useState<Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>>({})
   const [crop, setCrop] = useState(true)
   const [result, setResult] = useState<Built>()
   const [notice, setNotice] = useState<string>()
@@ -69,6 +71,7 @@ export function PdfUaFlow() {
       setAlt(Object.fromEntries(r.figures.map((f) => [f.key, f.alt])))
       setDecorative({})
       setSpec({})
+      setAi({})
       setA(r)
       setResult(undefined)
     })
@@ -82,7 +85,7 @@ export function PdfUaFlow() {
       const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: meta!.isbn || meta!.title, kind: 'accessible-pdf' })
       const options = uaOptionsFrom(uaSpec.resolved.settings)
       setResult(await buildUa(a!, {
-        styles, meta: meta!, alt, spec, decorative, cropToTrim: crop, sourceName: pdf!.name, options,
+        styles, meta: meta!, alt, spec, ai, decorative, cropToTrim: crop, sourceName: pdf!.name, options,
         onProgress: (done, total, stage) => {
           const name = stage ?? 'Tagging the PDF'
           setBusy(total ? `${name}: ${done} of ${total}` : name)
@@ -108,6 +111,28 @@ export function PdfUaFlow() {
       setSpec(matched)
       const n = Object.keys(matched).length
       setNotice(`Loaded ${pictures.length} picture description${pictures.length === 1 ? '' : 's'}. ${n} match a caption on this PDF. A typed description still wins.`)
+    })
+
+  const visionOn = !!visionConfig().apiKey.trim()
+  const draftFigures = (keys: string[]) =>
+    run(keys.length === 1 ? 'Drafting a description…' : 'Drafting picture descriptions…', async () => {
+      if (!a) return
+      const targets = a.figures.filter((f) => keys.includes(f.key) && f.thumb && f.thumb.length)
+      if (!targets.length) {
+        setNotice('Those pictures have no preview to send to the vision model.')
+        return
+      }
+      const drafted = await draftPictureAlts(
+        targets.map((f) => ({ id: f.key, bytes: f.thumb!, mime: mimeOf('picture.jpg', f.thumb!), caption: f.caption, nearby: '' })),
+        meta?.lang || 'en',
+        visionConfig(),
+        (done, total) => setProgress({ done, total }),
+      )
+      const next = { ...ai }
+      for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
+      setAi(next)
+      const failed = drafted.filter((d) => d.error)
+      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt || d.decorative).length} description(s). Approve each one before it is treated as final. A chart’s long description is added to the PDF description.`)
     })
 
   return (
@@ -211,7 +236,26 @@ export function PdfUaFlow() {
             </div>
           </section>
 
-          <Figures a={a} alt={alt} setAlt={setAlt} decorative={decorative} setDecorative={setDecorative} onSheet={(file) => loadSheet(file)} />
+          <Figures
+            a={a}
+            alt={alt}
+            setAlt={setAlt}
+            decorative={decorative}
+            setDecorative={setDecorative}
+            ai={ai}
+            busy={!!busy}
+            visionOn={visionOn}
+            onDraft={() => draftFigures(a.figures.filter((f) => !decorative[f.key] && !alt[f.key]?.trim()).map((f) => f.key))}
+            onDraftOne={(key) => draftFigures([key])}
+            onAccept={(key) => {
+              const d = ai[key]
+              if (!d) return
+              if (d.decorative) setDecorative({ ...decorative, [key]: true })
+              else if (d.alt) setAlt({ ...alt, [key]: d.alt })
+              setAi({ ...ai, [key]: { ...d, approved: true } })
+            }}
+            onSheet={(file) => loadSheet(file)}
+          />
 
           <section className="card">
             <h2>Build</h2>
@@ -228,12 +272,18 @@ export function PdfUaFlow() {
   )
 }
 
-function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
+function Figures({ a, alt, setAlt, decorative, setDecorative, ai, busy, visionOn, onDraft, onDraftOne, onAccept, onSheet }: {
   a: UaAnalysis
   alt: Record<string, string>
   setAlt: (x: Record<string, string>) => void
   decorative: Record<string, boolean>
   setDecorative: (x: Record<string, boolean>) => void
+  ai: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
+  busy: boolean
+  visionOn: boolean
+  onDraft: () => void
+  onDraftOne: (key: string) => void
+  onAccept: (key: string) => void
   onSheet: (file: File) => void
 }) {
   const [filter, setFilter] = useState<'todo' | 'all'>('todo')
@@ -252,7 +302,9 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
         <span>Picture descriptions (spec sheet)</span>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onSheet(f); e.target.value = '' }} />
       </label>
+      {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
       <div className="row">
+        <button onClick={onDraft} disabled={busy || !visionOn || todo.length === 0}>Draft the missing descriptions</button>
         <label>
           <input type="radio" checked={filter === 'todo'} onChange={() => setFilter('todo')} /> Needs a description ({todo.length})
         </label>
@@ -269,6 +321,16 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
                 page {label(f.page)} · {f.vector ? 'chart / drawing' : 'image'}
               </code>
               {f.caption && <div className="why">Caption: {f.caption}</div>}
+              {ai[f.key] && !ai[f.key].approved && (
+                <div className="why">
+                  {ai[f.key].decorative
+                    ? 'Draft: decorative. Approving hides it from the reading order.'
+                    : `Draft: ${ai[f.key].alt || '(empty)'}`}
+                  {ai[f.key].longDesc ? ` Long description: ${ai[f.key].longDesc}` : ''}
+                  {' '}
+                  <button onClick={() => onAccept(f.key)} disabled={busy}>Approve</button>
+                </div>
+              )}
               <label>
                 <input
                   type="checkbox"
@@ -281,6 +343,7 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, onSheet }: {
                 <span>Alt text</span>
                 <textarea rows={2} disabled={!!decorative[f.key]} value={alt[f.key] ?? ''} onChange={(e) => setAlt({ ...alt, [f.key]: e.target.value })} />
               </label>
+              {visionOn && <button className="ghost" onClick={() => onDraftOne(f.key)} disabled={busy}>Draft again</button>}
             </div>
           </div>
         ))}

@@ -389,6 +389,30 @@ export const RULES: Rule[] = [
     origin: 'EPUB Accessibility 1.1',
   },
   {
+    id: 'IMG-002', group: 'Quality check', title: 'Length of a short picture description', kind: 'free', type: 'number', key: 'altMaxChars', unit: 'characters', min: 40, max: 500,
+    help: 'A short description stays under this many characters. A chart, map or diagram can add a long description under the picture. The model is asked for the same limit.',
+    keywords: ['alt length', 'alt text length', 'zeichen', 'caracteres de la descripción'],
+    origin: 'Börsenverein short description; rulebook IMG-002 (a description is not a caption or a filler sentence)',
+  },
+  {
+    id: 'IMG-006', group: 'Quality check', title: 'Picture resolution', kind: 'free', type: 'number', key: 'imageDpi', unit: 'ppi', min: 72, max: 600,
+    help: 'Every JPEG and PNG in the e-book is tagged at this resolution. A picture taken from a PDF is rendered at this many pixels per inch of its printed size, then capped by IMG-007.',
+    keywords: ['300 dpi', '300 ppi', 'resolution', 'image spec', 'auflösung'],
+    origin: '24102026 EPUB doc item 10 (Birmingham p.4); rulebook IMG-006',
+  },
+  {
+    id: 'IMG-007', group: 'Quality check', title: 'Longest side of a picture', kind: 'free', type: 'number', key: 'imageMaxPx', unit: 'px', min: 200, max: 8000,
+    help: 'No picture is wider or taller than this. A larger one is scaled down and keeps its shape. Nothing is scaled up. The client’s own Birmingham cover is 1949×2764, so 1900 follows the written spec and not that file.',
+    keywords: ['1900', 'max-width', 'max-height', 'image size', 'pixel'],
+    origin: '24102026 EPUB doc item 10; rulebook IMG-007. FLAGGED against the Birmingham cover.',
+  },
+  {
+    id: 'IMG-008', group: 'Quality check', title: 'JPEG quality', kind: 'free', type: 'number', key: 'imageJpegQuality', min: 40, max: 95,
+    help: 'Quality used when a picture is saved as JPEG (a CMYK or grayscale file, a scaled file, or a PNG with no transparency). A JPEG that is already RGB and within the cap is not saved again. The client named no quality; 85 matches the PDF picture raster.',
+    keywords: ['jpeg quality', 'compression', 'image spec', 'rgb', 'cmyk'],
+    origin: '24102026 EPUB doc item 10 (mode RGB); rulebook IMG-008, IMG-016. FLAGGED: quality number is not in the client note.',
+  },
+  {
     id: 'QA-01', group: 'Quality check', title: 'Smallest cover', kind: 'free', type: 'number', key: 'minCoverPx', unit: 'px', min: 0, max: 10000,
     help: 'Shortest acceptable long side of the cover image.',
     keywords: ['cover size', 'tamaño de cubierta', 'portada'],

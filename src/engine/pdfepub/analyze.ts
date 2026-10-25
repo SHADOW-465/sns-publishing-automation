@@ -14,8 +14,10 @@ import { styleStats, type StyleStats } from '../structure/features.ts'
 import { pdfFeatures } from './features.ts'
 import { pdfNotes } from './notes.ts'
 import type { NoteFinding } from '../structure/notes.ts'
+import { settings } from '../settings.ts'
 
-export const MAX_IMAGE_SIDE = 1900 // long side of pictures in the reference EPUB
+/** Default cap. Call sites read settings().imageMaxPx so a client layer can change it. */
+export const MAX_IMAGE_SIDE = 1900
 // =============================================================================================
 // Print PDF → EPUB, step 1: read every page and work out what each font style is for.
 // Deduced from Automation/WORD-to-EPUB-Automation (print PDF vs the hand-made EPUB).
@@ -138,7 +140,7 @@ export async function analyzePdf(
     // a chart drawn as vectors has no image XObject: rasterise the drawing and drop the labels that sit inside it.
     // PDF/UA (structure: false) keeps the vectors and the labels; it tags the chart itself.
     for (const box of opts.structure === false ? [] : clusterDrawings(layout)) {
-      const jpeg = await raster.page(page, Math.min(MAX_IMAGE_SIDE, Math.max(80, Math.round((box.y1 - box.y0) * 3))), box).catch(() => null)
+      const jpeg = await raster.page(page, Math.min(settings().imageMaxPx, Math.max(80, Math.round((box.y1 - box.y0) * settings().imageDpi / 72))), box).catch(() => null)
       if (!jpeg) continue
       layout.images.push({ id: `vector-${layout.images.length}`, x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, crop: { l: 0, t: 0, r: 1, b: 1 }, jpeg })
       layout.lines = layout.lines.filter((l) => {
@@ -151,7 +153,7 @@ export async function analyzePdf(
     for (const im of layout.images) {
       if (im.jpeg) continue
       const obj = await imageObject(page, im.id)
-      im.jpeg = obj ? await raster.image(obj, im.crop, MAX_IMAGE_SIDE).catch(() => null) : null
+      im.jpeg = obj ? await raster.image(obj, im.crop, settings().imageMaxPx).catch(() => null) : null
     }
     // a spread PDF (two printed pages side by side) is read as two pages, or the left page's text would be a "column" of the right one
     if (opts.splitSpreads && layout.width > layout.height * 1.2) for (const half of splitSpread(layout, i - 1)) raw.push({ ...half, index: raw.length })

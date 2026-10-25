@@ -1,6 +1,7 @@
 // Node implementation of Raster (CLI / tests) using @napi-rs/canvas, which pdf.js installs.
 import { createCanvas, ImageData } from '@napi-rs/canvas'
 import { toRGBA, type Raster } from '../src/engine/pdf/raster.ts'
+import { settings } from '../src/engine/settings.ts'
 
 export const nodeRaster: Raster = {
   async image(obj, crop, maxSide) {
@@ -16,7 +17,7 @@ export const nodeRaster: Raster = {
     const k = Math.min(1, maxSide / Math.max(sw, sh))
     const out = createCanvas(Math.max(1, Math.round(sw * k)), Math.max(1, Math.round(sh * k)))
     out.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height)
-    return new Uint8Array(await out.encode('jpeg', 85))
+    return new Uint8Array(await out.encode('jpeg', settings().imageJpegQuality))
   },
   async page(page, height, rect) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,6 +34,6 @@ export const nodeRaster: Raster = {
     await p.render({ canvasContext: ctx, viewport: vp, canvas, intent: 'print' }).promise
     const out = createCanvas(Math.round((box.x1 - box.x0) * scale), Math.round(height))
     out.getContext('2d').drawImage(canvas, box.x0 * scale, box.y0 * scale, out.width, out.height, 0, 0, out.width, out.height)
-    return new Uint8Array(await out.encode('jpeg', 88))
+    return new Uint8Array(await out.encode('jpeg', settings().imageJpegQuality))
   },
 }

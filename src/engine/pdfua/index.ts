@@ -235,7 +235,7 @@ export interface UaBuildInput {
   /** replaces the options the analysis was made with (the client's layer is known only after reading the book) */
   options?: UaOptions
   spec?: Record<string, { alt: string; longDesc?: string; decorative?: boolean }>
-  ai?: Record<string, { alt: string; approved?: boolean }>
+  ai?: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
   fileAlt?: Record<string, { alt: string; longDesc?: string }>
   /** The reviewer marked this picture as decoration. It is tagged as an artifact, not a figure. */
   decorative?: Record<string, boolean>
@@ -262,20 +262,23 @@ export function figureChoice(input: {
   decorative?: Record<string, boolean>
   /** a decorative layer: this picture is an ornament and the client wants ornaments as decoration */
   ornamentArtifact?: boolean
-}): { alt: string; decorative: boolean; pendingAi: boolean } {
-  if (input.decorative?.[input.key]) return { alt: '', decorative: true, pendingAi: false }
+}): { alt: string; longDesc: string; decorative: boolean; pendingAi: boolean } {
+  if (input.decorative?.[input.key]) return { alt: '', longDesc: '', decorative: true, pendingAi: false }
   const typedRaw = (input.alt[input.key] ?? '').trim()
   const typedGiven = Object.prototype.hasOwnProperty.call(input.alt, input.key)
+  const draft = input.ai?.[input.key]
   const choice = resolveAlt({
-    typed: typedGiven && typedRaw ? { alt: typedRaw } : null,
+    typed: typedGiven && typedRaw ? { alt: typedRaw, longDesc: draft?.longDesc } : null,
     spec: input.spec?.[input.key] ?? null,
     file: input.fileAlt?.[input.key] ?? (!typedGiven && input.remembered ? { alt: input.remembered } : null),
     decorative: input.ornamentArtifact,
-    ai: input.ai?.[input.key] ?? null,
+    ai: draft && (draft.alt?.trim() || draft.decorative) ? { alt: draft.alt, longDesc: draft.longDesc, decorative: draft.decorative } : null,
     caption: input.caption,
   })
-  const approvedAi = choice.source === 'ai' && !!input.ai?.[input.key]?.approved
-  return { alt: choice.decorative ? '' : choice.alt, decorative: choice.decorative, pendingAi: choice.source === 'ai' && !approvedAi && !!choice.alt }
+  const approvedAi = choice.source === 'ai' && !!draft?.approved
+  // PDF/UA-1 stores one /Alt. The long description follows the short one in that field.
+  const alt = choice.decorative ? '' : choice.longDesc ? `${choice.alt}\n${choice.longDesc}` : choice.alt
+  return { alt, longDesc: choice.longDesc, decorative: choice.decorative, pendingAi: choice.source === 'ai' && !approvedAi && (choice.decorative || !!choice.alt) }
 }
 
 export async function buildUa(

@@ -5,6 +5,8 @@ import { text } from '../zip.ts'
 import { resolvePath } from '../xml.ts'
 import { expandPageEnd } from '../pdfua/indexlinks.ts'
 import type { ReviewItem } from '../epub/package.ts'
+import { settings } from '../settings.ts'
+import { imageFacts } from '../epub/image-spec.ts'
 
 const textOf = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 
@@ -163,6 +165,77 @@ export function indexRangeGuards(files: Files): ReviewItem[] {
       const expanded = expandPageEnd(start, endText)
       if (hrefEnd !== expanded || hrefEnd < start) out.push({ level: 'error', msg: `IDX-002: the index range ${start}-${endText} in ${path.split('/').pop()} links the end to page ${hrefEnd}, an earlier page. The end expands to ${expanded}.` })
     }
+  }
+  return out
+}
+
+const normAlt = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+const LEADING_ALT = /^(?:image of|picture of|bild von)\b/i
+
+function captionNear(html: string, index: number): string {
+  const window = html.slice(Math.max(0, index - 400), index + 800)
+  const cap = window.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i) ?? window.match(/<p\b[^>]*\bclass="[^"]*\b(?:caption\d*|bildunterschrift|bildlegende|pie|bu)\b[^"]*"[^>]*>([\s\S]*?)<\/p>/i)
+  return cap ? cap[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : ''
+}
+
+/**
+ * IMG-001: a decorative picture has an empty description.
+ * IMG-002: the description does not repeat the caption, does not start with "image of" / "picture of" / "Bild von",
+ * and stays within the short-description limit. The rulebook has no separate length id; IMG-002 is the short-description rule.
+ */
+export function altGuards(files: Files): ReviewItem[] {
+  const out: ReviewItem[] = []
+  const max = settings().altMaxChars
+  const seen = new Set<string>()
+  for (const [path, data] of files) {
+    if (!path.endsWith('.xhtml')) continue
+    const html = text(data)
+    for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+      const tag = m[0]
+      const alt = tag.match(/\balt="([^"]*)"/)?.[1] ?? ''
+      const src = tag.match(/\bsrc="([^"]+)"/)?.[1] ?? path
+      const decorative = /role="presentation"|aria-hidden="true"/.test(tag)
+      const key = `${src}|${alt}|${decorative}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (decorative && alt.trim()) {
+        out.push({ level: 'error', msg: `IMG-001: ${src} is marked decorative but its description is not empty (“${alt.trim().slice(0, 60)}”). A decorative picture has alt="" and role="presentation".` })
+        continue
+      }
+      if (!alt.trim() || decorative) continue
+      const caption = captionNear(html, m.index ?? 0)
+      const a = normAlt(alt)
+      const c = normAlt(caption)
+      if (a.length >= 8 && c.length >= 8 && (a === c || c.includes(a) || a.includes(c)))
+        out.push({ level: 'error', msg: `IMG-002: the description of ${src} repeats its caption (“${alt.trim().slice(0, 60)}”).` })
+      if (LEADING_ALT.test(alt.trim()))
+        out.push({ level: 'error', msg: `IMG-002: the description of ${src} starts with “${alt.trim().split(/\s+/).slice(0, 2).join(' ')}”. Name what is in the picture.` })
+      // A warning, not a blocked download. The aim is 140; the hand-finished Cambia cover description is 158.
+      if (alt.trim().length > max)
+        out.push({ level: 'warn', msg: `IMG-002: the description of ${src} is ${alt.trim().length} characters, over the limit of ${max}.` })
+    }
+  }
+  return out
+}
+
+/** IMG-006 density, IMG-007 pixel cap, IMG-008 colour mode. SVG and an incomplete header are not pictures we can measure. */
+export function imageSpecGuards(files: Files): ReviewItem[] {
+  const out: ReviewItem[] = []
+  const max = settings().imageMaxPx
+  const dpi = settings().imageDpi
+  for (const [path, data] of files) {
+    if (!/\.(jpe?g|png)$/i.test(path)) continue
+    const facts = imageFacts(data)
+    if (!facts.real) continue
+    const name = path.split('/').pop()!
+    if (facts.width > max || facts.height > max)
+      out.push({ level: 'error', msg: `IMG-007: ${name} is ${facts.width}×${facts.height} px, over the ${max} px limit.` })
+    if (facts.mode === 'cmyk')
+      out.push({ level: 'error', msg: `IMG-008: ${name} is CMYK. Pictures in the e-book are RGB.` })
+    else if (facts.mode === 'gray')
+      out.push({ level: 'error', msg: `IMG-008: ${name} is grayscale. Pictures in the e-book are RGB.` })
+    if (facts.dpi !== dpi)
+      out.push({ level: 'error', msg: `IMG-006: ${name} ${facts.dpi ? `is tagged at ${facts.dpi} ppi, not ${dpi}` : 'has no resolution tag'}. Pictures are tagged at ${dpi} ppi.` })
   }
   return out
 }

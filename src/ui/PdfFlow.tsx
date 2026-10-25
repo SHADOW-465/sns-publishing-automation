@@ -23,7 +23,7 @@ import { outputViolations } from '../engine/output/standards.ts'
 // Print PDF, or a Word manuscript read from its heading styles, → EPUB 3. A .docx is the source when
 // one is attached; otherwise the print PDF is. The cover is a JPG or PNG. The vision key stays in Settings.
 
-type AiDraft = { alt: string; approved: boolean }
+type AiDraft = { alt: string; longDesc?: string; approved: boolean; decorative?: boolean }
 type Over = { alt?: Record<string, string>; ai?: Record<string, AiDraft>; pictures?: SpecPicture[] }
 
 const emptyMeta = (b: { title: string; authors: string; publisher: string; language: string }): BookMeta => ({
@@ -184,7 +184,7 @@ export function PdfFlow() {
   const structurePending = structureReview?.items.length ?? 0
   const structureNext = useConfirmNext(structurePending, () => setStep(3))
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
-  const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && !!p.alt.trim() && !isPlaceholderAlt(p.alt)) : []
+  const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && (p.decorative || (!!p.alt.trim() && !isPlaceholderAlt(p.alt)))) : []
   const visionOn = !!visionConfig().apiKey.trim()
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
@@ -212,10 +212,10 @@ export function PdfFlow() {
         (done, total) => setProgress({ done, total }),
       )
       const next = { ...ai }
-      for (const d of drafted) if (d.alt) next[d.id] = { alt: d.alt, approved: false }
+      for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
       setAi(next)
       const failed = drafted.filter((d) => d.error)
-      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt).length} description(s). Each one needs approval.`)
+      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt || d.decorative).length} description(s). Each one needs approval.`)
       await rebuild(undefined, { ai: next })
     })
 
@@ -223,8 +223,9 @@ export function PdfFlow() {
     if (!result) return
     const next = { ...ai }
     for (const id of paths) {
-      const cur = next[id]?.alt || result.pictures.find((p) => p.path === id)?.alt || ''
-      next[id] = { alt: cur, approved: true }
+      const cur = next[id]
+      const pic = result.pictures.find((p) => p.path === id)
+      next[id] = { alt: cur?.alt || pic?.alt || '', longDesc: cur?.longDesc || pic?.longDesc, decorative: cur?.decorative ?? pic?.decorative, approved: true }
     }
     setAi(next)
     buildAnd(undefined, { ai: next })
@@ -523,6 +524,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, vi
                 <code>{p.path.replace('images/', '')}</code>
                 {p.alt || p.decorative ? <span className={`src-badge ${p.source}${openDraft ? ' pending' : ''}`}>{ALT_SOURCE_LABEL[p.source]}{openDraft ? ' · needs approval' : ''}</span> : null}
                 {p.caption && <div className="why">Caption: {p.caption}</div>}
+                {p.longDesc && <div className="why">Long description: {p.longDesc}</div>}
                 {p.decorative && !(alt[p.path] ?? '').trim() ? (
                   <div className="why">A screen reader skips this picture. Type a description below to treat it as content instead.</div>
                 ) : null}
@@ -531,7 +533,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, vi
                   <textarea rows={2} value={shownDescription(p, alt)} placeholder={p.decorative ? '(decorative — leave empty)' : ''} onChange={(e) => setAlt({ ...alt, [p.path]: e.target.value })} />
                 </label>
                 {openDraft && <button onClick={() => onApprove(p.path)} disabled={busy}>Approve</button>}
-                {visionOn && !p.decorative && <button className="ghost" onClick={() => onDraftOne(p.path)} disabled={busy}>Draft again</button>}
+                {visionOn && <button className="ghost" onClick={() => onDraftOne(p.path)} disabled={busy}>Draft again</button>}
               </div>
             </div>
           )

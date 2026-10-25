@@ -6,7 +6,8 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
-import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards } from '../check/guards.ts'
+import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards } from '../check/guards.ts'
+import { prepareEpubImages, rewriteImagePaths } from './image-spec.ts'
 
 export interface BookMeta {
   title: string
@@ -221,10 +222,12 @@ export function packageEpub(p: {
   printTables?: number
 }): { epub: Uint8Array; files: Files } {
   const { meta, review } = p
+  const prepared = prepareEpubImages(p.cover, p.images)
+  const sectionsIn = p.sections.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
-  const sections = standard ? p.sections.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : p.sections
+  const sections = standard ? sectionsIn.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : sectionsIn
   const pageList = p.sections.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
   const pageTarget = (n: string) => (standard ? pageAnchorId(n, settings().pageAnchorId) : `page-${n}`)
   const lang = meta.language
@@ -251,13 +254,13 @@ export function packageEpub(p: {
     /^<section[^>]*>/.test(body) && body.trimEnd().endsWith('</section>')
       ? body.replace(/^(<section[^>]*>)/, `$1\n<div xml:lang="${lang}">`).replace(/<\/section>\s*$/, '</div>\n</section>')
       : `<div xml:lang="${lang}">\n${body}\n</div>`
-  const coverP = `<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg"${standard ? '' : ' role="doc-cover"'} src="${p.cover.path}"/></p>`
+  const coverP = `<p class="cover"><img alt="${esc(coverAlt)}" class="cv" id="cimg"${standard ? '' : ' role="doc-cover"'} src="${prepared.cover.path}"/></p>`
   put('OEBPS/cover.xhtml', doc(L.coverTitle, standard && settings().stdWrappers === 'none' ? coverP : `<section${standard ? '' : ` aria-label="${esc(L.coverTitle)}"`} epub:type="cover">\n${langDiv(coverP)}\n</section>`))
   for (const s of sections) put(`OEBPS/${s.file}`, doc(s.title, langDiv(s.body)))
   const extra = settings().extraCss.trim()
   put('OEBPS/css/style.css', (standard ? (c: string) => standardCss(c, settings()) : (c: string) => c)(formatCss(p.css ?? buildCss(p.usedClasses, p.bodyDecls))) + (extra ? `\n/* house additions (Settings) */\n${extra}\n` : ''))
-  files.set(`OEBPS/${p.cover.path}`, p.cover.data)
-  for (const im of p.images) files.set(`OEBPS/${im.path}`, im.data)
+  files.set(`OEBPS/${prepared.cover.path}`, prepared.cover.data)
+  for (const im of prepared.images) files.set(`OEBPS/${im.path}`, im.data)
 
   // ---- navigation: nav.xhtml (EPUB 3) and toc.ncx (EPUB 2 readers) ----
   type Entry = { label: string; href: string; kids: Entry[] }
@@ -344,7 +347,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   // ---- package document ----
   const now = new Date()
   const modified = now.toISOString().replace(/\.\d+Z$/, 'Z')
-  const allImgs = [p.cover, ...p.images]
+  const allImgs = [prepared.cover, ...prepared.images]
   const html = sections.map((s) => s.body).join('\n')
   const features = ['tableOfContents', 'readingOrder', 'structuralNavigation', 'displayTransformability', 'ARIA']
   if (pageList.length) features.push('pageNavigation')
@@ -384,7 +387,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
       return `<item id="${s.id}" href="${s.file}" media-type="application/xhtml+xml"${props ? ` properties="${props}"` : ''}/>`
     }),
     ...[...unique.values()].map((im, i) =>
-      im === p.cover
+      im === prepared.cover
         ? `<item id="cover-image" href="${im.path}" media-type="${mediaType(im.path)}" properties="cover-image"/>`
         : `<item id="img${i}" href="${im.path}" media-type="${mediaType(im.path)}"/>`),
   ]
@@ -450,5 +453,7 @@ ${settings().writeGuide ? `<guide>
   review.push(...indexRangeGuards(files))
   review.push(...tableGuards(files, p.printTables))
   review.push(...scriptGuards(files))
+  review.push(...altGuards(files))
+  review.push(...imageSpecGuards(files))
   return { epub: zipEpub(files), files }
 }
