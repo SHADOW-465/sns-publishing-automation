@@ -9,7 +9,9 @@ import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
 import { figureWrap } from '../epub/markup.ts'
-import { normTitle, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
+import { markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
+import { smallCapsSpan } from '../indesign/inline.ts'
+import { settings } from '../settings.ts'
 
 export interface WordBuildInput {
   meta: BookMeta
@@ -20,6 +22,10 @@ export interface WordBuildInput {
   ai?: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
+  /** companion print PDF pages. Used when the manuscript itself has no page breaks (PG-02). */
+  printPages?: { n: string; text: string }[]
+  /** lowercase words the companion PDF drew as small caps (PG-03). */
+  smallCapWords?: string[]
 }
 
 export interface WordBuildResult {
@@ -42,30 +48,46 @@ th, td { border: 1px solid #ccc; padding: 0.3em 0.5em; vertical-align: top; }
 th { font-weight: bold; }
 figure { margin: 1em 0; }
 img { max-width: 100%; height: auto; }
+sup { font-size: 70%; vertical-align: super; line-height: 0; }
+sub { font-size: 70%; vertical-align: sub; line-height: 0; }
+span.small-caps { font-size: 75%; }
+a { text-decoration: underline; }
 `
 
 type Chunk = { kind: 'p' | 'h' | 'raw'; html: string }
 
-function inlinesHtml(inlines: WordInline[], page: (n: string) => string): string {
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"“”]*[^\s<>"“”.,;:)\]]|[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/gi
+function autolink(escaped: string) {
+  return escaped.replace(URL_RE, (m) => `<a href="${m.includes('@') && !m.startsWith('http') ? 'mailto:' + m : m.startsWith('www.') ? 'https://' + m : m}">${m}</a>`)
+}
+
+function inlinesHtml(inlines: WordInline[], page: (n: string) => string, lang: string): string {
   let html = ''
   for (const i of inlines) {
     if (i.t === 'page') {
       html += page(i.text)
       continue
     }
-    let t = esc(i.text)
+    if (i.t === 'br') continue
+    const marked = !!(i.smallCaps || i.caps)
+    let t = marked ? smallCapsSpan(i.text, lang) : esc(i.text)
+    if (!i.href && !marked) t = autolink(t)
     if (i.italic && i.text.trim()) t = `<i>${t}</i>`
     if (i.bold && i.text.trim()) t = `<b>${t}</b>`
+    if (i.sup && i.text.trim()) t = `<sup>${t}</sup>`
+    if (i.sub && i.text.trim()) t = `<sub>${t}</sub>`
+    if (i.href && (i.text.trim() || marked)) t = `<a href="${esc(i.href)}">${t}</a>`
+    if (i.id) t = i.text ? `<span id="${esc(i.id)}">${t}</span>` : `<span id="${esc(i.id)}"/>`
     html += t
   }
   return html
 }
 
-function headingHtml(level: number, title: string, id?: string): string {
+function headingHtml(level: number, inner: string, id?: string): string {
   const n = Math.min(6, Math.max(1, level))
   const idAttr = id ? ` id="${esc(id)}"` : ''
   const cls = n === 1 ? 'chapter' : 'subhead'
-  return `<h${n} class="${cls}"${idAttr} role="heading" aria-level="${n}">${esc(title)}</h${n}>`
+  return `<h${n} class="${cls}"${idAttr} role="heading" aria-level="${n}">${inner}</h${n}>`
 }
 
 function joinHtml(prev: string, next: string): string {
@@ -115,7 +137,19 @@ interface Draft {
 /** Build an EPUB from a Word manuscript. The cover is still required; the ISBN is left for the reviewer. */
 export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildResult {
   const { meta } = input
-  const L = labelsFor(meta.language || book.language)
+  const lang = meta.language || book.language || 'en'
+  let printPageCount: number | undefined
+  if (input.printPages?.length && settings().wordPagesFromPdf) {
+    const usable = input.printPages.filter((p) => p.text.trim().length >= 24)
+    const before = book.blocks.some((b) => b.role === 'table' ? b.rows.some((row) => row.some((cell) => cell.some((i) => i.t === 'page'))) : 'inlines' in b && b.inlines.some((i) => i.t === 'page'))
+    if (!before) {
+      stampPagesFromPdf(book, usable)
+      printPageCount = usable.length
+    }
+  }
+  if (input.smallCapWords?.length) markWordSmallCaps(book, input.smallCapWords)
+  const smallCapsRuns = smallCapsRunCount(book)
+  const L = labelsFor(lang)
   const review: ReviewItem[] = []
   const page = (n: string) => `<span aria-label="${esc(L.page)} ${esc(n)}" epub:type="pagebreak" id="page-${esc(n)}" role="doc-pagebreak" title="${esc(L.page)} ${esc(n)}"/>`
   // the contents list, at every level, decides which headings start a section; a wrapped heading still matches as part of its entry
@@ -136,14 +170,14 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     cur = next
     return next
   }
-  const start = (title: string, type: SectionType) => {
+  const start = (title: string, type: SectionType, headInner?: string) => {
     if (cur) drafts.push(cur)
     const n = drafts.length + 1
     const id = type === 'chapter' ? `chap${String(n).padStart(2, '0')}` : `h${n}`
-    cur = { type, nav: title, head: title ? headingHtml(1, title, id) : '', chunks: [] }
+    cur = { type, nav: title, head: title ? headingHtml(1, headInner ?? esc(title), id) : '', chunks: [] }
   }
   const addPara = (para: WordPara) => {
-    const html = inlinesHtml(para.inlines, page)
+    const html = inlinesHtml(para.inlines, page, lang)
     if (!html.trim()) return
     const box = ensure()
     const last = box.chunks[box.chunks.length - 1]
@@ -159,10 +193,10 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
       // level 1 starts a section; so does a level 2 heading that the contents names, or that is a chapter or part by its own words
       const startsChapter = block.level === 1 ? !gated || inContents(key) || (!!known && known !== 'chapter') : block.level === 2 && (gated ? inContents(key) : known === 'chapter' || known === 'part')
       if (startsChapter) {
-        start(block.text, known && known !== 'chapter' ? known : 'chapter')
+        start(block.text, known && known !== 'chapter' ? known : 'chapter', inlinesHtml(block.inlines, page, lang))
         spoken.push(block.text)
       } else {
-        ensure().chunks.push({ kind: 'h', html: headingHtml(block.level === 1 ? 2 : block.level, block.text) })
+        ensure().chunks.push({ kind: 'h', html: headingHtml(block.level === 1 ? 2 : block.level, inlinesHtml(block.inlines, page, lang)) })
         spoken.push(block.text)
       }
       continue
@@ -178,7 +212,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
       const items: { level: number; ordered: boolean; html: string }[] = []
       while (i < book.blocks.length && book.blocks[i].role === 'list') {
         const item = book.blocks[i] as WordPara
-        items.push({ level: item.level, ordered: item.ordered, html: inlinesHtml(item.inlines, page) })
+        items.push({ level: item.level, ordered: item.ordered, html: inlinesHtml(item.inlines, page, lang) })
         spoken.push(item.text)
         i++
       }
@@ -187,7 +221,7 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
       continue
     }
     if (block.role === 'table') {
-      ensure().chunks.push({ kind: 'raw', html: tableHtml(block, page) })
+      ensure().chunks.push({ kind: 'raw', html: tableHtml(block, page, lang) })
       spoken.push(block.text)
       continue
     }
@@ -285,15 +319,22 @@ export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildR
     usedClasses: new Map(),
     bodyDecls: {},
     css: WORD_CSS,
+    printPageCount,
+    smallCapsRuns: smallCapsRuns || undefined,
   })
-  const source: CheckSource = { words: wordsOf(spoken.join('\n')), dropped: book.tocLines, pendingAi }
+  const source: CheckSource = {
+    words: wordsOf(spoken.join('\n')),
+    dropped: book.tocLines,
+    pendingAi,
+    printPages: printPageCount ? input.printPages?.filter((p) => p.text.trim().length >= 24).map((p) => p.n) : undefined,
+  }
   return { epub, files, sections, review, pictures, source }
 }
 
-function tableHtml(t: WordTable, page: (n: string) => string): string {
+function tableHtml(t: WordTable, page: (n: string) => string, lang: string): string {
   const rows = t.rows.map((cells, r) => {
     const tag = t.header[r] ? 'th' : 'td'
-    const inner = cells.map((c) => `<${tag}${tag === 'th' ? ' scope="col"' : ''}>${inlinesHtml(c, page)}</${tag}>`).join('')
+    const inner = cells.map((c) => `<${tag}${tag === 'th' ? ' scope="col"' : ''}>${inlinesHtml(c, page, lang)}</${tag}>`).join('')
     return `<tr>${inner}</tr>`
   })
   const caption = t.caption ? `<caption>${esc(t.caption)}</caption>\n` : ''

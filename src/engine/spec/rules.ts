@@ -82,6 +82,20 @@ export const RULES: Rule[] = [
     keywords: ['page number placement', 'pagebreak', 'page marker', 'número de página', 'salto de página'],
     origin: 'EPUB page navigation; V3 rows 9–10',
   },
+  {
+    id: 'PG-02', group: 'Pages and language', title: 'Word page numbers from the print PDF', kind: 'free', type: 'bool', key: 'wordPagesFromPdf',
+    help: 'A Word file with no page breaks takes its page markers from the companion print PDF, by matching the text. On when a PDF is given.',
+    choices: onOff, example: (v) => (v ? '<span epub:type="pagebreak" id="page-42" role="doc-pagebreak"/>' : '(no marker)'),
+    keywords: ['word page', 'page id', 'página word', 'docx page', 'page from pdf'],
+    origin: 'Client note CNV-003 (pages missing from a Word file that has no breaks)',
+  },
+  {
+    id: 'PG-03', group: 'Pages and language', title: 'Word small caps from the print PDF', kind: 'free', type: 'bool', key: 'wordSmallCapsFromPdf',
+    help: 'Small caps the Word file does not mark are read from the companion print PDF: lowercase letters drawn as wide as capitals.',
+    choices: onOff, example: (v) => (v ? '<span class="small-caps">UAEM</span>' : 'uaem'),
+    keywords: ['small caps word', 'versalitas word', 'smallcaps docx', 'word small caps'],
+    origin: 'Client note TXT-007 (small caps lost when Word was made from the PDF)',
+  },
 
   // ---- headings ----
   {

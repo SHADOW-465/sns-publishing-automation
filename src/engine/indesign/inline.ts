@@ -235,6 +235,17 @@ function faceClass(f: Face, base: Face): string[] {
   return cls
 }
 
+/**
+ * Small-caps markup for one run. Lowercase letters are uppercased inside the span (the house CSS only
+ * shrinks it). A run that is already capitals still gets the span: smallCaps() wraps lowercase only.
+ */
+export function smallCapsSpan(text: string, lang: string): string {
+  const marked = smallCaps(text, lang)
+  if (marked.includes('class="small-caps"')) return marked
+  if (!text.trim()) return esc(text)
+  return `<span class="small-caps">${esc(text.toLocaleUpperCase(lang))}</span>`
+}
+
 /** "Las frecuencias" → L<span class="small-caps">AS FRECUENCIAS</span> */
 export function smallCaps(text: string, lang: string): string {
   let out = ''

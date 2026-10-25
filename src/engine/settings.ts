@@ -173,6 +173,10 @@ const SCHEMA = {
   pageAnchorId: { def: 'Page_{n}', text: ANCHOR_ID },
   /** where that anchor sits: on a line of its own in front of the block, or as the first thing inside the block that starts the page */
   pageAnchorPlace: { def: 'before', choices: ['before', 'inside'] },
+  /** a Word manuscript with no page breaks takes markers from the companion print PDF, by matching the text. On when a PDF is given. */
+  wordPagesFromPdf: { def: true, bool: true },
+  /** small caps a Word file does not mark are read from the companion print PDF (lowercase letters drawn at capital width). */
+  wordSmallCapsFromPdf: { def: true, bool: true },
 
   // ---- typography of the stylesheet built for a print PDF (an InDesign export carries its own, which "print" keeps) ----
   /** body text alignment. print = what the printed page does (justified lines end flush right) */

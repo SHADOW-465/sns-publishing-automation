@@ -6,7 +6,7 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
-import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards } from '../check/guards.ts'
+import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards, pageMarkGuards, smallCapsGuards, linkGuards } from '../check/guards.ts'
 import { prepareEpubImages, rewriteImagePaths } from './image-spec.ts'
 
 export interface BookMeta {
@@ -220,6 +220,10 @@ export function packageEpub(p: {
   printPictures?: number
   /** ruled tables in the print PDF: the e-book must hold as many (TBL-001) */
   printTables?: number
+  /** printed pages the source has, when this build is what places the markers (STD-08) */
+  printPageCount?: number
+  /** small-caps runs in the source (TXT-007) */
+  smallCapsRuns?: number
 }): { epub: Uint8Array; files: Files } {
   const { meta, review } = p
   const prepared = prepareEpubImages(p.cover, p.images)
@@ -453,6 +457,9 @@ ${settings().writeGuide ? `<guide>
   review.push(...indexRangeGuards(files))
   review.push(...tableGuards(files, p.printTables))
   review.push(...scriptGuards(files))
+  review.push(...pageMarkGuards(files, p.printPageCount))
+  review.push(...smallCapsGuards(files, p.smallCapsRuns))
+  review.push(...linkGuards(files))
   review.push(...altGuards(files))
   review.push(...imageSpecGuards(files))
   return { epub: zipEpub(files), files }

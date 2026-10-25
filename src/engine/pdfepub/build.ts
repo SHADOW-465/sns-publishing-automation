@@ -1,7 +1,8 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
 import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
-import { joinRaisedLines, type ImgBox, type FillBox } from '../pdf/layout.ts'
+import { joinRaisedLines, markSmallCapRuns, type ImgBox, type FillBox } from '../pdf/layout.ts'
+import { smallCapsSpan } from '../indesign/inline.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type SectionType } from '../epub/locale.ts'
@@ -104,11 +105,14 @@ function autolink(escaped: string) {
 }
 
 const noteMark = (id: number, label: string) => noteRef(`#fn-${id}`, `fnr-${id}`, esc(label))
+/** Set for the duration of one build. Small-caps uppercasing follows the book language. */
+let bookLang = 'en'
 const segsOf = (l: PLine, bodyItalic = false): Seg[] => l.replaceWith ? [{ t: l.replaceWith }] : l.runs.map((r) => {
   if (r.noteId) return { t: noteMark(r.noteId, r.text.trim()), raw: true }
   const bit = r.text.trim()
   if (bit && r.sup) return { t: `<sup>${esc(bit)}</sup>`, raw: true }
   if (bit && r.sub) return { t: `<sub>${esc(bit)}</sub>`, raw: true }
+  if (bit && r.sc) return { t: smallCapsSpan(r.text, bookLang), raw: true }
   return { t: r.text, b: r.bold, i: r.italic !== bodyItalic ? r.italic : false }
 })
 const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('').replace(/\s+/g, ' ').trim()
@@ -157,10 +161,17 @@ export function pdfImgHtml(name: string, choice: AltChoice, className = '', lang
 
 export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: Raster): Promise<PdfBuildResult> {
   const { meta } = input
+  bookLang = meta.language || 'en'
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = []
-  // matched footnotes become real notes; the foot lines leave the page text (once, however often the book is rebuilt)
-  if (!book.footnotes) for (const p of book.pages) p.lines = joinRaisedLines(p.lines)
+  // matched footnotes become real notes; the foot lines leave the page text (once, however often the book is rebuilt).
+  // Small-cap runs are marked here, on the EPUB lines only. pageLayout keeps every line for the PDF/UA tagger.
+  if (!book.footnotes) for (const p of book.pages) {
+    p.lines = joinRaisedLines(p.lines)
+    if (p.scTokens?.length) markSmallCapRuns(p.lines, p.scTokens)
+  }
+  let smallCapsRuns = 0
+  for (const p of book.pages) for (const l of p.lines) for (const r of l.runs) if (r.sc && r.text.trim()) smallCapsRuns += 1
   const footnotes = (book.footnotes ??= extractFootnotes(book.pages, book.bodySize))
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
@@ -805,6 +816,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     usedClasses: new Map(), bodyDecls: {}, css: pdfBookCss(book.brand, boxColours(book), typography()),
     printPictures,
     printTables: tableCount,
+    smallCapsRuns: smallCapsRuns || undefined,
   })
   // source text: every line the analysis kept (running heads and folios are already gone), de-hyphenated
   for (const p of book.pages) for (const l of p.lines) if (roleOf(l) === 'drop') dropped.push(l.text)

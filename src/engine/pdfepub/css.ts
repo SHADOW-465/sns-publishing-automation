@@ -27,6 +27,9 @@ export function pdfBookCss(brand: string, box: { panel: string }, t: PdfTypograp
 body { margin: 0 auto; padding: 0.75em 5%; }
 img { max-width: 100%; max-height: 100%; }
 a { text-decoration: underline; }
+sup { font-size: 70%; vertical-align: super; line-height: 0; }
+sub { font-size: 70%; vertical-align: sub; line-height: 0; }
+span.small-caps { font-size: 75%; }
 em { font-style: italic; }
 strong { font-weight: bold; }
 
