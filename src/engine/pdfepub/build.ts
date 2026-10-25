@@ -17,7 +17,7 @@ import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 import { linkIndexLocators } from '../pdfua/indexlinks.ts'
-import { mergeLabelSections } from '../structure/labels.ts'
+import { mergeLabelSections, mergeOpeners } from '../structure/labels.ts'
 
 // =============================================================================================
 // Print PDF → EPUB, step 2: rebuild the text flow, pictures and navigation.
@@ -609,7 +609,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   closePara()
   flushFloats(Infinity)
   // a chapter cut in two at its opener ("CHAPTER 1" | title + body) becomes one chapter
-  secs.splice(0, secs.length, ...mergeLabelSections(secs, (x) => titleCase(x.title.map(plain).join(' '))).map((x) => x as PSec))
+  secs.splice(0, secs.length, ...mergeOpeners(mergeLabelSections(secs, (x) => titleCase(x.title.map(plain).join(' '))), (x) => titleCase(x.title.map(plain).join(' '))).map((x) => x as PSec))
+  for (const s of secs as (PSec & { numberAsTitle?: string })[]) if (s.numberAsTitle) (s.title.unshift([{ t: s.numberAsTitle }]), delete s.numberAsTitle)
 
   // ---------------------------------------------------------------- front matter pages
   const front: PSec[] = []
@@ -623,17 +624,20 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const author = meta.authors && p.lines.some((l) => l.text.toLowerCase().includes(meta.authors.toLowerCase()))
       const type: SectionType = !halfDone && !author ? 'halftitle' : 'title'
       if (type === 'halftitle') halfDone = true
+      // a second title page (a series page, a title verso set like one) gets its own file: title2, never title twice
+      const nSame = front.filter((f) => f.type === type).length
+      const stem = nSame ? `${type}${nSame + 1}` : type
       if (settings().titlePageAs === 'text') {
-        front.push({ type, stem: type, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
+        front.push({ type, stem, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
         continue
       }
       const page = await book.doc.getPage(idx + 1)
       const jpg = await raster.page(page, 1200)
       page.cleanup()
-      const path = `images/${type}.jpg`
+      const path = `images/${stem}.jpg`
       images.push({ path, data: jpg })
       const alt = p.lines.map((l) => l.text.trim()).join(' ').replace(/\s+/g, ' ')
-      front.push({ type, stem: type, title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<p class="cover">${mk}<img alt="${esc(alt)}" class="cv" src="${path}"/></p>` }], raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
+      front.push({ type, stem, title: [], headRole: 'title', blocks: [{ kind: 'raw', html: `<p class="cover">${mk}<img alt="${esc(alt)}" class="cv" src="${path}"/></p>` }], raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
     } else {
       const im = [...p.images].filter((x) => x.jpeg).sort((a, b) => (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0))[0]
       if (!im) continue

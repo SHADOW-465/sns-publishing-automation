@@ -5,6 +5,7 @@ import { esc } from '../xml.ts'
 import { labelsFor, sectionTypeOf, SECTION_META, type SectionType } from '../epub/locale.ts'
 import { packageEpub, type BookMeta, type ReviewItem, type Section, type ImageOut } from '../epub/package.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
+import { headingsFromTypedContents } from './typedtoc.ts'
 import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
@@ -135,7 +136,8 @@ interface Draft {
 }
 
 /** Build an EPUB from a Word manuscript. The cover is still required; the ISBN is left for the reviewer. */
-export function buildWordEpub(book: WordBook, input: WordBuildInput): WordBuildResult {
+export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuildResult {
+  const book: WordBook = { ...book0, blocks: headingsFromTypedContents(book0.blocks) }
   const { meta } = input
   const lang = meta.language || book.language || 'en'
   let printPageCount: number | undefined

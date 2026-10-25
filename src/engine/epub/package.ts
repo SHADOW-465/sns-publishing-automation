@@ -225,9 +225,14 @@ export function packageEpub(p: {
   /** small-caps runs in the source (TXT-007) */
   smallCapsRuns?: number
 }): { epub: Uint8Array; files: Files; renames: [string, string][] } {
-  const { meta, review } = p
+  const { review } = p
+  // an empty title is invalid EPUB (RSC-005): fall back to the first titled section and ask the reviewer to type the real one
+  const fallbackTitle = p.meta.title.trim() ? '' : (p.sections.find((x) => (x.nav || x.title || '').trim())?.nav || p.sections.find((x) => (x.title || '').trim())?.title || 'Untitled').trim()
+  const meta = fallbackTitle ? { ...p.meta, title: fallbackTitle } : p.meta
+  if (fallbackTitle) review.push({ level: 'error', msg: `The book has no title. “${fallbackTitle}” was used for now: type the real title in Book details.` })
+  const sectionsIn0 = fallbackTitle ? p.sections.map((x) => (x.title?.trim() ? x : { ...x, title: x.nav || fallbackTitle })) : p.sections
   const prepared = prepareEpubImages(p.cover, p.images)
-  const sectionsIn = p.sections.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
+  const sectionsIn = sectionsIn0.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)

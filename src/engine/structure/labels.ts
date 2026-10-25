@@ -7,7 +7,7 @@ export const isLabelLine = (t: string) => LABEL.test(t)
 export const PART_LABEL = /^\s*(part|partie|teil|parte|act|book|buch|libro)\b/i
 
 /** The minimum a section needs for the merge below. */
-export interface MergeSec { type: string; number?: string; title: unknown[]; blocks: { kind: string; html: string }[]; lead?: string }
+export interface MergeSec { type: string; number?: string; numberAsTitle?: string; title: unknown[]; blocks: { kind: string; html: string }[]; lead?: string }
 
 const onlyMarkers = (s: MergeSec) => s.blocks.every((b) => b.kind === 'raw' && !b.html.replace(/<span[^>]*epub:type="pagebreak"[^>]*\/>/g, '').trim())
 
@@ -44,4 +44,66 @@ export function mergeLabelSections<S extends MergeSec>(secs: S[], titleText: (s:
     else out.push(s)
   }
   return out
+}
+
+const strip = (h: string) => h.replace(/<span[^>]*epub:type="pagebreak"[^>]*\/>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+const markersOf = (blocks: { kind: string; html: string }[]) => blocks.map((b) => (b.html.match(/<span[^>]*epub:type="pagebreak"[^>]*\/>/g) ?? []).join('')).join('')
+const OPENER_TYPES = /^(prologue|epilogue|foreword|preface|introduction|afterword|conclusion)$/
+
+/** The second pass, for openers set over several lines that the reader read as separate headings:
+ *  - "ACT ONE" | "Your Writing World" + "CHAPTER 1" | "A Roadmap…" + body: the subtitle joins the part, the label the chapter;
+ *  - "The Blessing and" + "CHAPTER 4" | "The Curse of Story Telling" + body: one title, one chapter;
+ *  - a chapter numbered "ACT THREE" is a part;
+ *  - "EPILOGUE" alone | "The Genie's Curse" + body: one epilogue. */
+export function mergeOpeners<S extends MergeSec>(secs: S[], titleText: (s: S) => string): S[] {
+  const out: S[] = []
+  for (let i = 0; i < secs.length; i++) {
+    let s = secs[i]
+    const nx = secs[i + 1]
+    const prev = out[out.length - 1]
+    if (s.type === 'chapter' && s.number && PART_LABEL.test(s.number) && isLabelLine(s.number)) s = { ...s, type: 'part' }
+    const t = titleText(s).trim()
+    const texts = s.blocks.map((b) => strip(b.html)).filter(Boolean)
+    const trailingLabel = texts.length === 1 && isLabelLine(texts[0]) && !PART_LABEL.test(texts[0]) ? texts[0] : ''
+    if (nx && trailingLabel && t && !isLabelLine(t) && !nx.number && t.split(/\s+/).length <= 10) {
+      const lead = (s.lead ?? '') + markersOf(s.blocks)
+      if (prev && prev.type === 'part' && onlyMarkers(prev) && prev.title.length) {
+        // the part's subtitle
+        out[out.length - 1] = { ...prev, title: [...prev.title, ...s.title] }
+        out.push({ ...nx, type: nx.type === 'other' || nx.type === 'chapter' ? 'chapter' : nx.type, number: trailingLabel, lead: lead + (nx.lead ?? '') } as S)
+      } else {
+        // the first half of the next title
+        out.push({ ...nx, type: nx.type === 'other' || nx.type === 'chapter' ? 'chapter' : nx.type, number: trailingLabel, title: [...s.title, ...nx.title], lead: lead + (nx.lead ?? '') } as S)
+      }
+      i++
+      continue
+    }
+    if (nx && onlyMarkers(s) && OPENER_TYPES.test(s.type) && t.split(/\s+/).length <= 2 && (nx.type === 'other' || nx.type === s.type) && !nx.number) {
+      out.push({ ...nx, type: s.type, title: [...s.title, ...nx.title], blocks: [...s.blocks, ...nx.blocks], lead: (s.lead ?? '') + (nx.lead ?? '') } as S)
+      i++
+      continue
+    }
+    out.push(s)
+  }
+  // "CHAPTER 8" alone | a section whose heading was read as number + title ("THE POWER OF A SINGLE STEP:" / "TOWARD MOVES"):
+  // the number is the label, the misread number goes back into the title
+  const fixed: S[] = []
+  for (let i = 0; i < out.length; i++) {
+    const s = out[i]
+    const nx = out[i + 1]
+    if (nx && s.type === 'chapter' && onlyMarkers(s) && s.number && isLabelLine(s.number) && !titleText(s).trim() && nx.number && !isLabelLine(nx.number)) {
+      fixed.push({ ...nx, type: 'chapter', number: s.number, numberAsTitle: nx.number, blocks: [...s.blocks, ...nx.blocks] } as S)
+      i++
+      continue
+    }
+    fixed.push(s)
+  }
+  // between the first part or chapter and the back matter, a long titled section with no label is a chapter whose label was art
+  const firstBody = fixed.findIndex((s) => s.type === 'chapter' || s.type === 'part')
+  const words = (s: S) => s.blocks.reduce((n, b) => n + strip(b.html).split(/\s+/).length, 0)
+  let backAt = fixed.length
+  for (let i = fixed.length - 1; i > firstBody; i--) if (fixed[i].type === 'chapter' || fixed[i].type === 'part') break; else backAt = i
+  if (firstBody >= 0) for (let i = firstBody; i < backAt; i++) if (fixed[i].type === 'other' && titleText(fixed[i]).trim() && words(fixed[i]) >= 300) fixed[i] = { ...fixed[i], type: 'chapter' }
+  // a label left alone with its number and nothing else: the next section's number
+  return mergeLabelSections(fixed, titleText)
 }

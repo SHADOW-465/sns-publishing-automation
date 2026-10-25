@@ -103,7 +103,9 @@ export const styleKey = (l: Line) => `${family(l.font)}${isBoldFont(l.font) ? ' 
 export function titleCase(s: string): string {
   if (s !== s.toUpperCase()) return s
   const small = /^(a|an|and|as|at|but|by|for|in|of|on|or|the|to|with|de|la|el|y|del)$/i
-  return s.toLowerCase().replace(/\p{L}[\p{L}'’]*/gu, (w, i: number) => (i > 0 && small.test(w) ? w : w[0].toUpperCase() + w.slice(1)))
+  // Roman numerals stay capitals: "PART II" is "Part II", not "Part Ii"
+  const roman = /^(?=[ivxlc]+$)c{0,3}(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i
+  return s.toLowerCase().replace(/\p{L}[\p{L}'’]*/gu, (w, i: number) => (roman.test(w) ? w.toUpperCase() : i > 0 && small.test(w) ? w : w[0].toUpperCase() + w.slice(1)))
 }
 
 

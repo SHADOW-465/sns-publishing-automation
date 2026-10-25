@@ -239,3 +239,10 @@ test('Word, Cambia shape: parts and chapters get their own files, the contents p
   const ec = epubcheck(built.epub)
   if (ec) assert.deepEqual(ec.errors, [], ec.output)
 })
+
+test('a book with no title still gets a valid dc:title and a review error', () => {
+  const built = buildWordEpub(readWordBook(manuscript()), { meta: { ...meta, title: '' }, cover: { name: 'cover.png', data: png } })
+  const opf = text(built.files.get('OEBPS/content.opf')!)
+  assert.match(opf, /<dc:title id="pub-title">[^<]+<\/dc:title>/)
+  assert.ok(built.review.some((r) => r.level === 'error' && /no title/.test(r.msg)))
+})
