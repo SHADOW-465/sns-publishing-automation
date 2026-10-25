@@ -20,6 +20,8 @@ export interface Run {
   /** smaller and raised (or lowered) against the line's own size */
   sup?: boolean
   sub?: boolean
+  /** lowercase letters drawn with capital-sized glyphs: small caps (InDesign span.small-caps) */
+  sc?: boolean
 }
 
 export interface Line {
@@ -84,6 +86,8 @@ export interface PageLayout {
   fills: FillBox[]
   /** path boxes that are neither hairlines nor a page tint (a chart drawn as vectors) */
   drawings?: { x0: number; y0: number; x1: number; y1: number }[]
+  /** lowercase words drawn as small caps on this page (glyph widths). The runs are marked later, on the EPUB path only. */
+  scTokens?: string[]
 }
 
 type M = number[]
@@ -304,7 +308,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
     emit()
   }
 
-  return { index, width: pageW, height: pageH, lines: liftScripts(lines.filter((l) => l.text.trim() || l.marker)), images, fills, rules, shades, drawings }
+  return { index, width: pageW, height: pageH, lines: liftScripts(lines.filter((l) => l.text.trim() || l.marker)), images, fills, rules, shades, drawings, scTokens: smallCapTokens(glyphChunks(ops, OPS)) }
 
   function makeLine(its: Item[]): Line {
     const runs: Run[] = []
@@ -420,7 +424,141 @@ export function joinRaisedLines<L extends Line>(lines: L[]): L[] {
     host.x1 = Math.max(host.x1, l.x1)
     drop.add(l)
   }
+  // a note call pdf.js lifted onto its own line: a short raised digit at the end of the line it belongs to.
+  // EPUB only (this function is not used by the PDF/UA tagger, which matches each glyph to its own line).
+  for (const l of lines) {
+    const t = l.text.trim()
+    if (drop.has(l) || !/^\d{1,3}$/.test(t)) continue
+    const host = lines.find((h) => h !== l && !drop.has(h) && h.size >= l.size * 1.2 && h.base - l.base >= Math.max(0.4, h.size * 0.06) && h.base - l.base <= h.size * 0.9 && l.x0 >= h.x1 - h.size * 0.45 && l.x0 - h.x1 < h.size * 1.4)
+    if (!host) continue
+    for (const r of l.runs) host.runs.push({ ...r, text: t, sup: true, base: l.base })
+    host.text = `${host.text}${t}`.replace(/\s+/g, ' ')
+    host.x1 = Math.max(host.x1, l.x1)
+    drop.add(l)
+  }
   return lines.filter((l) => !drop.has(l))
+}
+
+/** One shown string and the average width of its letters, in font units (1000 = 1 em). */
+export interface GlyphChunk { text: string; avg: number }
+
+/** showText / showSpacedText arguments → chunks. pdf.js merges these into one item, which hides a small-caps word. */
+export function glyphChunks(ops: { fnArray: number[]; argsArray: Any[] }, OPS: { showText: number; showSpacedText: number }): GlyphChunk[] {
+  const out: GlyphChunk[] = []
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i]
+    if (fn !== OPS.showText && fn !== OPS.showSpacedText) continue
+    const arr = ops.argsArray[i]?.[0]
+    if (!Array.isArray(arr)) continue
+    let text = ''
+    let sum = 0
+    let n = 0
+    for (const g of arr) {
+      if (typeof g === 'number' || !g) continue
+      const u = String(g.unicode ?? '')
+      text += u
+      if (/\p{L}/u.test(u) && typeof g.width === 'number') (sum += g.width), (n += 1)
+    }
+    if (n && text) out.push({ text, avg: sum / n })
+  }
+  return out
+}
+
+/**
+ * Lowercase words drawn with capital-sized glyphs. A whole line of body text (spaces, narrow letters) sets the
+ * page's normal width; a short lowercase word far wider than that is small caps ("uaem", "cnpq").
+ */
+export function smallCapTokens(chunks: GlyphChunk[]): string[] {
+  const lettersOf = (t: string) => t.replace(/[^\p{L}]/gu, '')
+  const body = chunks.filter((c) => {
+    const letters = lettersOf(c.text)
+    return letters.length >= 12 && /\p{Ll}/u.test(letters) && /\s/u.test(c.text)
+  })
+  if (body.length < 2) return []
+  const avgs = body.map((c) => c.avg).sort((a, b) => a - b)
+  const med = avgs[Math.floor(avgs.length / 2)]
+  const wide = (c: GlyphChunk) => c.avg >= med * 1.22 && c.avg >= med + 70
+  // A small-cap word is its own showText ("uaem"). A last letter sometimes shares a showText with the
+  // punctuation ("q)."). Dots in "no.uaemex.mx" are not letters of a small-cap word, and two whole words
+  // ("abc", "ufabc") stay two tokens.
+  const piece = (c: GlyphChunk): string => {
+    if (!wide(c)) return ''
+    const raw = c.text.trim()
+    const pure = /^(\p{Ll}{2,10})$/u.exec(raw)
+    if (pure) return pure[1]
+    const tail = /^(\p{Ll}{1,2})[^\p{L}\p{N}]+$/u.exec(raw)
+    return tail ? tail[1] : ''
+  }
+  const out: string[] = []
+  let buf = ''
+  let bufAvg = 0
+  const flush = () => {
+    if (buf.length >= 2 && buf.length <= 10) out.push(buf)
+    buf = ''
+    bufAvg = 0
+  }
+  for (const c of chunks) {
+    const raw = c.text.trim()
+    // the last letter of a small-cap word often shares its showText with the punctuation ("q).")
+    // and can sit just under the page's wide-glyph cutoff
+    const tail = /^(\p{Ll})[^\p{L}\p{N}]+$/u.exec(raw)
+    if (buf && tail && buf.length < 10 && c.avg >= bufAvg * 0.82) {
+      buf += tail[1]
+      continue
+    }
+    const p = piece(c)
+    if (p.length >= 2) { flush(); buf = p; bufAvg = c.avg; continue }
+    flush()
+  }
+  flush()
+  return [...new Set(out)]
+}
+
+const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Mark small-cap words on the runs of an EPUB build. Does not drop a line, so a PDF/UA tagger that kept the original lines is unchanged. */
+export function markSmallCapRuns<L extends Line>(lines: L[], tokens: string[]): L[] {
+  const list = [...new Set(tokens.map((t) => t.toLocaleLowerCase()).filter((t) => t.length >= 2))].sort((a, b) => b.length - a.length)
+  if (!list.length) return lines
+  // a dot before the word, or a dot and a letter after it, is a hostname (www.am.com), not small caps
+  const re = new RegExp(`(?<![\\p{L}\\p{N}.])(${list.map(reEscape).join('|')})(?!\\p{L}|\\p{N}|\\.(?=\\p{L}))`, 'giu')
+  for (const l of lines) {
+    const next: Run[] = []
+    for (const r of l.runs) {
+      if (r.sup || r.sub || r.sc || r.noteId || !r.text) {
+        next.push(r)
+        continue
+      }
+      re.lastIndex = 0
+      let cursor = 0
+      let hit = false
+      let m: RegExpExecArray | null
+      while ((m = re.exec(r.text))) {
+        hit = true
+        const at = m.index
+        if (at > cursor) next.push({ ...r, text: r.text.slice(cursor, at) })
+        next.push({ ...r, text: m[1], sc: true })
+        cursor = at + m[1].length
+        if (m.index === re.lastIndex) re.lastIndex += 1
+      }
+      if (!hit) next.push(r)
+      else if (cursor < r.text.length) next.push({ ...r, text: r.text.slice(cursor), sc: false })
+    }
+    if (next.length) l.runs = next
+  }
+  return lines
+}
+
+/** Every small-cap word in a print PDF, from glyph widths. One pass of the operator list per page. */
+export async function smallCapTokensOf(pdfjs: Any, data: Uint8Array): Promise<string[]> {
+  const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
+  const all = new Set<string>()
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i)
+    const ops = await page.getOperatorList()
+    for (const t of smallCapTokens(glyphChunks(ops, pdfjs.OPS))) all.add(t)
+  }
+  return [...all]
 }
 
 /** A 2-up spread (two printed pages side by side) as two pages, left then right; things are placed by their centre. */
@@ -440,6 +578,7 @@ export function splitSpread(l: PageLayout, src: number): PageLayout[] {
         v: (l.rules?.v ?? []).filter((r) => mine(r.p, r.p)).map((r) => ({ ...r, p: r.p - ox })),
       },
       shades: (l.shades ?? []).filter((f) => mine(f.x0, f.x1)).map((f) => ({ ...f, x0: f.x0 - ox, x1: f.x1 - ox })),
+      scTokens: l.scTokens,
     }
   })
 }

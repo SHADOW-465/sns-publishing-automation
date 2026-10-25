@@ -4,12 +4,24 @@
 // is a heading in any manuscript.
 import { unzip, text } from '../zip.ts'
 import { languageFromBook } from '../lang.ts'
+import { settings } from '../settings.ts'
 
 export interface WordInline {
   t: 'text' | 'page' | 'br'
   text: string
   bold?: boolean
   italic?: boolean
+  /** w:smallCaps, or a word the companion PDF drew as small caps */
+  smallCaps?: boolean
+  /** w:caps. Written with the same span as small caps (FLAGGED: Word all-caps is not always small caps). */
+  caps?: boolean
+  /** w:vertAlign superscript. w:position is ignored: a converted file uses it for noise of a few half-points. */
+  sup?: boolean
+  sub?: boolean
+  /** external target or #bookmark */
+  href?: string
+  /** bookmark target, a safe XML id */
+  id?: string
 }
 
 export interface WordPara {
@@ -205,8 +217,38 @@ function pageNos(): PageNos {
   }
 }
 
+interface Face {
+  bold: boolean
+  italic: boolean
+  smallCaps: boolean
+  caps: boolean
+  sup: boolean
+  sub: boolean
+  href: string
+}
+
+const FACE: Face = { bold: false, italic: false, smallCaps: false, caps: false, sup: false, sub: false, href: '' }
+
+/** A bookmark name as an XML id. `_GoBack` is Word's cursor and is not a target. */
+export function wordAnchorId(name: string): string {
+  if (!name || name === '_GoBack') return ''
+  let id = name.replace(/[^\w.-]/g, '_')
+  if (!/^[A-Za-z_]/.test(id)) id = `b_${id}`
+  return id
+}
+
+function linkHref(target: string): string {
+  let t = target.trim()
+  try { t = decodeURIComponent(t) } catch { /* keep the raw target */ }
+  if (!t) return ''
+  if (/^(https?:|mailto:)/i.test(t)) return t
+  if (t.includes('@') && !/\s/.test(t)) return `mailto:${t}`
+  if (/^www\./i.test(t)) return `https://${t}`
+  return t
+}
+
 /** Runs of one paragraph: text, and a page break as an inline marker rather than its own paragraph. */
-function inlinesOf(p: Element, nos: PageNos): WordInline[] {
+function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>): WordInline[] {
   const out: WordInline[] = []
   let field: 'none' | 'unknown' | 'page' | 'skip' | 'keep' = 'none'
   let instr = ''
@@ -217,18 +259,43 @@ function inlinesOf(p: Element, nos: PageNos): WordInline[] {
     out.push({ t: 'page', text: nos.take(explicit) })
     pagePending = false
   }
-  const emit = (s: string, bold: boolean, italic: boolean) => {
+  const emit = (s: string, face: Face) => {
     if (!s) return
     if (pagePending) flushPage()
     const prev = out[out.length - 1]
-    if (prev?.t === 'text' && !!prev.bold === bold && !!prev.italic === italic) prev.text = (prev.text + s).replace(/[ \t\n\r]+/g, ' ')
-    else out.push({ t: 'text', text: s.replace(/[ \t\n\r]+/g, ' '), bold, italic })
+    const same = prev?.t === 'text' && !prev.id && !!prev.bold === face.bold && !!prev.italic === face.italic
+      && !!prev.smallCaps === face.smallCaps && !!prev.caps === face.caps && !!prev.sup === face.sup && !!prev.sub === face.sub
+      && (prev.href ?? '') === face.href
+    if (same) {
+      // each piece is already collapsed, so only the join can make a double space
+      const add = s.replace(/[ \t\n\r]+/g, ' ')
+      prev.text = prev.text.endsWith(' ') && add.startsWith(' ') ? prev.text + add.slice(1) : prev.text + add
+    }
+    else out.push({
+      t: 'text', text: s.replace(/[ \t\n\r]+/g, ' '),
+      bold: face.bold || undefined, italic: face.italic || undefined,
+      smallCaps: face.smallCaps || undefined, caps: face.caps || undefined,
+      sup: face.sup || undefined, sub: face.sub || undefined,
+      href: face.href || undefined,
+    })
   }
 
-  const walk = (el: Element, bold: boolean, italic: boolean) => {
+  const walk = (el: Element, face: Face) => {
     const name = local(el)
-    if (name === 'pPr' || name === 'rPr' || name === 'bookmarkStart' || name === 'bookmarkEnd' || name === 'proofErr' || name === 'commentRangeStart' || name === 'commentRangeEnd') {
-      if (name === 'proofErr') for (const c of kids(el)) walk(c, bold, italic)
+    if (name === 'bookmarkStart') {
+      const id = wordAnchorId(attr(el, 'name'))
+      if (id) out.push({ t: 'text', text: '', id })
+      return
+    }
+    if (name === 'hyperlink') {
+      const anchor = attr(el, 'anchor')
+      const rid = attr(el, 'id')
+      const href = anchor ? (wordAnchorId(anchor) ? `#${wordAnchorId(anchor)}` : '') : linkHref(rels.get(rid) ?? '')
+      for (const c of kids(el)) walk(c, { ...face, href })
+      return
+    }
+    if (name === 'pPr' || name === 'rPr' || name === 'bookmarkEnd' || name === 'proofErr' || name === 'commentRangeStart' || name === 'commentRangeEnd') {
+      if (name === 'proofErr') for (const c of kids(el)) walk(c, face)
       return
     }
     if (name === 'instrText') {
@@ -245,7 +312,7 @@ function inlinesOf(p: Element, nos: PageNos): WordInline[] {
       return
     }
     if (name === 'tab' || name === 'cr') {
-      emit(' ', bold, italic)
+      emit(' ', face)
       return
     }
     if (name === 'fldChar') {
@@ -271,14 +338,22 @@ function inlinesOf(p: Element, nos: PageNos): WordInline[] {
         if (pagePending) flushPage(plainText(el))
         return
       }
-      for (const c of kids(el)) walk(c, bold, italic)
+      for (const c of kids(el)) walk(c, face)
       return
     }
     if (name === 'r') {
       const rPr = child(el, 'rPr')
-      const b = on(rPr && (child(rPr, 'b') ?? child(rPr, 'bCs')), bold)
-      const i = on(rPr && (child(rPr, 'i') ?? child(rPr, 'iCs')), italic)
-      for (const c of kids(el)) walk(c, b, i)
+      const align = attr(rPr && child(rPr, 'vertAlign'), 'val')
+      const next: Face = {
+        bold: on(rPr && (child(rPr, 'b') ?? child(rPr, 'bCs')), face.bold),
+        italic: on(rPr && (child(rPr, 'i') ?? child(rPr, 'iCs')), face.italic),
+        smallCaps: on(rPr && child(rPr, 'smallCaps'), false),
+        caps: on(rPr && child(rPr, 'caps'), false),
+        sup: align === 'superscript',
+        sub: align === 'subscript',
+        href: face.href,
+      }
+      for (const c of kids(el)) walk(c, next)
       return
     }
     if (name === 't') {
@@ -288,16 +363,16 @@ function inlinesOf(p: Element, nos: PageNos): WordInline[] {
         if (pagePending) flushPage(s)
         return
       }
-      emit(s, bold, italic)
+      emit(s, face)
       return
     }
     if (name === 'blip' || name === 'imagedata') return
-    for (const c of kids(el)) walk(c, bold, italic)
+    for (const c of kids(el)) walk(c, face)
   }
 
   const pPr = child(p, 'pPr')
   if (pPr && child(pPr, 'pageBreakBefore')) pagePending = true
-  for (const c of kids(p)) if (local(c) !== 'pPr') walk(c, false, false)
+  for (const c of kids(p)) if (local(c) !== 'pPr') walk(c, FACE)
   if (pagePending) flushPage()
   return out
 }
@@ -370,10 +445,10 @@ function tocEntriesOf(raw: { level: number; text: string }[]): WordTocEntry[] {
   return out.filter((e) => e.text)
 }
 
-function cellInlines(tc: Element, nos: PageNos): WordInline[] {
+function cellInlines(tc: Element, nos: PageNos, rels: Map<string, string>): WordInline[] {
   const out: WordInline[] = []
   for (const p of kids(tc).filter((c) => local(c) === 'p')) {
-    const part = inlinesOf(p, nos)
+    const part = inlinesOf(p, nos, rels)
     if (out.length && part.length) out.push({ t: 'text', text: ' ' })
     out.push(...part)
   }
@@ -430,13 +505,174 @@ function mediaPath(target: string): string {
   return `word/${t.replace(/^\.\//, '')}`
 }
 
+function bookHasPage(book: WordBook): boolean {
+  const hit = (ins: WordInline[]) => ins.some((i) => i.t === 'page')
+  return book.blocks.some((b) => b.role === 'table' ? b.rows.some((r) => r.some(hit)) : 'inlines' in b && hit(b.inlines))
+}
+
+/** Letters and digits, lower case, hyphenation undone. Shared by the page matcher and its tests. */
+export function foldPageText(s: string): string {
+  return s.toLocaleLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/(\p{L})-(\p{L})/gu, '$1$2').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+}
+
+interface StampSlot { inlines: WordInline[]; index: number; offset: number }
+
+function pageStream(book: WordBook): { stream: string; map: StampSlot[] } {
+  let stream = ''
+  const map: StampSlot[] = []
+  const add = (text: string, inlines: WordInline[], index: number) => {
+    let pending = stream.length > 0 && !stream.endsWith(' ')
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]
+      if ((ch === '-' || ch === '\u00ad') && /\p{L}/u.test(text[i - 1] ?? '') && /\p{L}/u.test(text[i + 1] ?? '')) continue
+      let letter = ''
+      for (const c of ch.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase()) if (/[\p{L}\p{N}]/u.test(c)) letter += c
+      if (!letter) {
+        if (stream.length) pending = true
+        continue
+      }
+      if (pending && !stream.endsWith(' ')) {
+        stream += ' '
+        map.push({ inlines, index, offset: i })
+        pending = false
+      }
+      for (const c of letter) {
+        stream += c
+        map.push({ inlines, index, offset: i })
+      }
+    }
+  }
+  for (const b of book.blocks) {
+    if (b.role === 'table') {
+      for (const row of b.rows) for (const cell of row) cell.forEach((inline, index) => { if (inline.t === 'text' && inline.text) add(inline.text, cell, index) })
+    } else if ('inlines' in b) b.inlines.forEach((inline, index) => { if (inline.t === 'text' && inline.text) add(inline.text, b.inlines, index) })
+  }
+  return { stream, map }
+}
+
+function pageNeedles(text: string): string[] {
+  const folded = foldPageText(text)
+  if (folded.length < 24) return []
+  // A running head, or a table of bare numbers, is not in the manuscript as the page's first words.
+  // Windows of real words further down the page still land on that page. The first one that matches wins.
+  const out: string[] = []
+  const limit = Math.min(folded.length - 24, 900)
+  for (let i = 0; i <= limit && out.length < 14; i += 12) {
+    const n = folded.slice(i, i + 48).trim()
+    if (n.length < 24) continue
+    if ((n.match(/\p{L}/gu)?.length ?? 0) < 16) continue
+    out.push(n)
+  }
+  return out
+}
+
+/**
+ * When the manuscript has no page breaks, mark where each companion print page starts.
+ * Search moves only forward, so a phrase that repeats (a contents line and the chapter) is used once.
+ * Returns how many markers were inserted. A second call does nothing.
+ */
+export function stampPagesFromPdf(book: WordBook, pages: { n: string; text: string }[]): number {
+  if (!settings().wordPagesFromPdf || bookHasPage(book)) return 0
+  const { stream, map } = pageStream(book)
+  if (!stream) return 0
+  const hits: { at: number; n: string }[] = []
+  const used = new Set<string>()
+  let cursor = 0
+  for (const p of pages) {
+    if (!p.n || used.has(p.n)) continue
+    // The earliest hit wins. The first window is often a running head whose next copy is many pages later;
+    // a window further down the page is the text that actually follows the cursor.
+    let found = -1
+    for (const needle of pageNeedles(p.text)) {
+      const at = stream.indexOf(needle, cursor)
+      if (at >= 0 && (found < 0 || at < found)) found = at
+    }
+    // a hit many pages ahead is a repeated phrase, not this page: leave the cursor so later pages can still match
+    if (found < 0 || found - cursor > 25000) continue
+    hits.push({ at: found, n: p.n })
+    used.add(p.n)
+    cursor = found + 18
+  }
+  const placed = new Set<string>()
+  for (const hit of hits.sort((a, b) => b.at - a.at)) {
+    const slot = map[hit.at]
+    if (!slot || placed.has(hit.n)) continue
+    const inline = slot.inlines[slot.index]
+    if (!inline || inline.t !== 'text') continue
+    const before = inline.text.slice(0, slot.offset)
+    const after = inline.text.slice(slot.offset)
+    const parts: WordInline[] = []
+    if (before) parts.push({ ...inline, text: before })
+    parts.push({ t: 'page', text: hit.n })
+    if (after) parts.push({ ...inline, text: after, id: before ? undefined : inline.id })
+    slot.inlines.splice(slot.index, 1, ...parts)
+    placed.add(hit.n)
+  }
+  return placed.size
+}
+
+const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Mark whole words the companion PDF drew as small caps. A word already marked is left alone,
+ * and "uaem" does not match inside "uaemex". A second call changes nothing.
+ */
+export function markWordSmallCaps(book: WordBook, tokens: string[]): number {
+  if (!settings().wordSmallCapsFromPdf) return 0
+  const list = [...new Set(tokens.map((t) => t.toLocaleLowerCase()).filter((t) => t.length >= 2))].sort((a, b) => b.length - a.length)
+  if (!list.length) return 0
+  const re = new RegExp(`(?<![\\p{L}\\p{N}.])(${list.map(reEscape).join('|')})(?!\\p{L}|\\p{N}|\\.(?=\\p{L}))`, 'giu')
+  let n = 0
+  const split = (ins: WordInline[]) => {
+    const next: WordInline[] = []
+    for (const r of ins) {
+      if (r.t !== 'text' || r.smallCaps || r.caps || !r.text) {
+        next.push(r)
+        continue
+      }
+      re.lastIndex = 0
+      let cursor = 0
+      let hit = false
+      let m: RegExpExecArray | null
+      while ((m = re.exec(r.text))) {
+        hit = true
+        if (m.index > cursor) next.push({ ...r, text: r.text.slice(cursor, m.index) })
+        next.push({ ...r, text: m[1], smallCaps: true })
+        n += 1
+        cursor = m.index + m[1].length
+        if (m.index === re.lastIndex) re.lastIndex += 1
+      }
+      if (!hit) next.push(r)
+      else if (cursor < r.text.length) next.push({ ...r, text: r.text.slice(cursor), smallCaps: undefined })
+    }
+    ins.splice(0, ins.length, ...next)
+  }
+  for (const b of book.blocks) {
+    if (b.role === 'table') for (const row of b.rows) for (const cell of row) split(cell)
+    else if ('inlines' in b) split(b.inlines)
+  }
+  return n
+}
+
+/** How many runs ask for the small-caps span. The guard compares this with the spans in the e-book. */
+export function smallCapsRunCount(book: WordBook): number {
+  let n = 0
+  const walk = (ins: WordInline[]) => { for (const i of ins) if (i.t === 'text' && (i.smallCaps || i.caps) && i.text.trim()) n += 1 }
+  for (const b of book.blocks) {
+    if (b.role === 'table') for (const row of b.rows) for (const cell of row) walk(cell)
+    else if ('inlines' in b) walk(b.inlines)
+  }
+  return n
+}
+
 /** Read a .docx manuscript: paragraphs, lists, tables, pictures, and the contents entries that name the chapters. */
 export function readWordBook(data: Uint8Array): WordBook {
   const files = unzip(data)
   const docBytes = files.get('word/document.xml')
   if (!docBytes) throw new Error('This is not a Word document (.docx).')
   const doc = new DOMParser().parseFromString(text(docBytes), 'application/xml')
-  const body = Array.from(doc.getElementsByTagName('*')).find((e) => local(e) === 'body')
+  // body is a direct child. Indexing getElementsByTagName('*') is quadratic on a long manuscript.
+  const body = Array.from(doc.documentElement?.children ?? []).find((e) => local(e) === 'body')
   if (!body) throw new Error('This Word document has no body.')
   const styles = files.get('word/styles.xml') ? stylesOf(text(files.get('word/styles.xml')!)) : new Map<string, StyleInfo>()
   const nums = files.get('word/numbering.xml') ? numberingOf(text(files.get('word/numbering.xml')!)) : new Map<string, Map<string, NumInfo>>()
@@ -465,7 +701,7 @@ export function readWordBook(data: Uint8Array): WordBook {
     const numPr = pPr ? child(pPr, 'numPr') : undefined
     const ilvl = attr(numPr && child(numPr, 'ilvl'), 'val') || '0'
     const numId = attr(numPr && child(numPr, 'numId'), 'val')
-    const inlines = inlinesOf(p, nos)
+    const inlines = inlinesOf(p, nos, rels)
     const plain = plainOf(inlines)
     const hasPage = inlines.some((i) => i.t === 'page')
     if (!plain && !hasPage) return
@@ -522,7 +758,7 @@ export function readWordBook(data: Uint8Array): WordBook {
       const shaded: boolean[] = []
       for (const tr of kids(el).filter((c) => local(c) === 'tr')) {
         const tcs = kids(tr).filter((c) => local(c) === 'tc')
-        const cells = tcs.map((tc) => cellInlines(tc, nos))
+        const cells = tcs.map((tc) => cellInlines(tc, nos, rels))
         const flagged = !!child(child(tr, 'trPr') ?? tr, 'tblHeader')
         rows.push(cells)
         header.push(flagged)

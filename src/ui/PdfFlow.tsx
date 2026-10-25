@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
 import { Steps, StepNav, Help, Status, Outline, CheckReportView, DeliverButton, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
@@ -63,6 +63,7 @@ export function PdfFlow() {
   const [stale, setStale] = useState(true)
   const [layout, setLayout] = useState<PrintPage[]>()
   const [navs, setNavs] = useState<Record<number, string>>({})
+  const scCache = useRef<{ key: string; words: string[] } | undefined>(undefined)
 
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label)
@@ -137,9 +138,33 @@ export function PdfFlow() {
     setProgress({ done: 0, total: 2 })
     await new Promise((r) => setTimeout(r, 30))
     let r: PdfBuildResult
+    let lay = layout
     if (wordBook) {
       const { buildWordEpub } = await import('../engine/wordepub/build.ts')
-      r = buildWordEpub(wordBook, { meta: meta!, cover: { name: coverImg.name, data: coverImg.data }, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs })
+      let printPages: { n: string; text: string }[] | undefined
+      let smallCapWords: string[] | undefined
+      if (pdf && (settings().wordPagesFromPdf || settings().wordSmallCapsFromPdf)) {
+        const { printPagesOf, pdfjs } = await import('./pdf.ts')
+        if (settings().wordPagesFromPdf) {
+          if (!lay) {
+            setLayout((lay = await printPagesOf(pdf.data, (done, total) => {
+              setBusy(`Reading the print PDF, page ${done} of ${total}…`)
+              setProgress({ done, total })
+            })))
+          }
+          printPages = lay.filter((p) => !p.blank && !p.bare && p.text.trim().length >= 24).map((p) => ({ n: p.n, text: p.text }))
+        }
+        if (settings().wordSmallCapsFromPdf) {
+          const key = `${pdf.name}:${pdf.data.byteLength}`
+          if (scCache.current?.key !== key) {
+            setBusy('Reading small caps from the print PDF…')
+            const { smallCapTokensOf } = await import('../engine/pdf/layout.ts')
+            scCache.current = { key, words: await smallCapTokensOf(pdfjs, pdf.data) }
+          }
+          smallCapWords = scCache.current.words
+        }
+      }
+      r = buildWordEpub(wordBook, { meta: meta!, cover: { name: coverImg.name, data: coverImg.data }, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs, printPages, smallCapWords })
     } else {
       const { buildPdfEpub } = await import('../engine/pdfepub/build.ts')
       r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs }, browserRaster)
@@ -148,7 +173,6 @@ export function PdfFlow() {
     // `alt` stays the reviewer's own text. Copying the resolved description in here would make the
     // next build treat a spec row, an image-file text, or an AI draft as something the reviewer typed.
     setProgress({ done: 1, total: 2 })
-    let lay = layout
     if (pdf && !lay) {
       const { printPagesOf } = await import('./pdf.ts')
       setLayout((lay = await printPagesOf(pdf.data, (done, total) => {

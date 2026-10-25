@@ -56,6 +56,8 @@ put(A, 'HD-07', T('A chapter title is a real heading (h1–h6), never a classed 
 put(A, 'HD-10', T('The chapter number and title sit inside one real heading.', 'WCAG 2.2 1.3.1', 'spans'))
 put(A, 'FM-03', T('The title page is rebuilt as text. A picture of text cannot be resized or read aloud, and the title page carries the title.', 'WCAG 2.2 1.4.5 Images of text', 'text'))
 put(A, 'PG-01', T('Printed page numbers are marked where each page starts, with a page list, so a reader can go to “page 42”.', 'EPUB Accessibility 1.1 (page navigation); EPUB 3.3 page-list'))
+put(EPUB, 'PG-02', T('A Word manuscript with no page breaks takes its page markers from the companion print PDF.', 'EPUB Accessibility 1.1 (page navigation)', true))
+put(EPUB, 'PG-03', T('Small caps a Word file dropped are recovered from the print PDF, where the letters are drawn at capital width.', 'The client’s finished files set small caps; a PDF-to-Word file often loses the property', true))
 put(A, 'NAV-02', T('The contents page links to the chapters without printed page numbers; the numbers belong in the page list.', 'EPUB Accessibility 1.1 (page navigation)', 'strip'))
 put(A, 'TBL-01', T('A table has header cells, so a screen reader can say which column a cell is in.', 'WCAG 2.2 1.3.1 (H43)', 'th'))
 put(A, 'A11Y-01', T('A picture that carries information must have a description, or be marked as decoration, before delivery.', 'WCAG 2.2 1.1.1', 'error'))

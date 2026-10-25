@@ -135,6 +135,47 @@ export function tableGuards(files: Files, printTables: number | undefined): Revi
   return [{ level: 'error', msg: `TBL-001: the print PDF has ${printTables} table${printTables === 1 ? '' : 's'} and the e-book has ${n}. ${miss} table${miss === 1 ? ' is' : 's are'} missing.` }]
 }
 
+/**
+ * STD-08: when the build was given a page count, the e-book has to mark those pages.
+ * A handful of misses stays with the page checker. None, or fewer than half, is this error.
+ * `stdPageMarks: none` is the client's choice to leave them out.
+ */
+export function pageMarkGuards(files: Files, expected?: number): ReviewItem[] {
+  if (!expected || settings().stdPageMarks === 'none') return []
+  const ids = new Set<string>()
+  for (const [path, data] of files) {
+    if (!path.endsWith('.xhtml') || path.endsWith('/nav.xhtml')) continue
+    for (const m of text(data).matchAll(/\bid="(page-\d+|page\d+|Page_[^"]+|pg_[^"]+)"/g)) ids.add(m[1])
+  }
+  const found = ids.size
+  if (found === 0) return [{ level: 'error', msg: `STD-08: the source has ${expected} printed page${expected === 1 ? '' : 's'} and the e-book has no page marker.` }]
+  if (expected >= 4 && found * 2 < expected) return [{ level: 'error', msg: `STD-08: the source has ${expected} printed pages and the e-book marks ${found}. Most page markers are missing.` }]
+  return []
+}
+
+/** TXT-007: each small-caps run in the source is a span.small-caps in the e-book. */
+export function smallCapsGuards(files: Files, sourceRuns?: number): ReviewItem[] {
+  if (!sourceRuns) return []
+  let n = 0
+  for (const [path, data] of files) if (path.endsWith('.xhtml')) n += text(data).match(/class="small-caps"/g)?.length ?? 0
+  if (n >= sourceRuns) return []
+  return [{ level: 'error', msg: `TXT-007: the source has ${sourceRuns} small-caps run${sourceRuns === 1 ? '' : 's'} and the e-book has ${n}. A small-caps run was lost.` }]
+}
+
+const BARE_URL = /\b(?:https?:\/\/|www\.)[^\s<>"“”]*[^\s<>"“”.,;:)\]]|[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/i
+
+/** LNK-001: a web address or e-mail in the text is a link. Text already inside <a> is left out. */
+export function linkGuards(files: Files): ReviewItem[] {
+  for (const [path, data] of files) {
+    if (!path.endsWith('.xhtml')) continue
+    const bare = text(data).replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, '')
+    const visible = bare.replace(/<[^>]+>/g, ' ')
+    const m = visible.match(BARE_URL)
+    if (m) return [{ level: 'error', msg: `LNK-001: web address or e-mail without a link in ${path.split('/').pop()} (${m[0].slice(0, 80)}).` }]
+  }
+  return []
+}
+
 /** TXT-008: a raised ordinal that pdf.js read as its own line must not survive as its own paragraph. */
 export function scriptGuards(files: Files): ReviewItem[] {
   const out: ReviewItem[] = []
