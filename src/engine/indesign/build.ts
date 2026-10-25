@@ -251,7 +251,7 @@ function textAround(blocks: Block[], at: number): { caption: string; nearby: str
 }
 
 /** A picture caption style (German BU / Bildunterschrift, Spanish pie / leyenda, or a name that says caption). */
-const CAPTION_STYLE = /(?:^|[\s_-])(?:caption\d*|bildunterschrift|bildlegende|figcaption|leyenda|bu|pie)(?:$|[\s_-])/i
+const CAPTION_STYLE = /(?:^|[\s_-])(?:captions?\d*|bildunterschrift|bildlegende|figcaption|leyenda|bu|pie)(?:$|[\s_-])/i
 
 /** Alt text written into the e-book. Decorative pictures are empty on purpose. A missing description stays empty: the word "Bild" is not a description.
  *  The caption, when the next paragraph is a caption style, is a figcaption inside the figure (FIG-001, FIG-003). */

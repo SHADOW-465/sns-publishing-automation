@@ -14,3 +14,13 @@ test('picture inside an empty paragraph is not dropped', () => {
   const all = [...r.files].filter(([k]) => /chapter\d+\.xhtml$/.test(k)).map(([, v]) => text(v)).join('\n')
   assert.match(all, /<img[^>]*grafica/)
 })
+
+test('a style named "captions" (plural, Birmingham) is the picture caption: figcaption inside the figure', () => {
+  const body = (n: number) => `<p class="Cuerpo">${'Text of the chapter with facts. '.repeat(40)}</p>${n === 2 ? '<div class="_idGenObjectLayout-1"><div><img src="image/plan.png" alt=""/></div></div><div class="Basic-Text-Frame"><p class="captions">Plan of the town. (Courtesy of the Museum)</p></div>' : ''}<p class="Cuerpo">More text.</p>`
+  const css = SYNTH_CSS + '\np.captions { font-size:0.8em; font-style:italic; font-family:"Sans", sans-serif; }\n'
+  const files = synthExport(synthBook(3, body), css, 'en-GB', { 'image/plan.png': png })
+  const a = analyze(files)
+  const r = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, title: 'T', authors: 'A', publisher: 'P', eisbn: '9780306406157', language: 'en-GB' }, cover: { name: 'cover.png', data: png } })
+  const all = [...r.files].filter(([k]) => /chapter\d+\.xhtml$/.test(k)).map(([, v]) => text(v)).join('\n')
+  assert.match(all, /<figcaption>[^]*Plan of the town/)
+})
