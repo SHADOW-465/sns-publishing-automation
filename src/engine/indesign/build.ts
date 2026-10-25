@@ -421,6 +421,11 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       i = j
       s.title.push(n)
     }
+    // a contents line typed in the book ("Introduction<tab>10", "Chapter 1<tab>Normandy<tab>12") stays in the contents page
+    if (cur?.type === 'toc' && b.text.length <= 120 && /[^\d\s.]\s*\d{1,4}$/.test(b.text.trim())) {
+      cur.items.push(b)
+      continue
+    }
     if (r === 'part-label') {
       const s = newSec('part')
       s.label.push(b)

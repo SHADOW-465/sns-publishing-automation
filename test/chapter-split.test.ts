@@ -88,3 +88,20 @@ p.Dida { font-size:0.8em; font-style:italic; font-family:sans-serif; }`
   assert.ok(text(r.files.get(`OEBPS/${ch[0].file}`)!).includes('A short caption.'), 'tab captions kept')
   assert.ok(r.review.some((x) => /page tabs/.test(x.msg)))
 })
+
+test('typed contents lines with page numbers ("Introduction<tab>10") stay on the contents page, not sections of their own', () => {
+  const css = `p.Basic { font-size:1em; text-align:justify; font-family:serif; }
+p.Chapter-title { font-size:1.6em; text-align:center; font-family:sans-serif; }
+p.BP { font-size:1em; font-family:sans-serif; }
+p.Chapter-description { font-size:2.2em; text-align:center; font-family:sans-serif; }`
+  let html = '<p class="Basic">Front line.</p>\n<p class="Chapter-description">Table of Contents</p>\n<p class="BP">\tIntroduction10</p>\n'
+  for (let i = 1; i <= 3; i++) html += `<p class="BP">\tChapter ${i}\tTitle ${i}${10 + i * 5}</p>\n`
+  html += '<p class="BP">\tEpilogue40</p>\n<p class="BP">\tAuthor41</p>\n'
+  html += `<p class="Chapter-description">Introduction</p>\n${body('Basic', 0)}\n`
+  for (let i = 1; i <= 3; i++) html += `<p class="Chapter-title">CHAPTER ${i}</p>\n<p class="Chapter-description">Title ${i}</p>\n${body('Basic', i)}\n`
+  const { r } = run(html, css, { 'Chapter-title': 'chapter-label', 'Chapter-description': 'section-title', BP: 'section-title' })
+  const toc = r.sections.filter((s) => s.type === 'toc')
+  assert.ok(!r.sections.some((s) => /[a-z]\d{2,}$/i.test(s.nav ?? '')), r.sections.map((s) => `${s.file}:${s.type}:${s.nav}`).join(' | '))
+  assert.equal(r.sections.filter((s) => s.type === 'chapter').length, 3, r.sections.map((s) => `${s.file}:${s.type}:${s.nav}`).join(' | '))
+  assert.ok(toc.length <= 1)
+})
