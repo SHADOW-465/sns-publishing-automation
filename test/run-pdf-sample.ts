@@ -11,6 +11,7 @@ import { nodeRaster } from './raster-node.ts'
 import { AUTOMATION, read } from './samples.ts'
 import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { printReport } from './check-epub.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const DIR = resolve(AUTOMATION, 'WORD-to-EPUB-Automation/Input')
 const out = resolve(process.argv[2] ?? 'out')
@@ -20,7 +21,7 @@ const cover = await coverFromSpread(pdfjs, read(resolve(DIR, '9780719847110_Cont
 const r = await buildPdfEpub(book, { styles: book.styles, meta: { ...book.meta, eisbn: '978 0 7198 4712 7' }, rules: rulesFor(book.meta.language), cover: { name: 'cover.jpg', data: cover } }, nodeRaster)
 mkdirSync(out, { recursive: true })
 const file = resolve(out, `${book.meta.title}.epub`)
-writeFileSync(file, r.epub)
+await gatedWrite('epub', r.epub, file, r.review, { source: r.source, client: book.meta.publisher, book: book.meta.title })
 for (const [p, d] of r.files) {
   mkdirSync(resolve(out, 'unzipped', p, '..'), { recursive: true })
   writeFileSync(resolve(out, 'unzipped', p), d)

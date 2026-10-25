@@ -13,8 +13,10 @@ import { printReport } from './check-epub.ts'
 import { read } from './samples.ts'
 import { readPdfPictures, missingPictures } from '../src/engine/indesign/pdfpictures.ts'
 import { nodeRaster } from './raster-node.ts'
-import { openSpec, applySpec } from '../src/engine/spec/session.ts'
+import { openSpec, applySpec, applyBookDetailsToSpec } from '../src/engine/spec/session.ts'
+import { readRequirements } from '../src/engine/spec/requirements.ts'
 import { DEFAULT_SETTINGS } from '../src/engine/settings.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const [src, pdf, coverPath, outDir = 'out', eisbn = ''] = process.argv.slice(2)
 const out = resolve(outDir)
@@ -32,13 +34,20 @@ if (pdf && (missingPictures(a.ex).length || process.env.COUNT_PICTURES)) {
 }
 const cover = coverPath ? { name: basename(coverPath), data: read(resolve(coverPath)) } : undefined
 // the client's own style (bundled client layer, matched on the publisher) and any house settings apply, as in the app
-const spec = await openSpec({ client: a.meta.publisher, series: '', book: eisbn || a.meta.title }, DEFAULT_SETTINGS)
+let spec = await openSpec({ client: a.meta.publisher, series: '', book: eisbn || a.meta.title }, DEFAULT_SETTINGS)
+// BOOK_DETAILS=<Book_Details.xlsx>: the client's file plan, onto the book layer through the spec loader
+if (process.env.BOOK_DETAILS) {
+  const bd = readRequirements(basename(process.env.BOOK_DETAILS), read(resolve(process.env.BOOK_DETAILS))).bookDetails
+  if (!bd) throw new Error(`${process.env.BOOK_DETAILS} has no NAV-NCX sheet`)
+  spec = await applyBookDetailsToSpec(spec, 'book', bd, 'headless')
+}
 applySpec(spec)
 console.log('CLIENT RULES', spec.layers.filter((l) => Object.keys(l.values).length || l.labels).map((l) => `${l.level}:${l.name} ${JSON.stringify(l.values)} ${JSON.stringify(l.labels ?? {})}`).join(' | ') || '(none)')
 console.log('NOTEREF', JSON.stringify(spec.resolved.settings.markup.noteref ?? null))
 const r = build(a, { styles: a.styles, images: a.images, printPages, meta: { ...a.meta, eisbn, ...(process.env.PROFILE ? { profile: process.env.PROFILE as 'standard' } : {}) }, cover })
 mkdirSync(out, { recursive: true })
-writeFileSync(resolve(out, 'book.epub'), r.epub)
+// the deliverable goes through the export gate (VAL-001): blocked while a fix-severity problem remains, unless overridden
+await gatedWrite('epub', r.epub, resolve(out, 'book.epub'), r.review, { source: r.source, client: a.meta.publisher, book: eisbn || a.meta.title })
 for (const [p, d] of r.files) {
   mkdirSync(resolve(out, 'unzipped', p, '..'), { recursive: true })
   writeFileSync(resolve(out, 'unzipped', p), d)

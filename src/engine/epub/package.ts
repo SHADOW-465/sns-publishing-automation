@@ -6,7 +6,8 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
-import { postBuildGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards, pageMarkGuards, smallCapsGuards, linkGuards } from '../check/guards.ts'
+import { applyBookDetails, type PlanResult } from '../spec/bookdetails.ts'
+import { postBuildGuards, bookDetailsGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards, pageMarkGuards, smallCapsGuards, linkGuards } from '../check/guards.ts'
 import { prepareEpubImages, rewriteImagePaths } from './image-spec.ts'
 
 export interface BookMeta {
@@ -224,20 +225,31 @@ export function packageEpub(p: {
   printPageCount?: number
   /** small-caps runs in the source (TXT-007) */
   smallCapsRuns?: number
-}): { epub: Uint8Array; files: Files; renames: [string, string][] } {
+}): { epub: Uint8Array; files: Files; sections: Section[]; renames: [string, string][] } {
   const { review } = p
+  // FIL-001 / SEM-001: the client's Book_Details file (a book-layer setting) names the files and gives each its epub:type and role
+  const details = settings().bookDetails
+  const plan: PlanResult | undefined = details && applyBookDetails(p.sections, details, settings().bookDetailsNav)
+  const planned = plan?.sections ?? p.sections
+  // notes written while the sections still had the build's names (a picture with no description, a dropped line) must name the file the reader gets
+  if (plan) {
+    const was = new Map(plan.renamed)
+    for (const item of review) if (item.where && was.has(item.where)) item.where = was.get(item.where)!
+  }
+  // PKG-001..005: what the page did not give comes from the workbook
+  const meta0 = details ? { ...p.meta, title: p.meta.title || details.title, authors: p.meta.authors || details.author, publisher: p.meta.publisher || details.publisher, eisbn: p.meta.eisbn || details.eisbn } : p.meta
   // an empty title is invalid EPUB (RSC-005): fall back to the first titled section and ask the reviewer to type the real one
-  const fallbackTitle = p.meta.title.trim() ? '' : (p.sections.find((x) => (x.nav || x.title || '').trim())?.nav || p.sections.find((x) => (x.title || '').trim())?.title || 'Untitled').trim()
-  const meta = fallbackTitle ? { ...p.meta, title: fallbackTitle } : p.meta
+  const fallbackTitle = meta0.title.trim() ? '' : (planned.find((x) => (x.nav || x.title || '').trim())?.nav || planned.find((x) => (x.title || '').trim())?.title || 'Untitled').trim()
+  const meta = fallbackTitle ? { ...meta0, title: fallbackTitle } : meta0
   if (fallbackTitle) review.push({ level: 'error', msg: `The book has no title. “${fallbackTitle}” was used for now: type the real title in Book details.` })
-  const sectionsIn0 = fallbackTitle ? p.sections.map((x) => (x.title?.trim() ? x : { ...x, title: x.nav || fallbackTitle })) : p.sections
+  const sectionsIn0 = fallbackTitle ? planned.map((x) => (x.title?.trim() ? x : { ...x, title: x.nav || fallbackTitle })) : planned
   const prepared = prepareEpubImages(p.cover, p.images)
   const sectionsIn = sectionsIn0.map((s) => ({ ...s, body: rewriteImagePaths(s.body, prepared.renames) }))
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
   const sections = standard ? sectionsIn.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : sectionsIn
-  const pageList = p.sections.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
+  const pageList = planned.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
   const pageTarget = (n: string) => (standard ? pageAnchorId(n, settings().pageAnchorId) : `page-${n}`)
   const lang = meta.language
   const files: Files = new Map()
@@ -469,5 +481,13 @@ ${settings().writeGuide ? `<guide>
   review.push(...linkGuards(files))
   review.push(...altGuards(files))
   review.push(...imageSpecGuards(files))
-  return { epub: zipEpub(files), files, renames: prepared.renames }
+  if (details && plan) {
+    review.push(...bookDetailsGuards(files, details, settings().bookDetailsNav))
+    const name = (f: { row: number; file: string; title: string }) => `Book_Details row ${f.row} (${f.file ? `“${f.file}”` : 'no file name'}${f.title ? `, “${f.title}”` : ''})`
+    if (plan.renamed.length) review.push({ level: 'info', msg: `FIL-001: ${plan.renamed.length} file${plan.renamed.length === 1 ? '' : 's'} named as in Book_Details: ${plan.renamed.slice(0, 6).map(([a, b]) => `${a} → ${b}`).join(', ')}${plan.renamed.length > 6 ? ', …' : ''}.` })
+    for (const c of plan.clashes) review.push({ level: 'warn', msg: `FIL-001: ${name(c.row)} wants the name ${c.row.file}, but another file of the book already has it, so this file keeps its own name.` })
+    for (const f of plan.unmatched) if (!f.file || files.has(`OEBPS/${f.file}`)) review.push({ level: f.epubType === 'chapter' ? 'error' : 'warn', msg: `FIL-001: ${name(f)} matched no part of the book (no title or start page agrees).` })
+    if (plan.unplanned.length) review.push({ level: 'warn', msg: `FIL-001: ${plan.unplanned.length} part${plan.unplanned.length === 1 ? '' : 's'} of the book ${plan.unplanned.length === 1 ? 'is' : 'are'} not in Book_Details and ${plan.unplanned.length === 1 ? 'keeps the build’s name' : 'keep the build’s names'}: ${plan.unplanned.slice(0, 6).map((s) => s.file).join(', ')}.` })
+  }
+  return { epub: zipEpub(files), files, sections: planned, renames: prepared.renames }
 }

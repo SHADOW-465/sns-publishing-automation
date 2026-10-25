@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
-import { download, remember, useObjectUrls } from './shared.tsx'
+import { remember, useObjectUrls } from './shared.tsx'
+import { GatedDownload } from './GatedDownload.tsx'
+import { collectPdfGate, type ExportGate } from '../engine/check/exportgate.ts'
 import { Help, Status } from './wizard.tsx'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
@@ -13,7 +15,7 @@ import type { ReviewItem } from '../engine/epub/package.ts'
 // Print PDF → accessible PDF (PDF/UA-1). The PDF is re-tagged from scratch; the reviewer checks
 // text styles and picture descriptions, then runs PAC on the download as the final check.
 
-type Built = { pdf: Uint8Array; review: ReviewItem[]; stats: Record<string, number>; fileName: string }
+type Built = { pdf: Uint8Array; review: ReviewItem[]; stats: Record<string, number>; fileName: string; gate: ExportGate; client: string }
 
 export function PdfUaFlow() {
   const [pdf, setPdf] = useState<Picked>()
@@ -84,14 +86,18 @@ export function PdfUaFlow() {
       // the client's layers, then the Accessible PDF defaults, give the options (heading level, bookmarks, logos, links)
       const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: meta!.isbn || meta!.title, kind: 'accessible-pdf' })
       const options = uaOptionsFrom(uaSpec.resolved.settings)
-      setResult(await buildUa(a!, {
+      const built = await buildUa(a!, {
         styles, meta: meta!, alt, spec, ai, decorative, cropToTrim: crop, sourceName: pdf!.name, options,
         onProgress: (done, total, stage) => {
           const name = stage ?? 'Tagging the PDF'
           setBusy(total ? `${name}: ${done} of ${total}` : name)
           setProgress(total ? { done, total } : undefined)
         },
-      }))
+      })
+      // VAL-001: the Matterhorn checks run again on the written file before any download
+      const { checkUa } = await import('../engine/pdfua/check.ts')
+      setBusy('Checking the PDF…')
+      setResult({ ...built, gate: collectPdfGate(await checkUa(built.pdf), built.review), client: jobChoice()?.client || a!.book.meta.publisher })
       if (a!.book.meta.publisher) remember('uaprofile', a!.book.meta.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
     })
 
@@ -388,9 +394,7 @@ function UaResult({ result }: { result: Built }) {
         )}
       </ul>
       <div className="row">
-        <button className="primary" onClick={() => download(result.pdf, result.fileName, 'application/pdf')}>
-          Download {result.fileName}
-        </button>
+        <GatedDownload gate={result.gate} data={result.pdf} name={result.fileName} type="application/pdf" label={`Download ${result.fileName}`} ctx={{ client: result.client, book: result.fileName }} />
         <span className="muted">Then run PAC (PDF Accessibility Checker) on it as the final check.</span>
       </div>
     </section>

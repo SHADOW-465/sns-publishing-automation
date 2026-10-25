@@ -314,7 +314,7 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
-  const { epub, files, renames } = packageEpub({
+  const { epub, files, sections: planned, renames } = packageEpub({
     meta: ship,
     sections,
     cover,
@@ -335,7 +335,7 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
   // a PNG stored as JPEG gets a new name: the picture list must point at the file that is really in the book
   const moved = new Map(renames)
   for (const p of pictures) p.path = moved.get(p.path) ?? p.path
-  return { epub, files, sections, review, pictures: pictures.filter((p) => files.has(`OEBPS/${p.path}`)), source }
+  return { epub, files, sections: planned, review, pictures: pictures.filter((p) => files.has(`OEBPS/${p.path}`)), source }
 }
 
 function tableHtml(t: WordTable, page: (n: string) => string, lang: string): string {

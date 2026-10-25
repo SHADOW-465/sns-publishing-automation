@@ -9,7 +9,7 @@
 import type { Layer, Level } from './layers.ts'
 import type { HouseSettings } from '../settings.ts'
 
-export type DecisionAction = 'accepted' | 'proceeded' | 'waiver' | 'waiver-withdrawn' | 'import' | 'change'
+export type DecisionAction = 'accepted' | 'proceeded' | 'waiver' | 'waiver-withdrawn' | 'import' | 'change' | 'override'
 export interface Decision {
   id: string
   at: string // ISO time

@@ -9,6 +9,7 @@ import { analyzeUa, buildUa } from '../src/engine/pdfua/index.ts'
 import { auditPictures } from '../src/engine/pdfua/audit.ts'
 import { nodeRaster } from './raster-node.ts'
 import { read } from './samples.ts'
+import { gatedWrite } from './gate-run.ts'
 
 const [, , input, outDir = 'out', optJson = '{}', cover, extrasArg] = process.argv
 const options = JSON.parse(optJson)
@@ -22,7 +23,7 @@ console.log('META', JSON.stringify(a.meta), 'FIGURES', a.figures.length, `(${((D
 const alt = process.env.UA_PLACEHOLDER_ALT ? Object.fromEntries(a.figures.filter((f) => !f.alt && !f.ornament).map((f) => [f.key, 'Proof placeholder description.'])) : {}
 const r = await buildUa(a, { styles: a.styles, meta: { ...a.meta, isbn: '' }, alt, cropToTrim: true, sourceName: basename(input), options })
 mkdirSync(resolve(outDir), { recursive: true })
-writeFileSync(resolve(outDir, r.fileName), r.pdf)
+await gatedWrite('pdf', r.pdf, resolve(outDir, r.fileName), r.review, { book: basename(input) })
 const audit = auditPictures(await PDFDocument.load(r.pdf, { updateMetadata: false }))
 console.log('STATS', JSON.stringify(r.stats))
 console.log('AUDIT', JSON.stringify({ pages: audit.pages, picturesInTrim: audit.pictures, inTree: audit.picturesInTree, artifact: audit.picturesArtifact, slugPictures: audit.slugPictures, figureElements: audit.figureElements }))

@@ -6,7 +6,7 @@ import type { ReviewItem } from './package.ts'
 // before the file leaves the tool. (EPUBCheck + Ace still run in the QA step: see README.)
 
 const KNOWN_TYPES = new Set([
-  'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'titlepage', 'copyright-page',
+  'cover', 'frontmatter', 'bodymatter', 'backmatter', 'halftitlepage', 'halftitle', 'titlepage', 'title', 'credits', 'copyright-page',
   'dedication', 'epigraph', 'endnote', 'toc', 'landmarks', 'page-list', 'introduction', 'preface', 'foreword', 'prologue', 'part',
   'chapter', 'conclusion', 'epilogue', 'afterword', 'glossary', 'appendix', 'bibliography', 'endnotes',
   'index', 'loi', 'contributors', 'acknowledgments', 'pagebreak', 'noteref', 'footnote', 'backlink', 'bodymatter',
