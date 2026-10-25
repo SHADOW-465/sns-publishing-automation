@@ -441,7 +441,8 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       s.title.push(b)
       takeFollowing('chapter-title', s.title)
       seenChapter = true
-    } else if (r === 'section-title' || ((r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') && sectionTypeOf(b.text) && b.text.length <= 80 && listed(b.text))) {
+    } else if (r === 'section-title' || ((r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') && sectionTypeOf(b.text) && b.text.length <= 80 && listed(b.text) && !(cur?.type === 'chapter' && secs.some((x) => x.title.some((t) => norm(t.text) === norm(b.text)))))) {
+      // (an edited volume repeats "Introducción" as a subheading in every chapter: only the book's own, listed once, opens a section)
       // a subheading style is also used for "Notes", "Bibliography", "The author": those open their own section
       const s = newSec(sectionTypeOf(b.text) ?? 'other')
       s.title.push(b)
