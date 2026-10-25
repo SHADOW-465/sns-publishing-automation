@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ROLES, ROLE_HELP, type Role, type StyleInfo } from '../engine/indesign/read.ts'
+import { targetId } from './needs.ts'
 import { reviewList, rulesForTopic, acceptable, acceptAllIds, type CheckItem, type ReviewInput } from '../engine/review/confidence.ts'
 import type { Spec } from '../engine/spec/session.ts'
 import type { Rule, RuleValue } from '../engine/spec/rules.ts'
@@ -87,7 +88,7 @@ export function CheckFirst({ input, review, setStyle, onType, onMeta, spec, onRu
       )}
       <ol>
         {items.map((it) => (
-          <li key={it.id}>
+          <li key={it.id} id={targetId(it.id)}>
             <span className={`flag ${it.confidence}`}>{it.confidence === 'low' ? 'not sure' : 'please look'}</span> <span className="muted small">{Math.round(it.score * 100)}%</span> <strong>{it.title}</strong>
             <div className="muted small">{it.why}</div>
             <div className="row">{control(it)}</div>

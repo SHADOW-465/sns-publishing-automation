@@ -18,7 +18,8 @@ import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, type Spec 
 import { CheckFirst } from './CheckFirst.tsx'
 import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
-import { reviewList, blockingItems } from '../engine/review/confidence.ts'
+import { reviewList, blockingItems, acceptable, acceptAllIds } from '../engine/review/confidence.ts'
+import { structureNeeds, type Need } from './needs.ts'
 import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings, settings } from '../engine/settings.ts'
 import { outputViolations } from '../engine/output/standards.ts'
@@ -133,7 +134,7 @@ export function IndesignFlow() {
 
   /** builds the EPUB (fast) and runs the quality check on it */
   const rebuild = (then?: number) =>
-    run('Building the e-book…', async () => {
+    run('Building the preview. Large books can take a minute or two; the page is working…', async () => {
       // the rules the client set (or accepted) in the Spec step are the rules the build follows
       const sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
       if (!spec) setSpec(sp)
@@ -202,6 +203,9 @@ export function IndesignFlow() {
   // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
   // (build messages and an untitled page are not decisions: a picture-only page has no title on purpose, and a missing picture description is fixed on its own step)
   const blocking = blockingItems(structureReview.items, acked)
+  const structureBlock = structureNeeds(blocking, acceptable)
+  const acceptAll = () => setAcked((s) => new Set([...s, ...acceptAllIds(structureReview.items, s)]))
+  const fileNeeds: Need[] = exp ? [] : [{ id: 'file:export', label: 'Add the InDesign EPUB export (the .epub or .zip InDesign made)', group: 'InDesign export', kind: 'choice' }]
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
   const outputProblems = outputViolations(outputKind, spec?.resolved.settings ?? settings())
   const outputErrors = outputProblems.filter((p) => p.level === 'error')
@@ -267,7 +271,7 @@ export function IndesignFlow() {
             </ul>
             Nothing is uploaded: the files are read in this browser.
           </Help>
-          <StepNav onNext={onAnalyse} next="Read the files" nextDisabled={!exp || !!busy}>
+          <StepNav onNext={onAnalyse} next="Read the files" nextDisabled={!!busy} needs={fileNeeds}>
             {!exp ? 'Add the InDesign export to start.' : !cover ? 'You can add the cover later, before building.' : ''}
           </StepNav>
         </section>
@@ -347,8 +351,7 @@ export function IndesignFlow() {
               {structureReview.auto > 0 ? ` ${structureReview.auto} other change${structureReview.auto === 1 ? ' was' : 's were'} made automatically and ${structureReview.auto === 1 ? 'is' : 'are'} not in that count.` : ''} Check the list, or continue anyway.
             </p>
           )}
-          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy || blocking.length > 0} />
-          {blocking.length > 0 && <p className="err small" role="status">{blocking.length} item{blocking.length === 1 ? '' : 's'} in the list above {blocking.length === 1 ? 'is' : 'are'} under 60% sure: {blocking.slice(0, 2).map((x) => x.title).join('; ')}{blocking.length > 2 ? '…' : ''}. Decide {blocking.length === 1 ? 'it' : 'them'} to go on.</p>}
+          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy} needs={structureBlock} onAcceptAll={acceptAll} autoOpen />
         </section>
       )}
 
@@ -420,7 +423,7 @@ export function IndesignFlow() {
               ))}
             </ul>
           )}
-          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy || outputErrors.length > 0}>
+          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy} needs={outputErrors.map((p, i) => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice' as const }))} autoOpen>
             {outputErrors.length ? 'Fix the problems above before building.' : needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
           </StepNav>
         </section>
