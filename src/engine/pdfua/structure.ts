@@ -3,6 +3,7 @@ import { sectionTypeOf } from '../epub/locale.ts'
 import { detectTables } from '../pdf/tables.ts'
 import { LIST_MARK } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
+import { splitBulletEntries, type TocSplit } from './tocsplit.ts'
 
 // =============================================================================================
 // Accessible PDF: the logical structure (tag tree) rebuilt from the page layout.
@@ -48,6 +49,10 @@ export interface SNode {
   colSpan?: number
   /** an index entry: its page numbers become links */
   indexEntry?: boolean
+  /** a topic of a contents run "A • B • C": the stretches of the lines it is made of (character range of the line's text) */
+  span?: { line: PLine; from: number; to: number }[]
+  /** an entry of a list of illustrations: the figure number it names ("1.5") and the lines holding that number and the page */
+  illus?: { label: string; numLine: PLine; pageLine?: PLine }
 }
 
 export interface Figure {
@@ -60,6 +65,8 @@ export interface Figure {
   vector: boolean
   /** a mark drawn from many paths (publisher device, FSC) */
   logo?: boolean
+  /** a small picture with no caption and no text in it: a chapter ornament, a divider, a dingbat */
+  ornament?: boolean
 }
 
 /** Default tag roles from the analysed font styles. */
@@ -93,7 +100,7 @@ export function inferUaStyles(book: PdfBook): UaStyle[] {
     else if (heads.some((h) => h.s === s) && tiny(s)) (role = 'Inline'), (reason = 'bold first letters of a line')
     else if (heads.some((h) => h.s === s)) (role = `H${levelOf(size)}` as UaRole), (reason = `heading style, level by size`)
     else if (r < 0.75 && s.samples.every((x) => x.trim().length <= 3)) (role = 'Inline'), (reason = 'superscript note numbers')
-    else if (r < 0.95 && (bottomShare.get(s.key) ?? 0) / s.count > 0.7 && s.samples.some((x) => /^\d{1,3}(\s|$)/.test(x.trim()))) (role = 'Note'), (reason = 'small numbered text at the page bottom')
+    else if (r < 0.95 && (bottomShare.get(s.key) ?? 0) / s.count > 0.7 && s.samples.some((x) => /^\d{1,3}(\s|$)/.test(x.trim())) && s.samples.some((x) => x.trim().length > 8)) (role = 'Note'), (reason = 'small numbered text at the page bottom')
     if (s.key === book.bodyKey) (role = 'P'), (reason = 'body text')
     return { key: s.key, count: s.count, samples: s.samples, role, reason }
   })
@@ -101,9 +108,40 @@ export function inferUaStyles(book: PdfBook): UaStyle[] {
 
 // ---------------------------------------------------------------------------------------------
 
+/** An uncaptioned picture is an ornament when its longer side is at most this share of the page width. */
+export const ORNAMENT_MAX = 0.3
+
+/** The number a caption names ("Figura 1.5. Caption" → "1.5"), the same way a list of illustrations prints it. */
+export const figureLabel = (caption: string): string | undefined =>
+  caption.match(/^\s*(?:figura|figure|fig\.|abb\.|abbildung|ilustraci[oó]n|gr[aá]fico|plate|l[áa]mina)\s*(\d{1,2}|[ivxlc]{1,4})\s*\.\s*(\d{1,2})/i)?.slice(1, 3).join('.').toUpperCase()
+
+/** "1.5", "I.2", "1. 5": a figure number as a list of illustrations prints it. */
+const FIG_NO = /^(\d{1,2}|[IVXLC]{1,4})\s*\.\s*\d{1,2}\.?$/
+const isFigListHeading = (t: string) => sectionTypeOf(titleCase(t)) === 'list' && /ilustraci|figur|abbild|illustr|image|plates?|l[áa]min|gr[áa]fic/i.test(t)
+
 const CHAPTER_LABEL = /^(chapter|part|book|kapitel|teil|chapitre|partie|cap[ií]tulo|capitolo|parte)\s+([\divxlc]+|\p{L}+)$/iu
 const BULLET = /^([•●◦▪■–—-]|\(?\d{1,2}[.)]|[a-z][.)])\s/
-const TOC_ENTRY = /(^|\s|\.{2,})(\d{1,4}|[ivxlc]{1,7})\s*$/i
+
+/**
+ * The line ends a contents entry. A digit at the end is a page number ("Title 12", or "64" on its own).
+ * A roman token is one only when it stands apart from the words: "la" at the end of "El dosel de luz de la" is Spanish.
+ */
+export function endsTocEntry(l: PLine): boolean {
+  const t = l.text.trim()
+  if (/^\d{1,4}$/.test(t) || /^[ivxlcdm]{1,7}$/i.test(t)) return true
+  const m = t.match(/^(.*?)(?:\s+|\.{2,}\s*)(\d{1,4}|[ivxlcdm]{1,7})$/i)
+  if (!m) return false
+  const num = m[2]
+  if (/^\d+$/.test(num)) return true
+  if (/\.{2,}\s*[ivxlcdm]+\s*$/i.test(t)) return true
+  const runs = l.runs ?? []
+  if (runs.length >= 2) {
+    const last = runs[runs.length - 1]
+    const prev = runs[runs.length - 2]
+    if (last.text.trim().toLowerCase() === num.toLowerCase() && last.x0 - prev.x1 > Math.max(l.size, 1)) return true
+  }
+  return false
+}
 
 export interface Structure {
   tocEntries: SNode[]
@@ -112,6 +150,10 @@ export interface Structure {
   figures: Figure[]
   headings: SNode[]
   nodes: SNode[]
+  /** pictures the reviewer or the ornaments setting turned into decoration: painted as artifacts on purpose (PFG-007) */
+  hidden: Figure[]
+  /** contents runs "A • B • C" cut into one TOCI per topic */
+  splits: TocSplit[]
 }
 
 export interface UaOptions {
@@ -128,10 +170,20 @@ export interface UaOptions {
   indexLinks?: boolean
   /** a note number links to its note and back */
   noteLinks?: boolean
+  /** ornaments (small uncaptioned pictures): a 'figure' with a description, or 'artifact' = decoration a screen reader skips */
+  ornaments?: 'figure' | 'artifact'
+  /** where the Caption element sits: 'after' its Figure as a sibling (default), or 'inside' the Figure */
+  captionIn?: 'after' | 'inside'
+  /** running heads and folios: 'artifact' (default) or 'keep' them in the reading order */
+  runningHeads?: 'artifact' | 'keep'
+  /** 'contiguous' (default) never skips a heading level, so a section under a chapter with no subtitle moves up a level; 'consistent' gives every heading style the same level everywhere */
+  headingLevels?: 'contiguous' | 'consistent'
+  /** link rectangles stacked on the same picture (the hidden layouts of a button): 'topmost' keeps the last one (default), 'all' keeps every one */
+  stackedLinks?: 'topmost' | 'all'
 }
 
 /** The accessible-PDF options a resolved settings object carries (UA-01 … UA-07). */
-export const uaOptionsFrom = (s: { uaChapterLevel: number; uaLogos: 'artifact' | 'figure'; uaBookmarkLevels: number; uaPlateBookmark: boolean; uaPlateLabel: string; uaIndexLinks: boolean; uaNoteLinks: boolean }): UaOptions => ({
+export const uaOptionsFrom = (s: { uaChapterLevel: number; uaLogos: 'artifact' | 'figure'; uaBookmarkLevels: number; uaPlateBookmark: boolean; uaPlateLabel: string; uaIndexLinks: boolean; uaNoteLinks: boolean; uaOrnaments: 'artifact' | 'figure'; uaCaptionIn: 'after' | 'inside'; uaRunningHeads: 'artifact' | 'keep'; uaHeadingLevels: 'contiguous' | 'consistent'; uaStackedLinks: 'topmost' | 'all' }): UaOptions => ({
   chapterLevel: s.uaChapterLevel === 1 ? 1 : 2,
   logos: s.uaLogos,
   bookmarkLevels: s.uaBookmarkLevels,
@@ -139,6 +191,11 @@ export const uaOptionsFrom = (s: { uaChapterLevel: number; uaLogos: 'artifact' |
   plateLabel: s.uaPlateLabel,
   indexLinks: s.uaIndexLinks,
   noteLinks: s.uaNoteLinks,
+  ornaments: s.uaOrnaments,
+  captionIn: s.uaCaptionIn,
+  runningHeads: s.uaRunningHeads,
+  headingLevels: s.uaHeadingLevels,
+  stackedLinks: s.uaStackedLinks,
 })
 
 export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}, tick?: () => void): Structure {
@@ -187,6 +244,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let para: { node: SNode; last: PLine; kind: 'P' | 'LI' | 'Note'; first?: PLine } | null = null
   let list: SNode | null = null
   let lastLevel = 0
+  const levelBefore = new Map<SNode, number>() // the level in force before each heading, for a kicker that takes its title's level
   // text set with hanging indents: their indented lines mostly follow full lines (turnovers),
   // while first-line indents follow the short last line of the paragraph before
   const full = (x: PLine) => x.x1 > Math.max(...book.pages[x.page].lines.filter((y) => y.col === x.col).map((y) => y.x1)) - 6
@@ -209,6 +267,15 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let pendingPrefix: PLine[] = [] // chapter numbers wait for their title
   let floats: SNode[] = []
   let inToc = false
+  let inFigList = false // under the heading of a list of illustrations
+  let inNotes = false // under the heading of the notes
+  let notesLevel = 0
+  let figList: SNode | null = null
+  let tocAfter: { sect: SNode; nodes: SNode[] } | null = null
+  const flushToc = () => {
+    if (tocAfter) tocAfter.sect.kids.push(...tocAfter.nodes)
+    tocAfter = null
+  }
   let inIndex = false
   let indexLevel = 6
   let tocLevel = 1
@@ -233,7 +300,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const inFig = (l: PLine) => figs.find((f) => {
       const top = page.height - f.box.y1
       const bottom = page.height - f.box.y0
-      return l.x0 >= f.box.x0 - 2 && l.x1 <= f.box.x1 + 2 && l.y >= top - 2 && l.y + l.size <= bottom + 2
+      // a label of a chart may run a little past the edge of the drawing: it belongs to the picture when most of it lies inside (PHD-007)
+      const inside = Math.min(l.x1, f.box.x1 + 2) - Math.max(l.x0, f.box.x0 - 2)
+      return inside >= (l.x1 - l.x0) * 0.5 && l.y >= top - 2 && l.y + l.size <= bottom + 2
     })
     const lines: PLine[] = []
     for (const l of page.lines) {
@@ -295,7 +364,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
 
     // figures and their captions: each caption block (Caption-role text, or a "Figure 3" label line) belongs to the nearest figure
     // beside, above or below it; the pair is read figure first, then caption, pairs in page order (rows top to bottom, left to right)
-    const LABEL = /^(abb\.|abbildung|fig\.|figure|tab\.|tabelle|table|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i
+    const LABEL = /^(abb\.|abbildung|fig\.|figure|figura|ilustraci[oó]n|gr[aá]fic[oa]|tab\.|tabelle|table|tabla|cuadro|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i
     // a page of pictures (plates) has no other text than captions, whatever their font
     const pictured = figs.length > 1 && lines.length <= 30 && figs.every((f) => !f.vector) && figs.reduce((t, f) => t + (f.box.x1 - f.box.x0) * (f.box.y1 - f.box.y0), 0) > page.width * page.height * 0.25
     const seeds = lines.filter((l) => roleOf(l) === 'Caption' || LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
@@ -330,11 +399,14 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const k = capOf.get(f)
       f.caption = k ? k.lines.map((l) => l.text.trim()).join(' ') : ''
       const nodes = [n]
+      // a picture with no caption and nothing written in it is an ornament (a chapter break, a divider, a dingbat)
+      f.ornament = !k && !f.logo && !f.lines.length && Math.max(f.box.x1 - f.box.x0, f.box.y1 - f.box.y0) <= page.width * ORNAMENT_MAX
       if (k) {
-        const c = mk('P') // a plain paragraph right after its figure, as in the hand-tagged files
+        const c = mk('Caption') // its own element right after the figure (PFG-003); a client can nest it in the Figure
         for (const l of k.lines) own(l, c)
         c.text = f.caption
-        nodes.push(c)
+        if (options.captionIn === 'inside') n.kids.push(c)
+        else nodes.push(c)
       }
       figNodes.push({ f, nodes })
     }
@@ -378,7 +450,10 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const fulls = lines.filter(isFull).sort((a, b) => a.y - b.y)
     const ordered: PLine[] = []
     // contents pages are rows (number · title · page), not columns
-    const tocPage = inToc || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
+    // a list of illustrations: rows of figure number, caption and page, read row by row like a contents page (PLS-002)
+    const figNo = (l: PLine) => FIG_NO.test(l.text.trim()) && l.x0 < page.width * 0.4
+    const listPage = (inFigList || lines.some((l) => /^H\d$/.test(roleOf(l)) && isFigListHeading(l.text.trim()))) && lines.filter(figNo).length >= 3
+    const tocPage = inToc || listPage || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
     if (tocPage) ordered.push(...[...lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base)))
     // pictures with their captions are read where they stand: a picture across the columns splits them like a full-width line,
     // any other picture goes before the first line below its top that sits over it
@@ -409,7 +484,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const emit = (cs: Cell[]) => {
       closePara()
       closeList()
-      for (const c of cs) container.kids.push(...c.item.nodes)
+      // a contents list holds only entries: a picture on its page (an ornament under the last entry) follows the list (PRO-008)
+      if (container.tag === 'TOC') (tocAfter ??= { sect, nodes: [] }).nodes.push(...cs.flatMap((c) => c.item.nodes))
+      else for (const c of cs) container.kids.push(...c.item.nodes)
     }
 
     for (let i = 0; i < ordered.length; i++) {
@@ -420,14 +497,24 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       // title pages: the title is the heading; subtitle and author lines in display type are text
       const lastH = headings[headings.length - 1]
       const prevL = ordered[i - 1]
-      const r = /^H\d$/.test(roleOf(l)) && front.has(l.page) && (l.page !== titlePage || lastH?.lines[0]?.page === l.page) && !(prevL && roleOf(prevL) === roleOf(l) && owner.get(prevL) === lastH && l.y - prevL.y < l.size * 2.2) ? 'P' : roleOf(l)
+      // the wrapped last word of a chapter name in the notes ("PLEYADIANAS") stays in that heading (PHD-006)
+      if (inNotes && lastH && prevL && owner.get(prevL) === lastH && l.key === prevL.key && l.page === prevL.page && l.y - prevL.y < Math.max(l.size, prevL.size) * 2.2 && text.length >= 3 && text === text.toUpperCase() && /\p{Lu}/u.test(text) && !/^\d/.test(text)) {
+        own(l, lastH)
+        lastH.text += ' ' + text
+        continue
+      }
+      // a line that starts in lower case right under a body line is the rest of that paragraph, whatever its style says (PHD-005)
+      const continues = /^H\d$/.test(roleOf(l)) && /^\p{Ll}/u.test(text) && !!prevL && prevL.page === l.page && roleOf(prevL) === 'P' && l.y - prevL.y < lead * 1.6 && !inToc
+      const r = continues ? 'P' : /^H\d$/.test(roleOf(l)) && front.has(l.page) && (l.page !== titlePage || lastH?.lines[0]?.page === l.page) && !(prevL && roleOf(prevL) === roleOf(l) && owner.get(prevL) === lastH && l.y - prevL.y < l.size * 2.2) ? 'P' : roleOf(l)
       if (r === 'Inline') {
         if ((/^\d{1,3}$/.test(text) && l.size > book.bodySize * 2) || CHAPTER_LABEL.test(text)) pendingPrefix.push(l) // chapter number / label
         continue // attached to its neighbour line afterwards
       }
       // H1 is the book title alone: chapters and subheads move down by chapterLevel - 1 once a title heading exists
       const hasTitle = headings.some((h) => front.has(h.lines[0].page))
-      const lvl = /^H\d$/.test(r) ? Math.min(6, Number(r[1]) + (hasTitle && !front.has(l.page) ? chapterLevel - 1 : 0)) : 0
+      // inside the notes, a line of capitals that is followed by a numbered note is the name of a chapter: a heading one level down (PHD-006)
+      const noteHead = inNotes && r === 'P' && text.length >= 8 && text === text.toUpperCase() && /\p{Lu}{3}/u.test(text) && !/^\d/.test(text) && /\s/.test(text) && l.size >= book.bodySize * 0.95 && ((!!ordered[i + 1] && ordered[i + 1].key === l.key && ordered[i + 1].text.trim() === ordered[i + 1].text.trim().toUpperCase() && ordered[i + 1].y - l.y < l.size * 2.2) || /^\d{1,3}[.)]/.test((ordered[i + 1]?.text ?? '').trim()) || (!!ordered[i + 1] && labelOf.has(ordered[i + 1])))
+      const lvl = noteHead ? Math.min(6, notesLevel + 1) : /^H\d$/.test(r) ? Math.min(6, Number(r[1]) + (hasTitle && !front.has(l.page) ? chapterLevel - 1 : 0)) : 0
       if (lvl && !(inToc && lvl > tocLevel)) {
         closePara()
         closeList()
@@ -440,19 +527,42 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
           last.text += ' ' + text
           continue
         }
-        level = Math.min(level, lastLevel + 1) // never skip a level
+        flushToc()
+        // a kicker set above the title ("INTRODUCCIÓN DE BARBARA", "UNO") gets the title's level and goes into the title's section (PHD-002)
+        const kicker = !!last && !!prev && owner.get(prev) === last && prev.page === l.page && last.lines.every((x) => x.page === l.page) && Number(last.tag[1]) > lvl && prev.size <= l.size && l.y - prev.y < Math.max(l.size, prev.size) * 3.5
+        // never skip a level, unless the client wants each style to keep its own level wherever it occurs (PHD-008)
+        const before = kicker ? levelBefore.get(last!) ?? 0 : lastLevel
+        level = options.headingLevels === 'consistent' ? lvl : Math.min(level, before + 1)
         lastLevel = level
+        let opened = false
+        if (kicker) {
+          last!.tag = `H${level}`
+          const at = sect.kids.indexOf(last!)
+          if (at >= 0) sect.kids.splice(at, 1)
+          if (level === 1 || (hasTitle && level === chapterLevel)) {
+            sect = mk('Sect')
+            root.kids.push(sect)
+            opened = true
+          }
+          sect.kids.push(last!)
+          container = sect
+        }
         const h = mk(`H${level}`)
+        levelBefore.set(h, before)
         for (const p of pendingPrefix) own(p, h)
         own(l, h)
         h.text = [...pendingPrefix.map((p) => p.text.trim()), text].join(' ')
         pendingPrefix = []
         headings.push(h)
-        if (level === 1 || (hasTitle && level === chapterLevel)) {
+        if (!opened && (level === 1 || (hasTitle && level === chapterLevel))) {
           sect = mk('Sect')
           root.kids.push(sect)
         }
         inToc = sectionTypeOf(titleCase(text)) === 'toc'
+        inFigList = isFigListHeading(text)
+        figList = null
+        if (sectionTypeOf(titleCase(text)) === 'notes') (inNotes = true), (notesLevel = level)
+        else if (inNotes && level <= notesLevel) inNotes = false
         if (sectionTypeOf(titleCase(text)) === 'index') (inIndex = true), (indexLevel = level)
         else if (level <= indexLevel) inIndex = false
         tocLevel = level
@@ -471,12 +581,46 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         container.kids.push(c)
         continue
       }
+      if (listPage && (figNo(l) || figList)) {
+        // one LI per illustration: the number is its Lbl, the caption and the page number its LBody
+        const rowEnd = (x: PLine) => x.x0 > page.width * 0.6 && /^\d{1,4}$/.test(x.text.trim())
+        if (figNo(l)) {
+          if (!figList) {
+            figList = mk('L')
+            container.kids.push(figList)
+          }
+          const li = mk('LI')
+          const lbl = mk('Lbl')
+          own(l, lbl)
+          lbl.text = l.text.trim()
+          const lb = mk('LBody')
+          li.kids.push(lbl, lb)
+          li.illus = { label: l.text.replace(/\s+/g, '').toUpperCase().replace(/\.$/, ''), numLine: l }
+          figList.kids.push(li)
+          para = { node: lb, last: l, kind: 'LI', first: l }
+        } else if (para?.kind === 'LI') {
+          const li = figList!.kids[figList!.kids.length - 1]
+          own(l, para.node)
+          if (rowEnd(l) && li.illus) li.illus.pageLine = l
+          para.last = l
+        } else {
+          const p = mk('P')
+          own(l, p)
+          container.kids.push(p)
+        }
+        continue
+      }
       if (inToc) {
         // one TOCI per entry; an entry ends with its page number
         const cur = para as { node: SNode; last: PLine } | null
         // ponytail: page numbers are assumed right-aligned; ragged "Title 12" TOCs would merge entries
         const right = Math.max(...book.pages[cur?.last.page ?? l.page].lines.map((x) => x.x1))
-        if (!cur || (TOC_ENTRY.test(cur.last.text) && cur.last.x1 > right - 12)) {
+        // a run of bulleted topics (set in its own style) ends where the style changes: the next line is the next entry, not part of the run
+        // the bullet run ends when its own style changes (the next chapter title), not when it differs from the first line of the entry
+        const bulletKey = [...(cur?.node.lines ?? [])].reverse().find((x) => x.text.includes('•'))?.key
+        const run = !!bulletKey && bulletKey !== l.key
+        const pageNumber = !!cur && /^\d{1,4}$|^[ivxlcdm]{1,7}$/i.test(cur.last.text.trim())
+        if (!cur || run || (endsTocEntry(cur.last) && (pageNumber || cur.last.x1 > right - 12))) {
           const t = mk('TOCI')
           container.kids.push(t)
           tocEntries.push(t)
@@ -489,9 +633,13 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (r === 'Note') {
         const cur = para as { node: SNode; last: PLine; kind: string } | null
         const starts = /^\d{1,3}(\s|$)|^[*†‡]/.test(text)
-        if (cur?.kind === 'Note' && !starts) {
-          own(l, cur.node)
-          cur.last = l
+        // the footnote number is its own line to the left of the text, and the text may be ordered first
+        const label = /^\d{1,3}$/.test(text) && cur?.kind === 'Note' && Math.abs(l.base - cur.last.base) < 2
+        if (cur?.kind === 'Note' && (!starts || label)) {
+          if (label) cur.node.lines.unshift(l)
+          else cur.node.lines.push(l)
+          owner.set(l, cur.node)
+          if (!label) cur.last = l
           continue
         }
         const n = mk('Note')
@@ -569,6 +717,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     if (tail.length) emit(tail)
   }
   closePara()
+  flushToc()
 
   // inline pieces (superscript note numbers, drop caps) belong to the line they sit on
   for (const page of book.pages)
@@ -586,7 +735,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
     }
   // empty sections/containers are dropped by the writer
-  return { root, owner, figures, headings, nodes, tocEntries }
+  const st: Structure = { root, owner, figures, headings, nodes, tocEntries, hidden: [], splits: [] }
+  st.splits = splitBulletEntries(st)
+  return st
 }
 
 export interface ListItem {

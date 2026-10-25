@@ -72,7 +72,7 @@ export interface PdfBook {
   pdfjs: any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   doc: any
-  pages: (Omit<PageLayout, 'lines'> & { lines: PLine[] })[]
+  pages: (Omit<PageLayout, 'lines'> & { lines: PLine[]; /** running heads and folios taken out of `lines` (PAR-001) */ furniture?: PLine[] })[]
   numbers: number[] // printed page number per PDF page
   styles: PdfStyleInfo[]
   meta: BookMeta
@@ -128,7 +128,7 @@ export const columnOf = (starts: number[], x0: number) => [...starts].reverse().
 export async function analyzePdf(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pdfjs: any, data: Uint8Array, raster: Raster, saved: PdfProfile = {}, onProgress?: (done: number, total: number) => void,
-  opts: { splitSpreads?: boolean; /** false: do not derive heading roles from a printed contents page (accessible PDF keeps the font-size rules) */ structure?: boolean } = {},
+  opts: { splitSpreads?: boolean; /** false: do not derive heading roles from a printed contents page (accessible PDF keeps the font-size rules) */ structure?: boolean; /** keep running heads and folios in the lines (they are still listed in `furniture`) */ keepFurniture?: boolean } = {},
 ): Promise<PdfBook> {
   const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
   const raw: PageLayout[] = []
@@ -167,27 +167,40 @@ export async function analyzePdf(
 
   // ---- slug, running heads, folios → printed page numbers ----
   const band = (p: PageLayout, l: Line) => l.y < p.height * 0.13 || l.y > p.height * 0.87
+  // a folio may be roman ("xiii"): drop it so "Prólogo xiii" and "xii Prólogo" share a shape. Digits are already gone.
+  const folioShape = (s: string) => shape(s).replace(/(^|\s)[ivxlcdm]{1,7}(?=\s|$)/gi, ' ').replace(/\s+/g, ' ').trim()
+  const folioLine = (s: string) => /^(\d{1,4}|[ivxlcdm]{1,7})\b|\b(\d{1,4}|[ivxlcdm]{1,7})$/i.test(s.trim())
   const freq = new Map<string, number>()
-  for (const p of raw) for (const l of p.lines) if (band(p, l)) freq.set(shape(l.text), (freq.get(shape(l.text)) ?? 0) + 1)
+  for (const p of raw) for (const l of p.lines) if (band(p, l)) freq.set(folioShape(l.text), (freq.get(folioShape(l.text)) ?? 0) + 1)
+  // the very same words (digits too) on three pages or more are a running head, whatever a number in them says ("Vorwort zur 3. Aufl.")
+  const same = new Map<string, number>()
+  for (const p of raw) for (const l of p.lines) if (band(p, l)) same.set(l.text.trim(), (same.get(l.text.trim()) ?? 0) + 1)
   const folios: (number | undefined)[] = []
   const pages = raw.map((p) => {
     let folio: number | undefined
     let pureFolio = false
+    const gone: Line[] = []
     const lines = p.lines.filter((l) => {
       if (SLUG.test(l.text)) return false
       if (!band(p, l) || l.size > textSize * 1.3) return true
       const pure = /^(\d{1,4}|[ivxlc]{1,7})$/i.test(l.text.trim()) // arabic or roman folio
-      if (pure || ((freq.get(shape(l.text)) ?? 0) >= 3 && l.text.length < 90)) {
+      // a contents page number sits on the title's baseline ("Title …… 64"). A folio has the band to itself.
+      if (pure && p.lines.some((o) => o !== l && Math.abs(o.base - l.base) < 3 && o.text.trim().length > 12)) return true
+      // a head that carries its folio ("Prólogo xiii" / "xii Prólogo") repeats twice; other band lines need three
+      if (pure || ((freq.get(folioShape(l.text)) ?? 0) >= (folioLine(l.text) ? 2 : 3) && l.text.length < 90)) {
         const m = l.text.trim().match(/^(\d{1,4})\b|\b(\d{1,4})$/)
         if (m && (pure ? !pureFolio : folio === undefined)) (folio = Number(m[1] ?? m[2])), (pureFolio = pure)
         // "Chapter 3" repeats in shape but not in number: numbered lines only go if the number is
         // the folio (checked below, once the page numbers are known)
-        return !pure && /\d/.test(l.text)
+        const keep = !pure && /\d/.test(l.text) && (same.get(l.text.trim()) ?? 0) < 3
+        if (!keep) gone.push(l)
+        return keep
       }
       return true
     })
     folios.push(folio)
-    return { ...p, lines: lines.map((l) => ({ ...l, key: styleKey(l), page: p.index, col: 0 })) as PLine[] }
+    const own = (l: Line) => ({ ...l, key: styleKey(l), page: p.index, col: 0 }) as PLine
+    return { ...p, lines: lines.map(own), furniture: gone.map(own) }
   })
   // printed page = PDF page + the offset most folios agree on (robust against stray numbers)
   const offsets = new Map<number, number>()
@@ -195,10 +208,38 @@ export async function analyzePdf(
   const offset = [...offsets].sort((a, b) => b[1] - a[1])[0]?.[0]
   const numbers = offset === undefined ? fillNumbers(folios).map((n, i) => (typeof n === 'number' ? n : i + 1)) : folios.map((_, i) => i + offset)
   // running heads that occur on too few pages to repeat ("Index 191"): small edge line holding the folio
+  const takeOut = (p: (typeof pages)[number], gone: (l: PLine) => boolean) => {
+    p.furniture.push(...p.lines.filter(gone))
+    p.lines = p.lines.filter((l) => !gone(l))
+  }
   pages.forEach((p, i) => {
     const n = String(numbers[i])
-    p.lines = p.lines.filter((l) => !(band(p, l) && l.size <= textSize * 1.3 && l.text.length < 60 && new RegExp(`^${n}\\b|\\b${n}$`).test(l.text.trim())))
+    takeOut(p, (l) => band(p, l) && l.size <= textSize * 1.3 && l.text.length < 60 && new RegExp(`^${n}\\b|\\b${n}$`).test(l.text.trim()))
   })
+  // a running head that carries its own page number ("2 Introducción de Barbara") keeps counting with the pages even where the
+  // printed numbering is not the one most pages agree on (a section that restarts): the same line, in the same place, whose number
+  // moves one step per page is furniture too. "Chapter 3" does not move with the page, so it stays.
+  const heads = new Map<string, { p: (typeof pages)[number]; l: PLine; off: number }[]>()
+  pages.forEach((p, i) => {
+    for (const l of p.lines) {
+      const d = l.text.trim().match(/^(\d{1,4})\b|\b(\d{1,4})$/)
+      if (!d || !band(p, l) || l.size > textSize * 1.3 || l.text.length >= 90) continue
+      const k = `${shape(l.text)}|${l.y < p.height / 2 ? 'top' : 'foot'}|${Math.round(l.size * 2)}`
+      heads.set(k, [...(heads.get(k) ?? []), { p, l, off: Number(d[1] ?? d[2]) - i }])
+    }
+  })
+  for (const group of heads.values()) {
+    if (group.length < 3) continue
+    const votes = new Map<number, number>()
+    for (const g of group) votes.set(g.off, (votes.get(g.off) ?? 0) + 1)
+    const [off, n] = [...votes].sort((a, b) => b[1] - a[1])[0]
+    if (n >= 3 && n >= group.length * 0.7) for (const g of group) if (g.off === off) takeOut(g.p, (l) => l === g.l)
+  }
+  if (opts.keepFurniture)
+    for (const p of pages) {
+      p.lines = [...p.lines, ...p.furniture].sort((a, b) => a.y - b.y || a.x0 - b.x0)
+      p.furniture = []
+    }
 
   // ---- style roles ----
   const stats = new Map<string, { lines: PLine[]; chars: number; size: number; bold: boolean }>()
@@ -345,7 +386,7 @@ export async function analyzePdf(
 
   // no ISBN printed (the e-book has its own): a front page full of imprint wording is still the copyright page
   if (imprintPage === undefined && opts.structure !== false) {
-    const IMPRINT_LINE = /©|\(c\)\s*\d{4}|edici[óo]n|edition|auflage|first published|dep[óo]sito legal|printed in|impreso en|gedruckt|todos los derechos|all rights reserved|derechos reservados|t[íi]tulo original|original title|traducci[óo]n|translated by|^www\.|copyright/i
+    const IMPRINT_LINE = /©|\(c\)\s*\d{4}|\bedici[óo]n\b|\bedition\b|\bauflage\b|first published|dep[óo]sito legal|printed in|impreso en|gedruckt|todos los derechos|all rights reserved|derechos reservados|t[íi]tulo original|original title|traducci[óo]n|translated by|^www\.|copyright/i
     for (const p of pages.slice(0, 16)) {
       const hits = p.lines.filter((l) => IMPRINT_LINE.test(l.text)).length
       if (hits >= 3 && hits >= p.lines.length * 0.3) {

@@ -1,13 +1,15 @@
 import { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFNumber, PDFHexString, PDFString, PDFStream, PDFRawStream, type PDFPage, type PDFObject } from 'pdf-lib'
 import { tokenize, paints, rewrite, stripMarked, type Op, type Paint, type Owner, type Box } from './content.ts'
-import { pageContent, pageResources, streamBytes, latin1, fromLatin1, trimOf } from './pages.ts'
-import { imageList, type SNode, type Structure } from './structure.ts'
+import { pageContent, pageResources, streamBytes, latin1, fromLatin1, trimOf, trimBoxOf, insideBox, type FormCache } from './pages.ts'
+import { imageList, figureLabel, type SNode, type Structure } from './structure.ts'
 import { endnotePairs } from './notes.ts'
-import { isFrameOrRule } from './figures.ts'
+import { isFrameOrRule, leaves, ornamentMarks, MIN_PICTURE } from './figures.ts'
 import type { PdfBook, PLine } from '../pdfepub/analyze.ts'
 import type { ReviewItem } from '../epub/package.ts'
 import { confidentLanguage } from '../lang.ts'
 import { indexNumberSpans } from './indexlinks.ts'
+import { headingGuards, structureGuards } from './guards.ts'
+import { cutPage } from './tocsplit.ts'
 
 // =============================================================================================
 // Accessible PDF writer: re-tags the document from scratch (PDF/UA-1).
@@ -47,6 +49,7 @@ export async function planPages(
   const pages: PagePlan[] = []
   const limit = opts?.stageLimitMs ?? STAGE_LIMIT_MS
   const started = Date.now()
+  const forms: FormCache = new Map()
   for (let i = 0; i < pdfPages.length; i++) {
     if (Date.now() - started >= limit) {
       throw new Error(`Planning the tags stopped on page ${i + 1} of ${pdfPages.length}, after ${Math.max(1, Math.round(limit / 60000))} minute${limit >= 120_000 ? 's' : ''}. The file is too large to tag in one go. Analyse is available again. Leave out the plates PDF and run that on its own, or split the book.`)
@@ -54,13 +57,22 @@ export async function planPages(
     const p = pdfPages[i]
     const src = pageContent(doc, p)
     const ops = tokenize(src)
-    pages.push({ src, ops, paints: paints(ops, pageResources(doc, p)) })
+    pages.push({ src, ops, paints: paints(ops, pageResources(doc, p, forms)) })
     if (i % 4 === 3 || i === pdfPages.length - 1) {
       onProgress?.(i + 1, pdfPages.length, 'Planning the tags')
       await new Promise((r) => setTimeout(r, 0))
     }
   }
   return { doc, pages }
+}
+
+/** Intersection over union: 1 for the same rectangle, near 0 for a small one inside a large one. */
+const overlap = (a: Box, b: Box) => {
+  const w = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)
+  const h = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0)
+  if (w <= 0 || h <= 0) return 0
+  const both = w * h
+  return both / Math.max(1, (a.x1 - a.x0) * (a.y1 - a.y0) + (b.x1 - b.x0) * (b.y1 - b.y0) - both)
 }
 
 const centreIn = (b: Box, f: Box, pad = 2) => {
@@ -87,7 +99,7 @@ function lineFor(p: Extract<Paint, { kind: 'text' }>, lines: PLine[], H: number)
 
 export function writeUa(
   plan: { doc: PDFDocument; pages: PagePlan[] }, book: PdfBook, st: Structure, meta: UaMeta,
-  opts: { cropToTrim: boolean; frontPages?: { page: number; label: string }[]; bookmarkLevels?: number; indexLinks?: boolean; noteLinks?: boolean },
+  opts: { cropToTrim: boolean; frontPages?: { page: number; label: string }[]; bookmarkLevels?: number; indexLinks?: boolean; noteLinks?: boolean; runningHeads?: 'artifact' | 'keep'; headingLevels?: 'contiguous' | 'consistent'; stackedLinks?: 'topmost' | 'all' },
 ): { pdf: Promise<Uint8Array>; review: ReviewItem[]; stats: Record<string, number> } {
   const { doc } = plan
   const ctx = doc.context
@@ -150,6 +162,12 @@ export function writeUa(
   let unmatchedText = 0
   let taggedOps = 0
   let artifactOps = 0
+  let slugOps = 0
+  let droppedLinks = 0
+  let cutLeft = 0
+  const placedLinks = new Map<number, Box[]>() // link rectangles already on each page: a link the tool would add on top of one is a duplicate
+  let pictures = 0
+  const lostPictures: { page: number; box: Box }[] = []
 
   // ---- 1. forget the old tagging ----
   for (const k of ['StructTreeRoot', 'MarkInfo', 'Outlines', 'Metadata']) doc.catalog.delete(PDFName.of(k))
@@ -179,15 +197,37 @@ export function writeUa(
     const H = layout.height
     const figs = st.figures.filter((f) => f.page === i && f.node)
     const trim = trimOf(page)
+    const trimBox = trimBoxOf(page)
     const covered = new Set<PLine>()
+    const looseMarks: Box[] = []
+    // a contents run "A • B • C" is one TOCI per topic: cut its text-showing operators at the bullets (PTC-002)
+    let forced = new Map<number, SNode | null>()
+    const runs = st.splits.filter((sp) => sp.lines.some((l) => l.page === i))
+    if (runs.length) {
+      const cut = cutPage(pp, i, runs, (p, ls) => lineFor(p, ls, H), (src) => {
+        const ops = tokenize(src)
+        return { src, ops, paints: paints(ops, pageResources(doc, page)) }
+      })
+      if (cut) {
+        Object.assign(pp, { src: cut.src, ops: cut.ops, paints: cut.paints })
+        forced = cut.owners
+        cutLeft += cut.left
+      }
+    }
     const owners: (Owner | undefined)[] = pp.ops.map((_, k) => {
       const p = pp.paints[k]
       if (!p) return undefined
+      if (forced.has(k)) {
+        const f = forced.get(k)
+        return f ? (taggedOps++, { el: f.id, tag: f.tag }) : (artifactOps++, null)
+      }
       let node: SNode | undefined
       if (p.kind === 'text') {
         if (p.x >= trim.x1 - 2 || p.x < trim.x0 - 20 || H - p.y < trim.top || H - p.y > trim.bottom) return artifactOps++, null // slug
         const l = lineFor(p, layout.lines, H)
         if (l) covered.add(l)
+        // a running head or folio the layout took out of the text: a pagination artifact, header or footer (PAR-001)
+        if (!l && layout.furniture?.length && lineFor(p, layout.furniture, H)) return artifactOps++, { el: -1, tag: 'Artifact', props: `<</Type /Pagination /Subtype /${H - p.y < H / 2 ? 'Header' : 'Footer'}>>` }
         node = l ? (noteRefLine.get(l) ?? figureOf.get(l) ?? st.owner.get(l)) : undefined
         // rotated labels inside a chart belong to the chart
         if (!l) node = figs.find((f) => p.x >= f.box.x0 - 2 && p.x <= f.box.x1 + 2 && p.y >= f.box.y0 - 2 && p.y <= f.box.y1 + 2)?.node
@@ -198,6 +238,8 @@ export function writeUa(
           if (globalThis.process?.env?.UA_DEBUG) console.log('UNMATCHED', i + 1, p.x.toFixed(0), (H - p.y).toFixed(0), raw.slice(0, 70))
         }
       } else if (p.kind === 'image' || p.kind === 'path' || p.kind === 'form') {
+        // the printer's slug, colour bars and bleed marks lie outside the trim: furniture, never a picture (PAR-002)
+        if (!insideBox(p.box, trimBox)) return artifactOps++, slugOps++, null
         // frames, borders and rules around a picture are page furniture, not part of it
         node = figs.find((f) => centreIn(p.box, f.box) && !(p.kind === 'path' && isFrameOrRule(p.box, f.box, f.vector, layout)))?.node ?? undefined
         // a picture-only form wrapped in a page-sized box (placed logos): the figure it contains
@@ -208,9 +250,23 @@ export function writeUa(
           node = l ? (figureOf.get(l) ?? st.owner.get(l)) : undefined
         }
       }
+      if (p?.kind === 'path' && p.mark && !node && insideBox(p.box, trimBox)) looseMarks.push(p.box)
+      // PFG-001: a picture painted inside the trim is a figure in the tree, or decoration somebody chose; it is never dropped by accident
+      if (p && (p.kind === 'image' || p.kind === 'form')) {
+        const imgs = p.kind === 'image' ? [p.box] : leaves(p.inner ?? []).flatMap((q) => (q.kind === 'image' ? [q.box] : []))
+        for (const b of imgs) {
+          if (b.x1 - b.x0 < MIN_PICTURE || b.y1 - b.y0 < MIN_PICTURE || !insideBox(b, trimBox)) continue
+          pictures++
+          const backdrop = (b.x1 - b.x0) * (b.y1 - b.y0) >= (trimBox.x1 - trimBox.x0) * (trimBox.y1 - trimBox.y0) * 0.9 // a page-sized backdrop is furniture (PAR-002)
+          const chosen = st.hidden.some((h) => h.page === i && centreIn(b, h.box))
+          if (node?.tag !== 'Figure' && !backdrop && !chosen) lostPictures.push({ page: i + 1, box: b })
+        }
+      }
       node ? taggedOps++ : artifactOps++
       return node ? { el: node.id, tag: node.tag } : null
     })
+    // drawn ornaments that nothing tags: the same marks the detection groups, unless somebody chose them as decoration
+    for (const c of ornamentMarks(looseMarks, layout)) if (!st.hidden.some((h) => h.page === i && centreIn(c, h.box)) && !figs.some((f) => centreIn(c, f.box))) (pictures++, lostPictures.push({ page: i + 1, box: c }))
     const { stream, mcids } = rewrite(pp.src, pp.ops, owners)
     const byId = new Map(st.nodes.map((n) => [n.id, n]))
     mcids.forEach((id, mcid) => {
@@ -237,7 +293,25 @@ export function writeUa(
     const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray)
     if (!annots) return
     const keep: PDFObject[] = []
+    // link rectangles stacked on one picture: a reader sees one of them, the topmost (the last in the list); the others belong to hidden layouts (PNT-004)
+    const covered = (d: PDFDict) => {
+      const r = d.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map((x) => (x as PDFNumber).asNumber()) ?? [0, 0, 0, 0]
+      const b: Box = { x0: Math.min(r[0], r[2]), y0: Math.min(r[1], r[3]), x1: Math.max(r[0], r[2]), y1: Math.max(r[1], r[3]) }
+      return { b, text: book.pages[i].lines.some((l) => l.x1 > b.x0 && l.x0 < b.x1 && book.pages[i].height - l.base >= b.y0 - 2 && book.pages[i].height - l.base <= b.y1 + 2) }
+    }
+    const links = annots.asArray().flatMap((a) => {
+      const d = a instanceof PDFRef ? ctx.lookup(a, PDFDict) : (a as PDFDict)
+      return d.get(PDFName.of('Subtype'))?.toString() === '/Link' ? [{ a, ...covered(d) }] : []
+    })
+    const hidden = new Set<PDFObject>()
+    if (opts.stackedLinks !== 'all')
+      links.forEach((x, j) => {
+        if (x.text) return
+        for (const y of links.slice(j + 1)) if (!y.text && overlap(x.b, y.b) >= 0.5) return void hidden.add(x.a)
+      })
+    droppedLinks += hidden.size
     for (const a of annots.asArray()) {
+      if (hidden.has(a)) continue
       const d = a instanceof PDFRef ? ctx.lookup(a, PDFDict) : (a as PDFDict)
       const sub = d.get(PDFName.of('Subtype'))?.toString()
       if (sub === '/PrinterMark' || sub === '/TrapNet') continue // print-only
@@ -254,6 +328,7 @@ export function writeUa(
         d.set(PDFName.of('Contents'), PDFHexString.fromText(link.text || uri || 'Link'))
       }
       d.set(PDFName.of('StructParent'), PDFNumber.of(annotKey))
+      placedLinks.set(i, [...(placedLinks.get(i) ?? []), { x0: Math.min(r[0], r[2]), y0: Math.min(r[1], r[3]), x1: Math.max(r[0], r[2]), y1: Math.max(r[1], r[3]) }])
       ;(host ?? st.root).kids.push({ id: -1, tag: 'Reference', kids: [link], lines: [] }) // a link sits in a Reference, as Acrobat does it
       linkNodes.push({ node: link, annot: a, page: i, key: annotKey++ })
       annotKids.set(link, [{ ref: a, page: i }])
@@ -263,6 +338,7 @@ export function writeUa(
 
   // ---- 3b. links the production team added by hand: contents entries and web addresses ----
   const addLink = (page: number, rect: Box, host: SNode, action: Record<string, PDFObject>, text: string) => {
+    if ((placedLinks.get(page) ?? []).some((b) => overlap(rect, b) >= 0.5)) return false // the book's own link is already there
     const annot = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [rect.x0, rect.y0, rect.x1, rect.y1], Border: [0, 0, 0], P: pageRefs[page], Contents: PDFHexString.fromText(text), StructParent: annotKey, ...action }))
     const arr = pages[page].node.lookupMaybe(PDFName.of('Annots'), PDFArray)
     if (arr) arr.push(annot)
@@ -271,6 +347,7 @@ export function writeUa(
     host.kids.push({ id: -1, tag: 'Reference', kids: [link], lines: [] })
     linkNodes.push({ node: link, annot, page, key: annotKey++ })
     annotKids.set(link, [{ ref: annot, page }])
+    return true
   }
   const boxOf = (ls: PLine[]): Box => {
     const H = book.pages[ls[0].page].height
@@ -280,7 +357,7 @@ export function writeUa(
   let tocLinks = 0
   for (const e of st.tocEntries) {
     if (!e.lines.length) continue
-    const text = e.lines.map((l) => l.text.trim()).join(' ').replace(/\s+/g, ' ')
+    const text = (e.span ? e.text ?? '' : e.lines.map((l) => l.text.trim()).join(' ')).replace(/\s+/g, ' ')
     const pageNo = Number(text.match(/(\d{1,4})\s*$/)?.[1] ?? NaN)
     const label = norm(text.replace(/\s*(\d{1,4}|[ivxlc]{1,7})\s*$/i, ''))
     const target = st.headings.find((h) => h.lines.length && label.length > 2 && (norm(h.text ?? '') === label || norm(h.text ?? '').startsWith(label))) ?? st.headings.find((h) => h.lines.length && book.numbers[h.lines[0].page] === pageNo)
@@ -290,6 +367,16 @@ export function writeUa(
     // one link per page the entry sits on
     const byPage = new Map<number, PLine[]>()
     for (const l of e.lines) byPage.set(l.page, [...(byPage.get(l.page) ?? []), l])
+    if (e.span) {
+      // one topic of a run: its stretch of each line, by the share of the characters it holds
+      for (const { line: l, from, to } of e.span) {
+        const w = l.x1 - l.x0
+        const box = boxOf([l])
+        addLink(l.page, { ...box, x0: l.x0 + (w * from) / Math.max(l.text.length, 1), x1: l.x0 + (w * to) / Math.max(l.text.length, 1) }, e, { Dest: ctx.obj([pageRefs[destPage], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(top), ctx.obj(null)]) }, text)
+      }
+      tocLinks++
+      continue
+    }
     for (const [pg, ls] of byPage) addLink(pg, boxOf(ls), e, { Dest: ctx.obj([pageRefs[destPage], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(top), ctx.obj(null)]) }, text)
     tocLinks++
   }
@@ -303,8 +390,7 @@ export function writeUa(
       const b = l.x0 + (w * (m.index! + m[0].length)) / l.text.length
       const H = book.pages[l.page].height
       const uri = m[0].startsWith('www.') ? `https://${m[0]}` : m[0]
-      addLink(l.page, { x0: a, x1: b, y0: H - l.base - 3, y1: H - l.y + 1 }, host, { A: ctx.obj({ S: 'URI', URI: PDFString.of(uri) }) }, m[0])
-      urlLinks++
+      if (addLink(l.page, { x0: a, x1: b, y0: H - l.base - 3, y1: H - l.y + 1 }, host, { A: ctx.obj({ S: 'URI', URI: PDFString.of(uri) }) }, m[0])) urlLinks++
     }
   }
   const MAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g
@@ -314,8 +400,7 @@ export function writeUa(
       const a = l.x0 + (w * m.index!) / l.text.length
       const b = l.x0 + (w * (m.index! + m[0].length)) / l.text.length
       const H = book.pages[l.page].height
-      addLink(l.page, { x0: a, x1: b, y0: H - l.base - 3, y1: H - l.y + 1 }, host, { A: ctx.obj({ S: 'URI', URI: PDFString.of(`mailto:${m[0]}`) }) }, m[0])
-      urlLinks++
+      if (addLink(l.page, { x0: a, x1: b, y0: H - l.base - 3, y1: H - l.y + 1 }, host, { A: ctx.obj({ S: 'URI', URI: PDFString.of(`mailto:${m[0]}`) }) }, m[0])) urlLinks++
     }
   }
   // the list of images: entry n links to the n-th picture of the plates (the pictures are listed in book order)
@@ -336,7 +421,29 @@ export function writeUa(
         imgLinks++
       }
   }
+  // a list of illustrations: the figure number links to its figure, the page number to its page (PLK-004, PLK-005)
+  const byLabel = new Map<string, number>()
+  for (const f of st.figures) {
+    const label = f.node ? figureLabel(f.caption) : undefined
+    if (label && !byLabel.has(label)) byLabel.set(label, st.figures.indexOf(f))
+  }
+  const entries = st.nodes.filter((n) => n.illus)
+  let figLinks = 0
+  for (const li of entries) {
+    const { label, numLine, pageLine } = li.illus!
+    const f = st.figures[byLabel.get(label) ?? -1]
+    if (f && li.kids[0]) {
+      addLink(numLine.page, boxOf([numLine]), li.kids[0], { Dest: ctx.obj([pageRefs[f.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(f.box.y1 + 4), ctx.obj(null)]) }, `Go to figure ${label}`)
+      figLinks++
+    }
+    const dest = pageLine ? book.numbers.indexOf(Number(pageLine.text.trim())) : -1
+    if (pageLine && dest >= 0 && li.kids[1]) addLink(pageLine.page, boxOf([pageLine]), li.kids[1], { Dest: ctx.obj([pageRefs[dest], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(book.pages[dest].height), ctx.obj(null)]) }, `Page ${pageLine.text.trim()}`)
+  }
+  if (figLinks) review.push({ level: 'info', msg: `Linked ${figLinks} list-of-illustrations entr${figLinks === 1 ? 'y' : 'ies'} to their figures.` })
+  if (entries.length > figLinks) review.push({ level: 'warn', msg: `PLK-004: ${entries.length - figLinks} of ${entries.length} entries of the list of illustrations name a figure that was not found, so they are not linked (for example “${entries.find((e) => !st.figures[byLabel.get(e.illus!.label) ?? -1])?.illus?.label}”).` })
   if (imgLinks) review.push({ level: 'info', msg: `Linked ${imgLinks} image-list entries to their pictures.` })
+  if (cutLeft) review.push({ level: 'warn', msg: `PTC-002: ${cutLeft} contents run(s) of bulleted topics could not be cut into one entry per topic (the bullets in the page do not match the text), so each stays one entry.` })
+  if (droppedLinks) review.push({ level: 'info', msg: `PNT-004: removed ${droppedLinks} link rectangle(s) stacked under another link on the same picture; a reader can click only the topmost.` })
   if (tocLinks + urlLinks) review.push({ level: 'info', msg: `Added ${tocLinks} contents link(s) and ${urlLinks} web link(s).` })
 
   // The reference number already sits in a Link. The annotation jumps to the note, and the note number jumps back.
@@ -461,6 +568,11 @@ export function writeUa(
   doc.catalog.set(PDFName.of('StructTreeRoot'), rootRef)
   doc.catalog.set(PDFName.of('MarkInfo'), ctx.obj({ Marked: true }))
   if (missingAlt) review.push({ level: 'error', msg: `${missingAlt} figure(s) have no alternative text — PDF/UA requires it.` })
+  if (lostPictures.length) {
+    const where = [...new Set(lostPictures.map((x) => x.page))]
+    review.push({ level: 'error', msg: `PFG-001: ${lostPictures.length} painted picture(s) are neither in the structure tree nor marked decorative, on page${where.length === 1 ? '' : 's'} ${where.slice(0, 12).join(', ')}${where.length > 12 ? '…' : ''}.` })
+  }
+  review.push(...runningHeadGuard(st, book, opts.runningHeads), ...headingGuards(st, book, { headingLevels: opts.headingLevels }), ...structureGuards(st))
   if (unmatchedText) review.push({ level: 'warn', msg: `${unmatchedText} text fragment(s) could not be placed in the reading order and were marked as decoration (check running heads / page furniture).` })
 
   // ---- 5. bookmarks from the headings (+ named front pages that have no heading) ----
@@ -522,8 +634,32 @@ export function writeUa(
   return {
     pdf: doc.save({ useObjectStreams: false, updateFieldAppearances: false }),
     review,
-    stats: { taggedOps, artifactOps, unmatchedText, figures: st.figures.filter((f) => f.node && refOf.has(f.node)).length, headings: heads.length, links: linkNodes.length, missingAlt },
+    stats: { taggedOps, artifactOps, slugOps, pictures, untaggedPictures: lostPictures.length, unmatchedText, figures: st.figures.filter((f) => f.node && refOf.has(f.node)).length, headings: heads.length, links: linkNodes.length, missingAlt },
   }
+}
+
+/**
+ * PAR-001 / PRO-003: no running head or folio is left in the reading order. A short line in the top or foot band whose words
+ * (numbers aside) come back on three or more pages is page furniture; it must be an artifact, not a P, a Note or a list item.
+ */
+export function runningHeadGuard(st: Pick<Structure, 'owner'>, book: Pick<PdfBook, 'pages' | 'bodySize'>, mode?: 'artifact' | 'keep'): ReviewItem[] {
+  if (mode === 'keep') return []
+  const seen = new Map<string, Set<number>>()
+  for (const [l, node] of st.owner) {
+    const p = book.pages[l.page]
+    if (!p || node.tag === 'Figure' || /^H\d$/.test(node.tag) || l.size > book.bodySize * 1.3 || l.text.trim().length >= 90) continue
+    if (!(l.y < p.height * 0.13 || l.y > p.height * 0.87)) continue
+    // a contents page number shares its baseline with the entry ("Title  64"); a folio has the band to itself
+    if (/^(?:\d{1,4}|[ivxlcdm]{1,7})$/i.test(l.text.trim()) && p.lines.some((o) => o !== l && Math.abs(o.base - l.base) < 3 && o.text.trim().length > 12)) continue
+    const shape = l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (!/\p{L}{3}/u.test(shape) && shape !== '#') continue
+    const k = `${l.y < p.height / 2 ? 'top' : 'foot'}|${shape}`
+    seen.set(k, (seen.get(k) ?? new Set()).add(l.page))
+  }
+  return [...seen]
+    .filter(([, pages]) => pages.size >= 3)
+    .slice(0, 5)
+    .map(([k, pages]) => ({ level: 'error' as const, msg: `PAR-001: the running head or folio “${k.split('|')[1]}” is still in the reading order on ${pages.size} pages (from page ${Math.min(...pages) + 1}). It belongs in artifacts, not in the tag tree.` }))
 }
 
 const xe = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

@@ -204,6 +204,16 @@ const SCHEMA = {
   uaIndexLinks: { def: false, bool: true },
   /** link each note number to its note and back */
   uaNoteLinks: { def: true, bool: true },
+  /** a small picture with no caption (a chapter ornament, a divider): decoration a screen reader skips, or a figure with a description */
+  uaOrnaments: { def: 'artifact', choices: ['artifact', 'figure'] },
+  /** a picture caption sits after its figure as its own element, or inside the figure element */
+  uaCaptionIn: { def: 'after', choices: ['after', 'inside'] },
+  /** running heads and folios are artifacts (default) or stay in the reading order */
+  uaRunningHeads: { def: 'artifact', choices: ['artifact', 'keep'] },
+  /** a heading level is never skipped (a section under a chapter with no subtitle moves up), or each heading style keeps its own level everywhere */
+  uaHeadingLevels: { def: 'contiguous', choices: ['contiguous', 'consistent'] },
+  /** link rectangles stacked on one picture (hidden layouts of a button): only the topmost is a link, or every one is kept */
+  uaStackedLinks: { def: 'topmost', choices: ['topmost', 'all'] },
 
   // ---- stylesheet ----
   /** 'vertical' = one declaration per line, margins written out (margin-top…) as the reference; 'compact' = one rule per line */

@@ -1,0 +1,10 @@
+{
+  "match": "innertraditions",
+  "name": "Inner Traditions en Español (SacGeo)",
+  "file": "SacGeo, Alquimia de las nueve dimensiones: the client's 24 October notes circle every ornament and the publisher mark as “Figure not tagged”, and ask for a Caption tag and links in the index",
+  "values": {
+    "UA-06": true,
+    "UA-08": "figure",
+    "UA-11": "consistent"
+  }
+}

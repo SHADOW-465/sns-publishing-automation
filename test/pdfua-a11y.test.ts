@@ -106,6 +106,7 @@ test('written tags carry the table, the note link, a foreign language, and a dec
   }
   drop(st.root, fig.node)
   fig.node = undefined
+  st.hidden.push(fig) // as buildUa does for a picture chosen as decoration
 
   const doc = await PDFDocument.create()
   const page = doc.addPage([420, H])
@@ -136,5 +137,6 @@ test('written tags carry the table, the note link, a foreign language, and a dec
   const src = pageContent(written, written.getPages()[0])
   assert.match(src, /\/Artifact BMC[\s\S]*\bDo\b/)
   assert.equal(out.review.filter((r) => r.level === 'error' && /alternative text/.test(r.msg)).length, 0)
+  assert.equal(out.review.filter((r) => r.msg.startsWith('PFG-001')).length, 0, 'a chosen artifact is not a lost picture')
   assert.ok(out.review.some((r) => /note number/.test(r.msg)))
 })

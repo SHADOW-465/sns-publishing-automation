@@ -262,7 +262,7 @@ const KEYWORDS: [SectionType, RegExp][] = [
   ['dedication', /^(dedicatoria|dedication|widmung|d[ée]dicace|dedica|dedicat[oò]ria)\b/i],
   ['index', /^(index|[íi]ndice (anal[íi]tico|onom[áa]stico|tem[áa]tico|alfab[ée]tico|remissivo)|(personen|sach|orts|namen)?register|stichwortverzeichnis)\b/i],
   ['toc', /^([íi]ndice( general| de contenidos?)?|contents|table of contents|sumario|sum[áa]rio|inhalt(sverzeichnis)?|table des mati[èe]res|sommaire|contenidos?|sommario)$/i],
-  ['list', /^(lista de|list of|liste des|verzeichnis der|elenco de|bildnachweis$|abbildungsverzeichnis$|abbildungsnachweis$|image credits$|photo credits$|illustration credits$|list of illustrations$)/i],
+  ['list', /^(lista de|listado de|list of|liste des|verzeichnis der|elenco de|bildnachweis$|abbildungsverzeichnis$|abbildungsnachweis$|image credits$|photo credits$|illustration credits$|list of illustrations$)/i],
   ['introduction', /^(introducci[óo]n|introduction|einleitung|einf[üu]hrung|introduzione|introdu[çc][ãa]o)\b/i],
   ['preface', /^(prefacio|preface|vorwort|pr[ée]face|prefazione|pref[áa]cio)\b/i],
   ['foreword', /^(foreword|pre[áa]mbulo|presentaci[óo]n|apresenta[çc][ãa]o|presentazione)\b/i],

@@ -183,9 +183,9 @@ const pt = (m: M, x: number, y: number) => [m[0] * x + m[2] * y + m[4], m[1] * x
 
 export type Paint =
   | { kind: 'text'; x: number; y: number; size: number }
-  | { kind: 'path'; box: Box }
+  | { kind: 'path'; box: Box; /** drawn with curves or four or more points: a shape, not a rule or a plain box */ mark?: boolean }
   | { kind: 'image'; box: Box; name: string }
-  | { kind: 'form'; box: Box; name: string; text: boolean }
+  | { kind: 'form'; box: Box; name: string; text: boolean; /** what the form paints, in page space (images, paths, nested forms) */ inner?: Paint[] }
   | { kind: 'shading'; box: Box | null }
 export type Box = { x0: number; y0: number; x1: number; y1: number }
 
@@ -197,18 +197,23 @@ const num = (s: string) => parseFloat(s)
 export interface Resources {
   /** XObject name → kind and, for forms, their /BBox and /Matrix */
   xobject: (name: string) => { kind: 'image' | 'form'; bbox?: number[]; matrix?: number[]; text?: boolean } | undefined
+  /** the content of a form XObject, so what it paints can be found too */
+  form?: (name: string) => { ops: Op[]; res: Resources } | undefined
 }
 
-/** Geometry of every painting operator, indexed like `ops`. */
-export function paints(ops: Op[], res: Resources): (Paint | null)[] {
+/** Geometry of every painting operator, indexed like `ops`. A form XObject lists what it paints in `inner` (to a depth of 4). */
+export function paints(ops: Op[], res: Resources, start: M = I, depth = 0): (Paint | null)[] {
   const out: (Paint | null)[] = new Array(ops.length).fill(null)
-  let ctm: M = [...I]
+  let ctm: M = [...start]
   const stack: { ctm: M; tl: number }[] = []
   let tm: M = [...I]
   let tlm: M = [...I]
   let fontSize = 0
   let tl = 0
   let path: Box | null = null
+  let pathCurve = false
+  let pathPts = 0
+  let pathRect = true // only rectangles so far
   const addPt = (x: number, y: number) => {
     const [px, py] = pt(ctm, x, y)
     path = path ? { x0: Math.min(path.x0, px), y0: Math.min(path.y0, py), x1: Math.max(path.x1, px), y1: Math.max(path.y1, py) } : { x0: px, y0: py, x1: px, y1: py }
@@ -268,19 +273,29 @@ export function paints(ops: Op[], res: Resources): (Paint | null)[] {
       case 'm':
       case 'l':
         addPt(a[0], a[1])
+        pathPts++
+        pathRect = false
         break
       case 'c':
         addPt(a[0], a[1]), addPt(a[2], a[3]), addPt(a[4], a[5])
+        pathCurve = true
+        pathRect = false
         break
       case 'v':
       case 'y':
         addPt(a[0], a[1]), addPt(a[2], a[3])
+        pathCurve = true
+        pathRect = false
         break
       case 're':
         addPt(a[0], a[1]), addPt(a[0] + a[2], a[1] + a[3])
+        pathPts += 4
         break
       case 'n':
         path = null
+        pathCurve = false
+        pathPts = 0
+        pathRect = true
         break
       case 'Do': {
         const name = args[0]?.slice(1) ?? ''
@@ -289,7 +304,8 @@ export function paints(ops: Op[], res: Resources): (Paint | null)[] {
           const [bx0, by0, bx1, by1] = x.bbox ?? [0, 0, 0, 0]
           const m = mul((x.matrix ?? [...I]) as M, ctm)
           const ps = [pt(m, bx0, by0), pt(m, bx1, by0), pt(m, bx0, by1), pt(m, bx1, by1)]
-          out[i] = { kind: 'form', name, text: !!x.text, box: { x0: Math.min(...ps.map((p) => p[0])), y0: Math.min(...ps.map((p) => p[1])), x1: Math.max(...ps.map((p) => p[0])), y1: Math.max(...ps.map((p) => p[1])) } }
+          const f = depth < 4 ? res.form?.(name) : undefined
+          out[i] = { kind: 'form', name, text: !!x.text, box: { x0: Math.min(...ps.map((p) => p[0])), y0: Math.min(...ps.map((p) => p[1])), x1: Math.max(...ps.map((p) => p[0])), y1: Math.max(...ps.map((p) => p[1])) }, inner: f ? paints(f.ops, f.res, m, depth + 1).filter((q): q is Paint => !!q) : undefined }
         } else out[i] = { kind: 'image', name, box: unit(ctm) }
         break
       }
@@ -301,8 +317,11 @@ export function paints(ops: Op[], res: Resources): (Paint | null)[] {
         break
       default:
         if (PATH_PAINT.has(op)) {
-          out[i] = { kind: 'path', box: path ?? { x0: 0, y0: 0, x1: 0, y1: 0 } }
+          out[i] = { kind: 'path', box: path ?? { x0: 0, y0: 0, x1: 0, y1: 0 }, mark: !pathRect && (pathCurve || pathPts >= 4) }
           path = null
+          pathCurve = false
+          pathPts = 0
+          pathRect = true
         }
     }
   }
@@ -329,8 +348,8 @@ function qGroups(ops: Op[], owners: (Owner | undefined)[]): Map<number, { owner?
     else if (isPaint(op)) {
       const w = owners[i] ?? null
       for (const g of stack) {
-        const key = w ? `${w.el}` : 'artifact'
-        if (g.key === undefined) (g.key = key), (g.owner = w ?? undefined)
+        const key = keyOf(w)
+        if (g.key === undefined) (g.key = key), (g.owner = w && w.el >= 0 ? w : undefined)
         else if (g.key !== key) g.mixed = true
       }
     }
@@ -340,7 +359,9 @@ function qGroups(ops: Op[], owners: (Owner | undefined)[]): Map<number, { owner?
 }
 
 /** Owner of a painting operator: a structure element id (tag + element), or null = artifact. */
-export type Owner = { el: number; tag: string } | null
+/** `el` below 0 is an artifact with these marked-content properties (a pagination artifact for a running head), not an element */
+export type Owner = { el: number; tag: string; props?: string } | null
+const keyOf = (w: Owner | undefined) => (w ? (w.el < 0 ? `a:${w.props ?? ''}` : `${w.el}`) : 'artifact')
 
 /**
  * Rebuild the stream. Existing marked-content operators are dropped (the document is re-tagged
@@ -438,10 +459,13 @@ export function rewrite(src: string, ops: Op[], owners: (Owner | undefined)[]): 
     }
     if (isPaint(o.op)) {
       const w = owners[i]
-      const key = w ? `${w.el}` : 'artifact'
+      const key = keyOf(w)
       if (!open || open.key !== key) {
         close()
-        if (w) {
+        if (w && w.el < 0) out += `
+/Artifact ${w.props ?? ''} BDC
+`
+        else if (w) {
           out += `\n/${w.tag} <</MCID ${mcids.length}>> BDC\n`
           mcids.push(w.el)
         } else out += '\n/Artifact BMC\n'

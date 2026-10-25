@@ -1,10 +1,20 @@
-import { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFStream } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFArray, PDFDict, PDFRef, PDFStream, PDFNumber } from 'pdf-lib'
 import { tokenize, isPaint } from './content.ts'
 import { pageContent, latin1, streamBytes } from './pages.ts'
 import type { ReviewItem } from '../epub/package.ts'
 
 // Machine checks from the Matterhorn protocol that PAC runs, re-done on the written file so the
 // reviewer sees failures before opening PAC. (PAC itself stays the final, manual check.)
+
+/** Two link rectangles that are nearly the same one: intersection over union at least a half. A link set inside a bigger one (a web address in an entry) is not stacked. */
+const stacked = (a: number[], b: number[]) => {
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0])
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1])
+  if (w <= 0 || h <= 0) return false
+  const both = w * h
+  const union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - both
+  return Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1])) > 4 && both / Math.max(union, 1) >= 0.5
+}
 
 export async function checkUa(pdf: Uint8Array): Promise<ReviewItem[]> {
   const out: ReviewItem[] = []
@@ -34,13 +44,21 @@ export async function checkUa(pdf: Uint8Array): Promise<ReviewItem[]> {
     if (page.node.get(PDFName.of('StructParents')) === undefined) err(`Page ${i + 1} has no StructParents entry.`)
     const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray)
     if (annots?.size() && page.node.get(PDFName.of('Tabs'))?.toString() !== '/S') err(`Page ${i + 1}: tab order is not /S.`)
+    const rects: number[][] = []
     for (const a of annots?.asArray() ?? []) {
       const d = a instanceof PDFRef ? doc.context.lookup(a, PDFDict) : (a as PDFDict)
       const sub = d.get(PDFName.of('Subtype'))?.toString()
       if (sub === '/Popup') continue
+      if (sub === '/Link') {
+        const r = d.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray().map((x) => (x as PDFNumber).asNumber())
+        if (r) rects.push([Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])])
+      }
       if (d.get(PDFName.of('StructParent')) === undefined) err(`Page ${i + 1}: ${sub} annotation is not tagged.`)
       if (sub === '/Link' && !d.get(PDFName.of('Contents'))) err(`Page ${i + 1}: link without a description (/Contents).`)
     }
+    // PNT-004: two links on the same area, one of them hidden under the other, are an unneeded Reference
+    const stackedAt = rects.findIndex((a, j) => rects.slice(j + 1).some((b) => stacked(a, b)))
+    if (stackedAt >= 0) err(`PNT-004: page ${i + 1} has link rectangles stacked on one another (for example at ${rects[stackedAt].map(Math.round).join(', ')}). Only the topmost can be clicked, so the others are unneeded References.`)
     // fonts must be embedded
     const fonts = page.node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict)
     for (const [name, ref] of fonts?.entries() ?? []) {

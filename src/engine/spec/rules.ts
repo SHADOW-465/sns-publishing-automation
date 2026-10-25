@@ -506,6 +506,42 @@ export const RULES: Rule[] = [
   },
 
   {
+    id: 'UA-08', group: 'Accessible PDF', title: 'Ornaments and dividers', kind: 'free', type: 'choice', key: 'uaOrnaments',
+    help: 'A small picture with no caption (a chapter ornament, a divider, a dingbat) is decoration that a screen reader skips, or a figure of its own with a short description. A description the reviewer types always wins, and a picture with a caption is always a figure.',
+    choices: [['artifact', 'Decoration, skipped by screen readers'], ['figure', 'A figure with a description']],
+    example: (v) => (v === 'figure' ? '<Figure Alt="decorativa">' : '/Artifact'), keywords: ['ornament', 'divider', 'dingbat', 'decorative picture', 'figure not tagged'],
+    origin: 'SacGeo 24 October: ornaments circled as “Figure not tagged”; PDF/UA-1 7.3; rulebook PAR-004, PFG-001',
+  },
+  {
+    id: 'UA-09', group: 'Accessible PDF', title: 'Where a figure caption sits', kind: 'free', type: 'choice', key: 'uaCaptionIn',
+    help: 'The caption is a Caption element. It follows its figure as a sibling (PDF/UA-1, and the order in the client’s own files), or it sits inside the figure element, as Acrobat’s Figure/Caption button does.',
+    choices: [['after', 'After the figure, as its own element'], ['inside', 'Inside the figure element']],
+    example: (v) => (v === 'inside' ? '<Figure><Caption>…</Caption></Figure>' : '<Figure/><Caption>…</Caption>'), keywords: ['caption', 'figcaption', 'figure caption tag'],
+    origin: 'SacGeo 24 October “Figcaption tag”; open question 1; rulebook PFG-003, PST-004',
+  },
+  {
+    id: 'UA-10', group: 'Accessible PDF', title: 'Running heads and folios', kind: 'free', type: 'choice', key: 'uaRunningHeads',
+    help: 'The lines printed at the top or foot of every page (book title, chapter title, page number) are page furniture. They are marked as artifacts so they do not interrupt the reading order.',
+    choices: [['artifact', 'Artifacts, left out of the reading order'], ['keep', 'Keep them in the reading order']],
+    example: (v) => (v === 'keep' ? '<P>2 Introducción de Barbara</P>' : '/Artifact <</Type /Pagination /Subtype /Header>>'), keywords: ['running head', 'folio', 'header', 'footer', 'page number'],
+    origin: 'SacGeo 24 October “No need running head”; rulebook PAR-001, PRO-003',
+  },
+
+  {
+    id: 'UA-11', group: 'Accessible PDF', title: 'Heading levels that look the same', kind: 'free', type: 'choice', key: 'uaHeadingLevels',
+    help: 'PDF/UA wants heading levels without gaps. A section heading that follows a chapter with no subtitle then moves up one level, so the same print style can carry two tags. “Same everywhere” keeps one level per print style, as the client asked for SacGeo, and accepts a gap.',
+    choices: [['contiguous', 'No gaps: a level may move up'], ['consistent', 'Same level everywhere for the same print style']],
+    example: (v) => (v === 'consistent' ? '<H2>Chapter</H2> <H4>Section</H4> (always H4)' : '<H2>Chapter</H2> <H3>Section</H3> (H4 after a subtitle)'), keywords: ['heading level', 'same tag', 'h3 h4', 'consistent headings'],
+    origin: 'SacGeo 24 October “Both headings should have the same tag (Global)”; rulebook PHD-002, PHD-004, PHD-008',
+  },
+  {
+    id: 'UA-12', group: 'Accessible PDF', title: 'Links stacked on one picture', kind: 'free', type: 'choice', key: 'uaStackedLinks',
+    help: 'A page built from hidden layouts (a row of book covers that changes) can carry several link rectangles on the same picture, though a reader sees only one. Only the topmost is tagged as a link and the others are removed, so the page has one Reference for each thing a reader can click.',
+    choices: [['topmost', 'Only the topmost link of a stack'], ['all', 'Keep every link rectangle']],
+    example: (v) => (v === 'all' ? '21 References on the page' : '3 covers + 3 text links, 6 References'), keywords: ['reference', 'hidden link', 'duplicate link', 'only three references'],
+    origin: 'SacGeo 24 October “Only three references are required, but many unnecessary reference tags have been added”; rulebook PNT-004',
+  },
+  {
     id: 'STD-13', group: 'Standard EPUB', title: 'Description of a decorative picture', kind: 'free', type: 'choice', key: 'altDecorative',
     help: 'A picture that carries no information (an ornament, a rule) gets an empty description, which screen readers skip: that is what HTML and WCAG ask. The other option writes the word for it (“decorative”), which a screen reader reads out loud.',
     choices: [['empty', 'Empty (alt="")'], ['word', 'The word “decorative”']],

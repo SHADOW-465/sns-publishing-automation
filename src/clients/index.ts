@@ -5,7 +5,8 @@ import bebra from './bebra.json' with { type: 'json' }
 import arkano from './arkano.json' with { type: 'json' }
 import crowood from './crowood.json' with { type: 'json' }
 import penAndSword from './pen-and-sword.json' with { type: 'json' }
+import innerTraditions from './inner-traditions.json' with { type: 'json' }
 import type { ClientFile } from '../engine/spec/clients.ts'
 
 const globbed = (import.meta as { glob?: (p: string, o: object) => Record<string, ClientFile> }).glob?.('./*.json', { eager: true, import: 'default' }) ?? {}
-export const CLIENT_FILES: ClientFile[] = [...new Map([bebra as ClientFile, arkano as ClientFile, crowood as ClientFile, penAndSword as ClientFile, ...Object.values(globbed)].map((f) => [f.match, f])).values()]
+export const CLIENT_FILES: ClientFile[] = [...new Map([bebra as ClientFile, arkano as ClientFile, crowood as ClientFile, penAndSword as ClientFile, innerTraditions as ClientFile, ...Object.values(globbed)].map((f) => [f.match, f])).values()]

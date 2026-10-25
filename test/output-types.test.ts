@@ -63,7 +63,7 @@ test('resolving with an output type says where each value came from: the standar
   assert.equal(crowood.resolved.from['STD-02'].level, 'default')
 
   const pen = await openSpec({ client: 'Pen & Sword Books', series: '', book: 'b', kind: 'accessible-pdf' })
-  assert.deepEqual(uaOptionsFrom(pen.resolved.settings), { chapterLevel: 1, logos: 'figure', bookmarkLevels: 1, plateBookmark: true, plateLabel: 'Plate', indexLinks: false, noteLinks: true })
+  assert.deepEqual(uaOptionsFrom(pen.resolved.settings), { chapterLevel: 1, logos: 'figure', bookmarkLevels: 1, plateBookmark: true, plateLabel: 'Plate', indexLinks: false, noteLinks: true, ornaments: 'figure', captionIn: 'after', runningHeads: 'artifact', headingLevels: 'contiguous', stackedLinks: 'topmost' })
   const other = await openSpec({ client: 'Somebody Else', series: '', book: 'b', kind: 'accessible-pdf' })
   assert.equal(uaOptionsFrom(other.resolved.settings).chapterLevel, 2)
 })

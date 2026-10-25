@@ -94,6 +94,11 @@ put(P, 'UA-04', T('A section appended after the book (plates) has its own bookma
 put(P, 'UA-05', T('The bookmark is called “Plate”, as in the finished Gladiators file.', 'Gladiators reference', 'Plate'))
 put(P, 'UA-06', T('Index page numbers are not links, as in the finished Gladiators file. The 23 October note asked for links; switch this on when the client confirms.', 'Gladiators reference; correction U2', false))
 put(P, 'UA-07', T('A note number links to its note and back.', 'PDF/UA-1 7.11 (Note, Reference); Matterhorn 28', true))
+put(P, 'UA-08', T('A small picture with no caption is decoration, marked as an artifact so a screen reader skips it. A client that wants every ornament and mark as a figure sets this to “figure” (SacGeo and Pen & Sword do).', 'PDF/UA-1 7.3; Matterhorn 13-004; rulebook PAR-004', 'artifact'))
+put(P, 'UA-09', T('The caption follows its figure as its own Caption element. Nesting it inside the figure is a switch, because the client has not said which they want.', 'PDF/UA-1; PDF Association Well-Tagged PDF; rulebook PFG-003', 'after'))
+put(P, 'UA-11', T('Heading levels never skip. A client that wants the same print style to carry the same tag everywhere accepts a gap instead (SacGeo asked for this).', 'PDF/UA-1 7.4; Matterhorn 14-002; rulebook PHD-004, PHD-008', 'contiguous'))
+put(P, 'UA-12', T('Only the topmost of several link rectangles stacked on one picture is a link: the rest belong to layouts nobody can see.', 'PDF/UA-1 7.18; Matterhorn 28; rulebook PNT-004', 'topmost'))
+put(P, 'UA-10', T('Running heads and folios are page furniture: artifacts, so they do not break the reading order.', 'PDF/UA-1 7.8; Matterhorn 01-005; rulebook PAR-001', 'artifact'))
 
 /** the default of one rule for an output type: the value, why, and the standard */
 export function defaultFor(kind: OutputKind, ruleId: string): { value: RuleValue | undefined; plain: string; standard: string } {

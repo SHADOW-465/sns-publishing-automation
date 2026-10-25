@@ -141,8 +141,8 @@ test('a figure beside its caption is read figure first, caption next, wherever t
   const figs = [{ page: 0, box: { x0: 40, x1: 140, y0: 400, y1: 500 }, lines: [], caption: '', vector: false }, { page: 0, box: { x0: 260, x1: 360, y0: 400, y1: 500 }, lines: [], caption: '', vector: false }] as never[]
   const st = buildStructure(bookOf([[cap(190, 'Caption of the right one', 270), cap(180, 'Caption of the left one', 50)]]), roleC, new Map([[0, figs]]))
   const tagsOf = st.root.kids.map((k) => k.tag)
-  assert.deepEqual(tagsOf, ['Figure', 'P', 'Figure', 'P'])
-  assert.deepEqual(st.root.kids.filter((k) => k.tag === 'P').map((k) => k.text), ['Caption of the left one', 'Caption of the right one'])
+  assert.deepEqual(tagsOf, ['Figure', 'Caption', 'Figure', 'Caption'])
+  assert.deepEqual(st.root.kids.filter((k) => k.tag === 'Caption').map((k) => k.text), ['Caption of the left one', 'Caption of the right one'])
 })
 
 test('an index: one paragraph per entry, sub-entries apart, turnover lines stay with their entry', () => {

@@ -6,7 +6,7 @@ import { inferUaStyles, buildStructure, imageList, type UaOptions, type UaStyle,
 import { detectFigures } from './figures.ts'
 import { readAltDocx, matchAlt, type AltEntry } from './altdocx.ts'
 import { planPages, STAGE_LIMIT_MS, writeUa, type UaMeta } from './write.ts'
-import { trimOf } from './pages.ts'
+import { trimOf, trimBoxOf } from './pages.ts'
 import { checkUa } from './check.ts'
 import { labelsFor } from '../epub/locale.ts'
 import { resolveAlt, type SpecPicture } from '../epub/alt.ts'
@@ -36,6 +36,8 @@ export interface UaFigure {
   alt: string
   thumb?: Uint8Array | null
   vector: boolean
+  /** a small picture with no caption: the ornaments setting decides whether it is a figure or decoration */
+  ornament?: boolean
   box: Figure['box']
 }
 
@@ -102,7 +104,7 @@ export async function analyzeUa(
   }
   const merged = await mergeInputs(inp)
   begin('Reading the pages')
-  const book = await analyzePdf(pdfjs, merged, raster, {}, (done, total) => onProgress?.(done, total, 'Reading the pages'), { structure: false })
+  const book = await analyzePdf(pdfjs, merged, raster, {}, (done, total) => onProgress?.(done, total, 'Reading the pages'), { structure: false, keepFurniture: inp.options?.runningHeads === 'keep' })
   let platePage: number | undefined
   if (inp.extras.length) {
     const main = await PDFDocument.load(inp.main, { updateMetadata: false, ignoreEncryption: true })
@@ -120,7 +122,7 @@ export async function analyzeUa(
   begin('Finding pictures', 0, plan.pages.length)
   for (let i = 0; i < plan.pages.length; i++) {
     check('Finding pictures')
-    detected.set(i, detectFigures(book.pages[i], plan.pages[i].paints, book.bodySize, { logos: inp.options?.logos }))
+    detected.set(i, detectFigures(book.pages[i], plan.pages[i].paints, book.bodySize, { logos: inp.options?.logos, trim: trimBoxOf(plan.doc.getPage(i)) }))
     if (i % 8 === 7) {
       onProgress?.(i + 1, plan.pages.length, 'Finding pictures')
       await new Promise((r) => setTimeout(r, 0))
@@ -167,7 +169,7 @@ export async function analyzeUa(
   }
 
   const figures: UaFigure[] = st.figures.map((f) => ({
-    key: figKey(f), page: f.page, caption: f.caption, alt: f.node?.alt ?? '', thumb: f.image, vector: f.vector, box: f.box,
+    key: figKey(f), page: f.page, caption: f.caption, alt: f.node?.alt ?? '', thumb: f.image, vector: f.vector, ornament: f.ornament, box: f.box,
   }))
   // charts drawn as vectors have no image to show the reviewer: render their page region
   if (figures.some((f) => !f.thumb)) {
@@ -258,6 +260,8 @@ export function figureChoice(input: {
   ai?: UaBuildInput['ai']
   fileAlt?: UaBuildInput['fileAlt']
   decorative?: Record<string, boolean>
+  /** a decorative layer: this picture is an ornament and the client wants ornaments as decoration */
+  ornamentArtifact?: boolean
 }): { alt: string; decorative: boolean; pendingAi: boolean } {
   if (input.decorative?.[input.key]) return { alt: '', decorative: true, pendingAi: false }
   const typedRaw = (input.alt[input.key] ?? '').trim()
@@ -266,6 +270,7 @@ export function figureChoice(input: {
     typed: typedGiven && typedRaw ? { alt: typedRaw } : null,
     spec: input.spec?.[input.key] ?? null,
     file: input.fileAlt?.[input.key] ?? (!typedGiven && input.remembered ? { alt: input.remembered } : null),
+    decorative: input.ornamentArtifact,
     ai: input.ai?.[input.key] ?? null,
     caption: input.caption,
   })
@@ -285,6 +290,7 @@ export async function buildUa(
   const remembered = new Map(a.figures.map((f) => [f.key, f.alt.trim()]))
   const hide = (f: Figure) => {
     decorativeN++
+    st.hidden.push(f)
     const node = f.node
     f.node = undefined
     if (!node) return
@@ -292,11 +298,13 @@ export async function buildUa(
     // text drawn on the ornament is no longer a figure, so the writer marks it as an artifact
     for (const l of f.lines) if (st.owner.get(l) === node) st.owner.delete(l)
   }
+  const opts = input.options ?? a.options
   for (const f of st.figures) {
     if (!f.node) continue
     const key = figKey(f)
     const choice = figureChoice({
       key, caption: f.caption, remembered: remembered.get(key), alt: input.alt, spec: input.spec, ai: input.ai, fileAlt: input.fileAlt, decorative: input.decorative,
+      ornamentArtifact: !!f.ornament && (opts.ornaments ?? 'artifact') === 'artifact',
     })
     if (choice.decorative) {
       hide(f)
@@ -308,8 +316,7 @@ export async function buildUa(
   if (decorativeN) extra.push({ level: 'info', msg: `Marked ${decorativeN} decorative picture(s) as artifacts, so a screen reader skips them.` })
   if (pendingAi) extra.push({ level: 'warn', msg: `${pendingAi} picture description(s) are unapproved AI drafts.` })
   const plan = await planPages(a.merged, input.onProgress) // fresh copy: writing modifies the document
-  const opts = input.options ?? a.options
-  const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a, opts), bookmarkLevels: opts.bookmarkLevels, indexLinks: opts.indexLinks, noteLinks: opts.noteLinks })
+  const out = writeUa(plan, a.book, st, input.meta, { cropToTrim: input.cropToTrim, frontPages: frontPages(a, opts), bookmarkLevels: opts.bookmarkLevels, indexLinks: opts.indexLinks, noteLinks: opts.noteLinks, runningHeads: opts.runningHeads, headingLevels: opts.headingLevels, stackedLinks: opts.stackedLinks })
   const pdf = await out.pdf
   const review = [...a.review.filter((r) => !/alt text/.test(r.msg)), ...extra, ...out.review, ...(await checkUa(pdf))]
   // as in the samples: the source file's name, plus the e-ISBN when there is one
