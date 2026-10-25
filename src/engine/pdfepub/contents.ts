@@ -220,7 +220,9 @@ export function matchHeadings(
     let hit: HeadingMatch | undefined
     // not on (or near) the printed page: the page numbers drifted (pages added by split spreads): look on from the last match
     const later = pages.map((_, i) => i).filter((i) => i >= searchFrom && i < searchFrom + 120 && !skip.has(i) && !cand.includes(i))
+    // (only for titles in capitals of the text face: a styled heading far from its page is some other line)
     for (const pi of e.page !== undefined ? [...cand, ...later] : cand) {
+      const far = !cand.includes(pi)
       const ls = (pages[pi]?.lines ?? []).filter((l) => l.text.trim()).sort((a, b) => a.y - b.y || a.x0 - b.x0)
       for (let i = 0; i < ls.length && !hit; i++) {
         let acc = ''
@@ -252,6 +254,7 @@ export function matchHeadings(
           }
         }
       }
+      if (hit && far && !hit.lines.every(isBody)) hit = undefined
       if (hit) {
         searchFrom = pi
         break

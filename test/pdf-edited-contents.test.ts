@@ -61,3 +61,15 @@ test('edited volume: headings found when the printed page numbers drifted (split
   const m = matchHeadings(c, pages, [1, 7, 2, 3, 4, 9], () => true)
   assert.equal(m.length, 4)
 })
+
+test('a styled heading far from its printed page is not taken (only text-face capitals are searched for further on)', () => {
+  const { pages } = book()
+  const c = readContents(pages, 11.5)!
+  // the chapter 3 opener moved 6 pages past where the numbers put page 85
+  const filler = (i: number) => ({ index: i, width: 420, height: 600, lines: [L(i, 'Texto corrido.', 60, 100)] })
+  const ch3 = pages[5]
+  const moved = [...pages.slice(0, 5), ...[5, 6, 7, 8, 9, 10].map(filler), { ...ch3, index: 11 }]
+  const numbers = [1, 7, 9, 23, 51, 85, 86, 87, 88, 89, 90, 91]
+  assert.ok(!matchHeadings(c, moved, numbers, () => false).some((x) => x.entry.page === 85), 'styled: not searched far')
+  assert.ok(matchHeadings(c, moved, numbers, () => true).some((x) => x.entry.page === 85), 'text-face capitals: found further on')
+})
