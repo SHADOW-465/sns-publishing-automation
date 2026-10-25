@@ -8,6 +8,10 @@ const N = '([-_ ]?\\d+)?'
 const names = (...alts: string[]) => new RegExp(`^(${alts.join('|')})${N}$`, 'i')
 
 export const STYLE_NAMES: [Role, RegExp, string][] = [
+  ['chapter-label', names('cn', 'chapter[-_ ]?(number|num|no|nr|label)', 'chapternumber', 'chap[-_ ]?(num|no|nr)', 'numero[-_ ]?capitolo', 'n[uú]mero[-_ ]?cap[ií]tulo', 'num[eé]ro[-_ ]?chapitre'), 'chapter number'],
+  ['chapter-title', names('ct', 'chapter[-_ ]?title', 'chaptertitle', 'chap[-_ ]?title', 'titolo[-_ ]?capitolo', 't[ií]tulo[-_ ]?cap[ií]tulo', 'titre[-_ ]?chapitre'), 'chapter title'],
+  ['part-label', names('pn', 'part[-_ ]?(number|num|no|label)', 'partnumber'), 'part number'],
+  ['part-title', names('part[-_ ]?title', 'parttitle', 'titolo[-_ ]?parte'), 'part title'],
   ['chapter-label', names('kapitelzahl', 'kapnr', 'kapitelnummer', 'kapitel[-_ ]?nr'), 'chapter number (German: Kapitelzahl)'],
   ['chapter-title', names('kapitel[uü]berschrift', 'k[uü]', 'kapitel[-_ ]?[uü]berschrift'), 'chapter title (German: Kapitelüberschrift)'],
   ['h3', names('zt', 'z[uü]', 'zwischentitel', 'zwischen[uü]berschrift'), 'subheading (German: Zwischentitel)'],
@@ -26,7 +30,9 @@ export const STYLE_NAMES: [Role, RegExp, string][] = [
   ['p', names('marginalie', 'randnotiz'), 'margin note (German: Marginalie)'],
   ['p', names('initial'), 'drop cap paragraph (German: Initial)'],
 ]
-export const nameRole = (key: string) => STYLE_NAMES.find(([, re]) => re.test(key))
+/** InDesign exports a style inside a group as "Group_Style" (e.g. "Titoli_Titolo-capitolo"): the style's own name counts too. */
+const ownName = (key: string) => key.replace(/^.*?[_:/]+(?=[^_:/]+$)/, '')
+export const nameRole = (key: string) => STYLE_NAMES.find(([, re]) => re.test(key)) ?? (ownName(key) !== key ? STYLE_NAMES.find(([, re]) => re.test(ownName(key))) : undefined)
 
 /** Named paragraph styles that mean a heading level. h1 opens a chapter; h2–h6 stay inside it. */
 export const NAMED_HEAD: [Role, RegExp][] = [

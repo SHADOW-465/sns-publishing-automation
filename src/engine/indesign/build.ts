@@ -312,6 +312,11 @@ function withStyleMap<T extends { key: string; role: string; outClass: string }>
   })
 }
 
+const NUM_WORD = '(\\d{1,3}|[ivxlcdm]{1,7}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|first|second|third|fourth|fifth|eins|zwei|drei|vier|f[üu]nf|uno|due|tre|quattro|cinque|dos|tres|cuatro)'
+/** A line that is only a chapter / part number: "CHAPTER 1", "Kapitel 3", "Part II", "ACT ONE", "7". */
+export const isLabelLine = (t: string) => new RegExp(`^\\s*((chapter|chapitre|kapitel|capitolo|cap[ií]tulo|part|partie|teil|parte|act|book|buch|libro)\\s+${NUM_WORD}|${NUM_WORD})\\s*[.:]?\\s*$`, 'i').test(t)
+const PART_LABEL = /^\s*(part|partie|teil|parte|act|book|buch|libro)\b/i
+
 export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const input = { ...rawInput, styles: withStyleMap(rawInput.styles, a.styles) }
   const { ex } = a
@@ -408,15 +413,30 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         else break
       }
     }
+    // a label line alone ("CHAPTER 1", "Part II", "ACT ONE") whose title is set in a heading style of its own
+    // (section-title, h2…): the title joins the label, so label, title and body stay ONE file
+    const takeTitleHeading = (s: Sec) => {
+      if (s.title.length) return
+      let j = i + 1
+      while (j < blocks.length && blocks[j].t === 'p' && !(blocks[j] as PBlock).text) j++
+      const n = blocks[j]
+      if (!n || n.t !== 'p' || !n.text || n.text.length > 160 || isLabelLine(n.text)) return
+      if (!/^(section-title|h[2-5]|chapter-title|part-title)$/.test(roleOf(n))) return
+      i = j
+      s.title.push(n)
+    }
     if (r === 'part-label') {
       const s = newSec('part')
       s.label.push(b)
       takeFollowing('part-title', s.title)
-    } else if (r === 'chapter-label') {
+      takeTitleHeading(s)
+    } else if (r === 'chapter-label' || (r === 'chapter-title' && isLabelLine(b.text))) {
       const t = sectionTypeOf(b.text)
-      const s = newSec(t && t !== 'toc' && t !== 'index' ? t : 'chapter')
+      const part = isLabelLine(b.text) && PART_LABEL.test(b.text)
+      const s = newSec(part ? 'part' : t && t !== 'toc' && t !== 'index' ? t : 'chapter')
       s.label.push(b)
       takeFollowing('chapter-title', s.title)
+      takeTitleHeading(s)
       seenChapter = true
     } else if (r === 'chapter-title') {
       // "Índice", "Prólogo", "Agradecimientos" set in the chapter-title style are not chapters

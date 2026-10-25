@@ -271,11 +271,13 @@ export function packageEpub(p: {
   // NAV-06: which front and back matter has a menu entry; NAV-05: how deep the menu goes
   const listed = (s: Section) => navFront === 'all' || s.type === 'chapter' || s.type === 'part' || (navFront === 'named' && !['halftitle', 'title', 'copyright', 'toc'].includes(s.type))
   for (const s of sections) {
-    if (!s.nav) continue // untitled pages (full-page pictures) are in the spine, not the TOC
+    // an untitled page (dedication, epigraph, full-page picture) is listed under its generic name, so every file is reachable
+    const label = s.nav || s.title
+    if (!label) continue
     const depth = (s.parent && level.get(s.parent) ? level.get(s.parent)! : 0) + 1
     level.set(s.file, depth)
     if (!listed(s) || depth > navDepth) continue
-    const e: Entry = { label: s.nav, href: s.file, kids: [] }
+    const e: Entry = { label, href: s.file, kids: [] }
     byFile.set(s.file, e)
     ;(s.parent && byFile.get(s.parent) ? byFile.get(s.parent)!.kids : tree).push(e)
   }
