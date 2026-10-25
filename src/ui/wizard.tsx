@@ -9,6 +9,8 @@ import { download } from './shared.tsx'
 import { httpValidator, type ValidatorResult } from '../engine/check/gate.ts'
 import { axePages, iframeAxe } from '../engine/check/axe.ts'
 import { Icon, type IconName } from './icons.tsx'
+import { NeedsDialog, NeedsLine } from './NeedsDialog.ts'
+import { acceptableNeeds, type Need } from './needs.ts'
 
 // Building blocks of the step-by-step screens: the step bar, inline help, the book outline and
 // the quality report. Plain words first; the technical term in brackets where it helps.
@@ -38,7 +40,24 @@ export function Steps({ steps, at, onGo }: { steps: Step[]; at: number; onGo: (i
   )
 }
 
-export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children }: { onBack?: () => void; onNext?: () => void; next?: string; nextDisabled?: boolean; children?: ReactNode }) {
+export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children, needs = [], onAcceptAll, onContinueAnyway, autoOpen, intro }: {
+  onBack?: () => void
+  onNext?: () => void
+  next?: string
+  /** only for "busy": a step that is not complete passes `needs` instead, so Next explains rather than goes grey */
+  nextDisabled?: boolean
+  children?: ReactNode
+  needs?: Need[]
+  onAcceptAll?: () => void
+  onContinueAnyway?: () => void
+  /** open the dialog as soon as the step shows (once per visit: the step mounts its StepNav afresh) */
+  autoOpen?: boolean
+  intro?: ReactNode
+}) {
+  const [open, setOpen] = useState(() => !!autoOpen && needs.length > 0)
+  useEffect(() => {
+    if (!needs.length) setOpen(false)
+  }, [needs.length])
   return (
     <div className="stepnav">
       {onBack ? (
@@ -48,16 +67,21 @@ export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children 
       ) : (
         <span />
       )}
-      <span className="muted small">{children}</span>
+      <span className="muted small stepnav-msg">
+        {needs.length > 0 && <NeedsLine needs={needs} />}
+        {children}
+      </span>
       {onNext && (
-        <button className="primary" onClick={onNext} disabled={nextDisabled}>
+        <button className="primary" onClick={() => (needs.length ? setOpen(true) : onNext())} disabled={nextDisabled} aria-haspopup={needs.length ? 'dialog' : undefined}>
           {next} <Icon name="right" size={16} />
         </button>
+      )}
+      {open && needs.length > 0 && (
+        <NeedsDialog needs={needs} intro={intro} onClose={() => setOpen(false)} onAcceptAll={acceptableNeeds(needs).length ? onAcceptAll : undefined} onContinueAnyway={onContinueAnyway} />
       )}
     </div>
   )
 }
-
 /** "What is this?" — a short explanation that stays out of the way until asked for. */
 export function Help({ title = 'What is this?', children }: { title?: string; children: ReactNode }) {
   return (

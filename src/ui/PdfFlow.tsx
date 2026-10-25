@@ -266,7 +266,7 @@ export function PdfFlow() {
             </ul>
             Nothing is uploaded: the files are read in this browser.
           </Help>
-          <StepNav onNext={onAnalyse} next={docx ? 'Read the Word file' : 'Read the PDF'} nextDisabled={(!pdf && !docx) || !!busy} />
+          <StepNav onNext={onAnalyse} next={docx ? 'Read the Word file' : 'Read the PDF'} nextDisabled={!!busy} needs={!pdf && !docx ? [{ id: 'file:source', label: 'Add the print PDF or the Word manuscript', group: 'source file', kind: 'choice' }] : []} />
         </section>
       )}
 
@@ -308,7 +308,7 @@ export function PdfFlow() {
               ))}
             </ul>
           )}
-          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} next="Build the e-book" nextDisabled={!!busy || !cover || outputErrors.length > 0}>
+          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} next="Build the e-book" nextDisabled={!!busy} needs={[...(!cover ? [{ id: 'file:cover', label: 'Add the cover image (JPG or PNG) in step 1', group: 'cover image', kind: 'choice' as const }] : []), ...outputErrors.map((p, i) => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice' as const }))]}>
             {outputErrors.length ? 'Fix the problems above before building.' : !cover ? 'Add the cover in step 1 first.' : ''}
           </StepNav>
         </>
