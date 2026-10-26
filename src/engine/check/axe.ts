@@ -39,7 +39,8 @@ export async function axeIn(win: Window & { axe?: { run: (c: unknown, o: RunOpti
  *  The book's own scripts are removed before the page is loaded (withoutScripts). */
 export const iframeAxe: AxeRunner = async (xhtml) => {
   if (typeof document === 'undefined') return null
-  const { default: axe } = await import('@daisy/axe-core-for-ace')
+  // the raw, unminified-by-us file: axe.source is built from Function.toString(), which a minified bundle breaks (free variables such as 't')
+  const { default: axeSource } = await import('@daisy/axe-core-for-ace/axe.min.js?raw')
   const url = URL.createObjectURL(new Blob([withoutScripts(xhtml)], { type: 'application/xhtml+xml' }))
   const f = document.createElement('iframe')
   f.setAttribute('aria-hidden', 'true')
@@ -53,7 +54,7 @@ export const iframeAxe: AxeRunner = async (xhtml) => {
       document.body.append(f)
     })
     const w = f.contentWindow as Window & { axe?: never }
-    return await axeIn(w, axe.source, (code) => {
+    return await axeIn(w, axeSource, (code) => {
       const s = w.document.createElementNS('http://www.w3.org/1999/xhtml', 'script')
       s.textContent = code
       ;(w.document.head ?? w.document.documentElement).append(s)

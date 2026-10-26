@@ -221,7 +221,7 @@ export function bookUid(meta: { eisbn?: string; title?: string }): string {
 /** Download name: ISBN digits when valid, otherwise NO-ISBN_<title-slug>. */
 export function epubFileName(meta: { eisbn?: string; title?: string }): string {
   if (meta.eisbn && isbn13Valid(meta.eisbn)) return isbnDigits(meta.eisbn) + '.epub'
-  const slug = (meta.title || 'book').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'book'
+  const slug = (meta.title || 'book').replace(/ß/g, 'ss').replace(/ẞ/g, 'SS').replace(/[Ææ]/g, (c) => (c === 'Æ' ? 'AE' : 'ae')).replace(/[Øø]/g, (c) => (c === 'Ø' ? 'O' : 'o')).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'book'
   return 'NO-ISBN_' + slug + '.epub'
 }
 

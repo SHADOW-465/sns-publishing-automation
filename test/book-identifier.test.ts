@@ -16,3 +16,8 @@ test('no or invalid ISBN: a title-derived uuid and a marked NO-ISBN file name, n
   assert.equal(epubFileName({ title: 'Dinámicas contemporáneas / vol. 1' }), 'NO-ISBN_Dinamicas-contemporaneas-vol-1.epub')
   assert.equal(epubFileName({}), 'NO-ISBN_book.epub')
 })
+
+test('sharp s and ligature letters are transliterated in the file name, not dropped', () => {
+  assert.equal(epubFileName({ title: 'Das Vergr\u00f6\u00dferungsglas' }), 'NO-ISBN_Das-Vergrosserungsglas.epub')
+  assert.equal(epubFileName({ title: 'STRA\u1e9eE \u00c6r\u00f8' }), 'NO-ISBN_STRASSE-AEro.epub')
+})
