@@ -347,7 +347,7 @@ export function PdfFlow() {
   const leftNow = (): DecisionNote[] => [
     ...(structureReview?.items ?? []).filter((it) => !acked.has(it.id)).map((it) => leftNote('Structure', { label: it.title, where: whereOfItem(it, sectionsNow) })),
     ...todo.map((p) => ({ ...leftNote('Pictures', pictureNeed(p.path, noAlt)), chosen: 'Left without a description.' })),
-    ...pendingAi.filter((p) => !todo.includes(p)).map((p) => leftNote('Pictures', pictureNeed(p.path, unapproved))),
+    ...pendingAi.filter((p) => !todo.includes(p)).map((p) => ({ ...leftNote('Pictures', pictureNeed(p.path, unapproved)), chosen: p.decorative ? 'The picture AI marked it decorative. Please check.' : `The picture AI wrote “${p.alt}”. Please check it before publishing.`, how: 'ai' as const })),
     ...outputErrors.map((p, i) => leftNote('Book details', outputNeed(p, i))),
     ...(cover ? [] : [{ step: 'Book details', item: coverNeed.label, chosen: 'A plain placeholder cover was used. Add the real cover before publishing.', how: 'left' as const, where: coverNeed.where }]),
   ]
