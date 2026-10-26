@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { download } from './shared.tsx'
 import { Icon } from './icons.tsx'
 import { actorName } from './SpecStep.tsx'
@@ -32,11 +32,13 @@ export function GatedDownload({ gate, data, name, type, label, ctx, notes, onFix
   const [override, setOverride] = useState<GateOverride>()
   const [asking, setAsking] = useState(false)
   const [afterFix, setAfterFix] = useState(false)
+  const fixPending = useRef(false) // one Fix with AI gives one download, even when the gate changes twice while it settles
   useEffect(() => { setOverride(undefined); setAsking(false) }, [gate]) // a new check starts again: an old override does not carry over
   // Fix with AI ends in a download: once the fixed file is built and checked again, it goes out, and whatever is still open
   // is written to the review notes as left unsure (Fix with AI never sends the person round in a loop)
   useEffect(() => {
-    if (!afterFix || busy || !gate) return
+    if (!afterFix || busy || !gate || !fixPending.current) return
+    fixPending.current = false
     setAfterFix(false)
     void (async () => {
       const o = gate.blocked ? await continueAnyway(gate, { actor, reason: reason.trim().length >= MIN_REASON ? reason : 'Fix with AI: the tool fixed what it could; the problems still open are listed in the review notes.', client: ctx.client, book: ctx.book, specHash: ctx.specHash }) : undefined
@@ -61,7 +63,7 @@ export function GatedDownload({ gate, data, name, type, label, ctx, notes, onFix
     out(o)
   }
   const report = () => download(gateReport(gate, override, name), reportName, 'text/markdown')
-  const fix = onFix ? () => { setAsking(false); void Promise.resolve(onFix()).finally(() => setAfterFix(true)) } : undefined
+  const fix = onFix ? () => { setAsking(false); fixPending.current = true; void Promise.resolve(onFix()).finally(() => setAfterFix(true)) } : undefined
   const myself = () => highlightNeeds([{ id: 'gate', label: '', group: 'problem', kind: 'choice', target: GATE_TARGET }])
   return (
     <div className="stack">
