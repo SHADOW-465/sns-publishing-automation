@@ -81,7 +81,7 @@ export async function indexBook(): Promise<Uint8Array> {
   ;['Suetonius, Life of the Caesars, book two, chapter four.', 'Strabo, Geography, volume three, page ninety.'].forEach((t, i) => n.drawText(`${i + 1}. ${t}`, { x: 60, y: 520 - i * 18, size: 10, font }))
   const x = mk()
   x.drawText('Index', { x: 60, y: 560, size: 20, font })
-  ;['Abdera, 1, 2n.2', 'Corinth, 1n.1, 3', 'Rhodes, 2'].forEach((t, i) => x.drawText(t, { x: 60, y: 520 - i * 15, size: 10, font }))
+  ;['Abdera, 1, 4n.2', 'Corinth, 1, 4n.1, 3', 'Rhodes, 2'].forEach((t, i) => x.drawText(t, { x: 60, y: 520 - i * 15, size: 10, font }))
   return new Uint8Array(await doc.save())
 }
 
@@ -102,18 +102,18 @@ function links(doc: PDFDocument): [number, number][] {
   return out
 }
 
-test('12 (U2/U3): page numbers in an index link to their pages, and "2n.2" is a second link to that note', async () => {
+test('12 (U2/U3): page numbers in an index link to their pages, and "4n.2" is a second link to note 2 printed on page 4', async () => {
   // the tokens: page link, and a note link covering only "n.2"
-  const sp = indexNumberSpans('Abdera, 1, 2n.2')
-  assert.deepEqual(sp.map((s) => [s.pageNo, s.note]), [[1, undefined], [2, undefined], [2, 2]])
-  assert.equal('Abdera, 1, 2n.2'.slice(sp[2].start, sp[2].end), 'n.2')
+  const sp = indexNumberSpans('Abdera, 1, 4n.2')
+  assert.deepEqual(sp.map((s) => [s.pageNo, s.note]), [[1, undefined], [4, undefined], [4, 2]])
+  assert.equal('Abdera, 1, 4n.2'.slice(sp[2].start, sp[2].end), 'n.2')
   const a = await analyzeUa(pdfjs, nodeRaster, { main: await indexBook(), extras: [], options: { indexLinks: true } })
   const r = await finish(a, { indexLinks: true })
   const found = links(await PDFDocument.load(r.pdf, { updateMetadata: false })).filter(([from]) => from === 4)
-  // Abdera: 1 → p1, 2 → p2, n.2 → note 2 (on the notes page, p4); Corinth: 1 → p1, n.1 → note 1 (p4), 3 → p3; Rhodes: 2 → p2
+  // Abdera: 1 → p1, 4 → p4, n.2 → note 2 (on p4); Corinth: 1 → p1, 4 → p4, n.1 → note 1 (p4), 3 → p3; Rhodes: 2 → p2
   const targets = found.map(([, to]) => to).sort()
-  assert.deepEqual(targets, [0, 0, 1, 1, 2, 3, 3], JSON.stringify(found))
-  assert.match(r.review.map((x) => x.msg).join('\n'), /Linked 7 index page number\(s\) to their pages, 2 of them to a note/)
+  assert.deepEqual(targets, [0, 0, 1, 2, 3, 3, 3, 3], JSON.stringify(found))
+  assert.match(r.review.map((x) => x.msg).join('\n'), /Linked 8 index page number\(s\) to their pages, 2 of them to a note/)
   // off by default (a client setting, UA-06): no index links, the notes' own links stay
   const plain = await finish(a, { indexLinks: false })
   assert.equal(links(await PDFDocument.load(plain.pdf, { updateMetadata: false })).filter(([from]) => from === 4).length, 0)

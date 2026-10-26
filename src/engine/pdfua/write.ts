@@ -548,8 +548,8 @@ export function writeUa(
         const H = book.pages[l.page].height
         for (const span of indexNumberSpans(l.text)) {
           const dest = book.numbers.indexOf(span.pageNo)
-          // "301n.66": the note numbered 66 whose call stands on printed page 301 (U3). No such note found: the page number's own link is enough.
-          const plan = span.note === undefined ? undefined : notePlans.find((q) => q.id === String(span.note) && book.numbers[q.refLine.page] === span.pageNo)
+          // "301n.66": the note numbered 66 that is printed on page 301 (U3: the notes are pages of their own). No such note found: the page number's own link is enough.
+          const plan = span.note === undefined ? undefined : notePlans.find((q) => q.id === String(span.note) && book.numbers[q.noteLine.page] === span.pageNo)
           if (span.note !== undefined ? !plan : dest < 0) continue
           const a = l.x0 + (w * span.start) / Math.max(l.text.length, 1)
           const b = l.x0 + (w * span.end) / Math.max(l.text.length, 1)
