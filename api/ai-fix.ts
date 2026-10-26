@@ -25,7 +25,7 @@ export async function groq(key: string, messages: { role: string; content: strin
         await sleep(Math.min(8000, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 1500 * (attempt + 1)))
         continue
       }
-      if (!r.ok) throw new Error(`groq ${r.status}`)
+      if (!r.ok) throw new Error('groq ' + r.status + ' ' + (await r.text().catch(() => '')).replace(/[^\w .,:-]/g, ' ').slice(0, 120))
       const d = (await r.json()) as { choices?: { message?: { content?: string } }[] }
       return JSON.parse(d.choices?.[0]?.message?.content ?? '')
     } finally {
@@ -77,7 +77,8 @@ export async function POST(req: Request): Promise<Response> {
   try { body = JSON.parse(raw) } catch { return json(400, { fallback: true, error: 'bad json' }) }
   try {
     return json(200, { model: MODEL, ...(await handle(body, key) as object) })
-  } catch {
-    return json(502, { fallback: true, error: 'AI call failed' })
+  } catch (e) {
+    // the reason only (status or error name), never the key or the request
+    return json(502, { fallback: true, error: 'AI call failed: ' + String((e as Error)?.name === 'AbortError' ? 'timeout' : (e as Error)?.message).slice(0, 160) })
   }
 }
