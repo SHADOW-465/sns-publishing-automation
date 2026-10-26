@@ -62,7 +62,13 @@ export function splitBulletEntries(st: Structure): TocSplit[] {
       it.id = id++
       st.nodes.push(it)
     }
-    parent.kids.splice(at, 1, ...items)
+    // the topics of a chapter's entry are a nested TOC right after it (TOC > TOCI, TOC > TOCI…); with no entry above them they stay in the list
+    const lead = at > 0 ? parent.kids[at - 1] : undefined
+    if (lead?.tag === 'TOCI' && !lead.span) {
+      const sub: SNode = { id: id++, tag: 'TOC', kids: items, lines: [] }
+      st.nodes.push(sub)
+      parent.kids.splice(at, 1, sub)
+    } else parent.kids.splice(at, 1, ...items)
     st.nodes.splice(st.nodes.indexOf(entry), 1)
     st.tocEntries.splice(st.tocEntries.indexOf(entry), 1, ...items)
     for (const l of entry.lines) {

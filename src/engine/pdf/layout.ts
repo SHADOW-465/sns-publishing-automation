@@ -86,6 +86,8 @@ export interface PageLayout {
   fills: FillBox[]
   /** path boxes that are neither hairlines nor a page tint (a chart drawn as vectors) */
   drawings?: { x0: number; y0: number; x1: number; y1: number }[]
+  /** boxes of text turned a quarter on an upright page (the state names under a bar chart's axis), which are not lines */
+  sideways?: { x0: number; y0: number; x1: number; y1: number }[]
   /** lowercase words drawn as small caps on this page (glyph widths). The runs are marked later, on the EPUB path only. */
   scTokens?: string[]
 }
@@ -279,6 +281,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
   }
   type Item = { str: string; x: number; x1: number; base: number; size: number; font: string }
   const horizontal: Item[] = []
+  const sideways: { x0: number; y0: number; x1: number; y1: number }[] = []
   const vertical: { str: string; pdfX: number; pdfY: number; width: number; size: number; font: string; up: boolean }[] = []
   for (const it of tc.items as Any[]) {
     if (typeof it.str !== 'string' || !it.str) continue
@@ -287,6 +290,10 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
     const advance = Math.hypot(a, b) || size
     // a quarter turn: a landscape table set on a portrait page. Anything else rotated (a spine) is not body text.
     const quarter = Math.abs(a) < advance * 0.25 && Math.abs(d) < advance * 0.25 && Math.abs(b) > advance * 0.75
+    if (quarter) {
+      const w = Math.abs(it.width)
+      sideways.push({ x0: Math.min(e, e + c), x1: Math.max(e, e + c), y0: H - (b > 0 ? f + w : f), y1: H - (b > 0 ? f : f - w) })
+    }
     if (quarter && opts.unrotate) vertical.push({ str: it.str, pdfX: e, pdfY: f, width: it.width, size, font: fontOf(it.fontName), up: b > 0 })
     else if (!quarter && Math.abs(b) <= 0.01 * Math.abs(a || 1)) horizontal.push({ str: it.str, x: e, x1: e + it.width, base: H - f, size, font: fontOf(it.fontName) })
   }
@@ -364,7 +371,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
     emit()
   }
 
-  return { index, width: pageW, height: pageH, lines: liftScripts(lines.filter((l) => l.text.trim() || l.marker)), images, fills, rules, shades, drawings, scTokens: smallCapTokens(glyphChunks(ops, OPS)) }
+  return { index, width: pageW, height: pageH, lines: liftScripts(lines.filter((l) => l.text.trim() || l.marker)), images, fills, rules, shades, drawings, sideways: turned ? [] : sideways, scTokens: smallCapTokens(glyphChunks(ops, OPS)) }
 
   function makeLine(its: Item[]): Line {
     const runs: Run[] = []

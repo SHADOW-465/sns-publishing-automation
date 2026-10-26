@@ -292,12 +292,15 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   }
   function flushFloats(upto: number, openers = true, y?: number) {
     if (!cur) return
-    const keep: Float[] = []
-    for (const f of floats) {
+    const due = (f: Float) => {
       const pageOk = f.page < upto || (f.page === upto && (openers || !f.opener))
       const here = f.anchorY === undefined ? y === undefined || y === Infinity : y === Infinity || (y !== undefined && f.anchorY <= y)
-      pageOk && here && !tocLike(cur) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f)
+      return pageOk && here && !tocLike(cur)
     }
+    // a picture anchored by its position goes after the paragraph above it, which is still open
+    if (para && y !== undefined && y !== Infinity && floats.some((f) => f.anchorY !== undefined && due(f))) closePara()
+    const keep: Float[] = []
+    for (const f of floats) (due(f) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f))
     floats = keep
   }
   const kindOf = (l: PLine) => {

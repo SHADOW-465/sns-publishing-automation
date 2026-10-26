@@ -18,10 +18,11 @@ const union = (a: DrawBox, b: DrawBox): DrawBox => ({ x0: Math.min(a.x0, b.x0), 
  * `bodySize` is unused on purpose: chart labels are often the most common size on the page.
  */
 export function clusterDrawings(
-  page: { width: number; height: number; drawings?: DrawBox[]; lines: { x0: number; x1: number; y: number; size: number; text: string }[] },
+  page: { width: number; height: number; drawings?: DrawBox[]; sideways?: DrawBox[]; lines: { x0: number; x1: number; y: number; size: number; text: string }[] },
 ): DrawBox[] {
   const pageArea = page.width * page.height
-  const boxes = (page.drawings ?? []).filter((b) => {
+  // the turned labels under an axis bridge the gaps between sparse bars, and belong to the picture
+  const boxes = [...(page.drawings ?? []), ...(page.sideways ?? [])].filter((b) => {
     const w = b.x1 - b.x0
     const h = b.y1 - b.y0
     return area(b) > 0 && area(b) < pageArea * 0.5 && !(w > page.width * 0.6 && h < 3) && !(h > page.height * 0.6 && w < 3)
@@ -48,7 +49,9 @@ export function clusterDrawings(
       return cx > c.box.x0 && cx < c.box.x1 && cy > c.box.y0 && cy < c.box.y1 && l.text.trim().length > 45
     })
     if (prose.length) continue
-    out.push(absorbLabels(c.box, page.lines))
+    // two points of margin: a legend's text (which is no line) reaches a little below its swatch
+    const g = grow(absorbLabels(c.box, page.lines), 2)
+    out.push({ x0: Math.max(0, g.x0), y0: Math.max(0, g.y0), x1: Math.min(page.width, g.x1), y1: Math.min(page.height, g.y1) })
   }
   return out
 }
