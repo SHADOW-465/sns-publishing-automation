@@ -10,6 +10,8 @@ import { confidentLanguage } from '../lang.ts'
 import { indexNumberSpans } from './indexlinks.ts'
 import { headingGuards, structureGuards } from './guards.ts'
 import { cutPage } from './tocsplit.ts'
+import { cutLabels, opText } from './labelcut.ts'
+import { LIST_MARK } from '../pdf/layout.ts'
 
 // =============================================================================================
 // Accessible PDF writer: re-tags the document from scratch (PDF/UA-1).
@@ -82,7 +84,7 @@ const centreIn = (b: Box, f: Box, pad = 2) => {
 }
 
 /** The layout line a text-showing operator belongs to (baseline + horizontal range). */
-function lineFor(p: Extract<Paint, { kind: 'text' }>, lines: PLine[], H: number): PLine | undefined {
+function lineFor(p: Extract<Paint, { kind: 'text' }>, lines: PLine[], H: number, shown = ''): PLine | undefined {
   const yb = H - p.y
   // lines on this baseline; the horizontally nearest wins (trailing spaces fall just past a
   // line's end, and positions inside a line are only known up to its last Td/Tm)
@@ -93,6 +95,14 @@ function lineFor(p: Extract<Paint, { kind: 'text' }>, lines: PLine[], H: number)
     const dx = p.x < l.x0 ? l.x0 - p.x : p.x > l.x1 ? p.x - l.x1 : 0
     const d = dx + Math.abs(l.base - yb)
     if (d < bestD) (best = l), (bestD = d)
+  }
+  // the position inside an operator group is only known up to its last Td/Tm, so the words after a label ("20." then "Ausonius,") sit at the label's x:
+  // when the text shown belongs to another line on the baseline and not to the nearest one, that line owns it
+  const flat = (s: string) => s.replace(/\s+/g, '')
+  const text = flat(shown)
+  if (best && text.length >= 3 && !flat(best.text).includes(text) && !text.startsWith(flat(best.text))) {
+    const mine = lines.find((l) => l !== best && Math.abs(l.base - yb) < Math.max(1.5, p.size * 0.35) && flat(l.text).includes(text) && Math.abs(l.x0 - p.x) < Math.max(40, p.size * 4))
+    if (mine) return mine
   }
   return bestD < Math.max(40, p.size * 4) ? best : undefined
 }
@@ -165,6 +175,7 @@ export function writeUa(
   let slugOps = 0
   let droppedLinks = 0
   let cutLeft = 0
+  let labelsCut = 0
   const placedLinks = new Map<number, Box[]>() // link rectangles already on each page: a link the tool would add on top of one is a duplicate
   let pictures = 0
   const lostPictures: { page: number; box: Box }[] = []
@@ -214,9 +225,36 @@ export function writeUa(
         cutLeft += cut.left
       }
     }
+    // a list label set in the same operator as its words ("101. Suetonius, …"): cut after the label, so Lbl and LBody are separate sequences (U4)
+    let labelLine = new Map<number, PLine>()
+    if (!runs.length) {
+      const bodyOf = (m: PLine) => layout.lines.filter((b) => b !== m && Math.abs(b.base - m.base) < 2 && b.x0 >= m.x1 - 1 && b.x0 - m.x1 < m.size * 5 && !LIST_MARK.test(b.text.trim())).sort((a, b) => a.x0 - b.x0)[0]
+      const cut = cutLabels(pp, (k) => {
+        const p = pp.paints[k]
+        if (p?.kind !== 'text') return undefined
+        const label = lineFor(p, layout.lines, H, opText(pp.ops[k], pp.src))
+        if (!label || st.owner.get(label)?.tag !== 'Lbl' || !LIST_MARK.test(label.text.trim())) return undefined
+        const body = bodyOf(label)
+        return body ? { label, body } : undefined
+      }, (src) => {
+        const ops = tokenize(src)
+        return { src, ops, paints: paints(ops, pageResources(doc, page)) }
+      })
+      if (cut) {
+        Object.assign(pp, { src: cut.src, ops: cut.ops, paints: cut.paints })
+        labelLine = cut.lines
+        labelsCut += cut.cut
+      }
+    }
     const owners: (Owner | undefined)[] = pp.ops.map((_, k) => {
       const p = pp.paints[k]
       if (!p) return undefined
+      if (labelLine.has(k)) {
+        const l = labelLine.get(k)!
+        covered.add(l)
+        const n = noteRefLine.get(l) ?? st.owner.get(l)
+        return n ? (taggedOps++, { el: n.id, tag: n.tag }) : (artifactOps++, null)
+      }
       if (forced.has(k)) {
         const f = forced.get(k)
         return f ? (taggedOps++, { el: f.id, tag: f.tag }) : (artifactOps++, null)
@@ -224,7 +262,7 @@ export function writeUa(
       let node: SNode | undefined
       if (p.kind === 'text') {
         if (p.x >= trim.x1 - 2 || p.x < trim.x0 - 20 || H - p.y < trim.top || H - p.y > trim.bottom) return artifactOps++, null // slug
-        const l = lineFor(p, layout.lines, H)
+        const l = lineFor(p, layout.lines, H, opText(pp.ops[k], pp.src))
         if (l) covered.add(l)
         // a running head or folio the layout took out of the text: a pagination artifact, header or footer (PAR-001)
         if (!l && layout.furniture?.length && lineFor(p, layout.furniture, H)) return artifactOps++, { el: -1, tag: 'Artifact', props: `<</Type /Pagination /Subtype /${H - p.y < H / 2 ? 'Header' : 'Footer'}>>` }
@@ -240,6 +278,8 @@ export function writeUa(
       } else if (p.kind === 'image' || p.kind === 'path' || p.kind === 'form') {
         // the printer's slug, colour bars and bleed marks lie outside the trim: furniture, never a picture (PAR-002)
         if (!insideBox(p.box, trimBox)) return artifactOps++, slugOps++, null
+        // a form that paints nothing (a page-sized wrapper) is not content: it takes neither a heading's nor a figure's tag (U1)
+        if (p.kind === 'form' && !p.text && p.inner && !leaves(p.inner).some((q) => q.kind !== 'form')) return artifactOps++, null
         // frames, borders and rules around a picture are page furniture, not part of it
         node = figs.find((f) => centreIn(p.box, f.box) && !(p.kind === 'path' && isFrameOrRule(p.box, f.box, f.vector, layout)))?.node ?? undefined
         // a picture-only form wrapped in a page-sized box (placed logos): the figure it contains
@@ -463,6 +503,7 @@ export function writeUa(
   if (figLinks) review.push({ level: 'info', msg: `Linked ${figLinks} list-of-illustrations entr${figLinks === 1 ? 'y' : 'ies'} to their figures.` })
   if (entries.length > figLinks) review.push({ level: 'warn', msg: `PLK-004: ${entries.length - figLinks} of ${entries.length} entries of the list of illustrations name a figure that was not found, so they are not linked (for example “${entries.find((e) => !st.figures[byLabel.get(e.illus!.label) ?? -1])?.illus?.label}”).` })
   if (imgLinks) review.push({ level: 'info', msg: `Linked ${imgLinks} image-list entries to their pictures.` })
+  if (labelsCut) review.push({ level: 'info', msg: `Separated ${labelsCut} list number(s) from their text, so each is a label of its own (Lbl) and the words its body (LBody).` })
   if (cutLeft) review.push({ level: 'warn', msg: `PTC-002: ${cutLeft} contents run(s) of bulleted topics could not be cut into one entry per topic (the bullets in the page do not match the text), so each stays one entry.` })
   if (droppedLinks) review.push({ level: 'info', msg: `PNT-004: removed ${droppedLinks} link rectangle(s) stacked under another link on the same picture; a reader can click only the topmost.` })
   if (tocLinks + urlLinks) review.push({ level: 'info', msg: `Added ${tocLinks} contents link(s) and ${urlLinks} web link(s).` })
@@ -499,6 +540,7 @@ export function writeUa(
   // Index locators ("Abdera, 55", "60, 305n.129"): each printed page number is a link to that page.
   // "n.129" is the note on that page; which target the client wants for the note is still open, so the link goes to the page.
   let indexLinks = 0
+  let indexNoteLinks = 0
   const linkIndex = (n: SNode) => {
     if (n.indexEntry) {
       for (const l of n.lines) {
@@ -506,10 +548,14 @@ export function writeUa(
         const H = book.pages[l.page].height
         for (const span of indexNumberSpans(l.text)) {
           const dest = book.numbers.indexOf(span.pageNo)
-          if (dest < 0) continue
+          // "301n.66": the note numbered 66 whose call stands on printed page 301 (U3). No such note found: the page number's own link is enough.
+          const plan = span.note === undefined ? undefined : notePlans.find((q) => q.id === String(span.note) && book.numbers[q.refLine.page] === span.pageNo)
+          if (span.note !== undefined ? !plan : dest < 0) continue
           const a = l.x0 + (w * span.start) / Math.max(l.text.length, 1)
           const b = l.x0 + (w * span.end) / Math.max(l.text.length, 1)
-          addLink(l.page, { x0: a, x1: Math.max(b, a + 4), y0: H - l.base - 3, y1: H - l.y + 1 }, n, { Dest: ctx.obj([pageRefs[dest], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(book.pages[dest].height), ctx.obj(null)]) }, `Page ${span.pageNo}`)
+          const rect = { x0: a, x1: Math.max(b, a + 4), y0: H - l.base - 3, y1: H - l.y + 1 }
+          if (plan) addLink(l.page, rect, n, { Dest: ctx.obj([pageRefs[plan.noteLine.page], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(book.pages[plan.noteLine.page].height - plan.noteLine.y + plan.noteLine.size), ctx.obj(null)]) }, `Note ${span.note} on page ${span.pageNo}`) && indexNoteLinks++
+          else addLink(l.page, rect, n, { Dest: ctx.obj([pageRefs[dest], PDFName.of('XYZ'), ctx.obj(null), PDFNumber.of(book.pages[dest].height), ctx.obj(null)]) }, `Page ${span.pageNo}`)
           indexLinks++
         }
       }
@@ -517,7 +563,7 @@ export function writeUa(
     n.kids.forEach(linkIndex)
   }
   if (opts.indexLinks) linkIndex(st.root)
-  if (indexLinks) review.push({ level: 'info', msg: `Linked ${indexLinks} index page number(s) to their pages.` })
+  if (indexLinks) review.push({ level: 'info', msg: `Linked ${indexLinks} index page number(s) to their pages${indexNoteLinks ? `, ${indexNoteLinks} of them to a note` : ''}.` })
 
   // ---- 4. structure tree ----
   const hasContent = (n: SNode): boolean => (mcrs.get(n)?.length ?? 0) > 0 || annotKids.has(n) || n.kids.some(hasContent)

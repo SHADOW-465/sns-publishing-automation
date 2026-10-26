@@ -85,10 +85,10 @@ export function splitBulletEntries(st: Structure): TocSplit[] {
 // ---------------------------------------------------------------------------------------------
 
 const BULLET_BYTE = 0x95 // WinAnsi
-type Tok = { kind: 'str'; raw: string; hex: boolean; bytes: number[] } | { kind: 'num'; raw: string }
+export type Tok = { kind: 'str'; raw: string; hex: boolean; bytes: number[] } | { kind: 'num'; raw: string }
 
 /** Decode a text-showing operand into strings and adjustments. Returns undefined for anything that is not a plain one-byte string. */
-function parseOperand(op: Op, src: string): Tok[] | undefined {
+export function parseOperand(op: Op, src: string): Tok[] | undefined {
   const body = op.op === 'Tj' ? op.args[0] : op.args[0]?.startsWith('[') ? op.args[0].slice(1, -1) : undefined
   if (body === undefined) return undefined
   const toks: Tok[] = []
@@ -143,8 +143,8 @@ function parseOperand(op: Op, src: string): Tok[] | undefined {
   return toks
 }
 
-const literal = (bytes: number[]) => '(' + bytes.map((b) => (b === 40 || b === 41 || b === 92 ? '\\' + String.fromCharCode(b) : b < 32 || b > 126 ? '\\' + b.toString(8).padStart(3, '0') : String.fromCharCode(b))).join('') + ')'
-const hexString = (bytes: number[]) => '<' + bytes.map((b) => b.toString(16).padStart(2, '0')).join('') + '>'
+export const literal = (bytes: number[]) => '(' + bytes.map((b) => (b === 40 || b === 41 || b === 92 ? '\\' + String.fromCharCode(b) : b < 32 || b > 126 ? '\\' + b.toString(8).padStart(3, '0') : String.fromCharCode(b))).join('') + ')'
+export const hexString = (bytes: number[]) => '<' + bytes.map((b) => b.toString(16).padStart(2, '0')).join('') + '>'
 
 /** Bullets one operator shows, or -1 when it is not something that can be cut safely. */
 export function bulletsIn(op: Op, src: string): number {

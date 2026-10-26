@@ -67,6 +67,8 @@ export interface Figure {
   logo?: boolean
   /** a small picture with no caption and no text in it: a chapter ornament, a divider, a dingbat */
   ornament?: boolean
+  /** a picture across most of the page with a page of prose over it: the text stays text, only the picture is the Figure (U1) */
+  textOver?: boolean
 }
 
 /** Default tag roles from the analysed font styles. */
@@ -120,6 +122,8 @@ const FIG_NO = /^(\d{1,2}|[IVXLC]{1,4})\s*\.\s*\d{1,2}\.?$/
 const isFigListHeading = (t: string) => sectionTypeOf(titleCase(t)) === 'list' && /ilustraci|figur|abbild|illustr|image|plates?|l[áa]min|gr[áa]fic/i.test(t)
 
 const CHAPTER_LABEL = /^(chapter|part|book|kapitel|teil|chapitre|partie|cap[ií]tulo|capitolo|parte)\s+([\divxlc]+|\p{L}+)$/iu
+/** An end note whose number is set in the same piece of text as its words: "101. Suetonius, …" */
+const NOTE_LEAD = /^(\d{1,3})([.)])\s+\S/
 const BULLET = /^([•●◦▪■–—-]|\(?\d{1,2}[.)]|[a-z][.)])\s/
 
 /**
@@ -293,6 +297,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let inFigList = false // under the heading of a list of illustrations
   let inNotes = false // under the heading of the notes
   let notesLevel = 0
+  let lastNote = 0 // number of the last end note seen in the notes section
   let figList: SNode | null = null
   let tocAfter: { sect: SNode; nodes: SNode[] } | null = null
   const flushToc = () => {
@@ -332,7 +337,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const top = page.height - f.box.y1
       const bottom = page.height - f.box.y0
       // a sentence beside a QR is body text, even when the figure box was grown over it
-      if (squareBeside(l)) return false
+      if (squareBeside(l) || f.textOver) return false
       // a label of a chart may run a little past the edge of the drawing: it belongs to the picture when most of it lies inside (PHD-007)
       const inside = Math.min(l.x1, f.box.x1 + 2) - Math.max(l.x0, f.box.x0 - 2)
       if (inside >= (l.x1 - l.x0) * 0.5 && l.y >= top - 2 && l.y + l.size <= bottom + 2) return true
@@ -540,6 +545,26 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       flushTables(l.y)
+      // an end note whose number is not a text piece of its own ("101. Suetonius, …", set in one run): the number is split off as the label of its item,
+      // when it is the next number of the run (a wrapped line that starts with a number is not an item). The writer cuts the operator after the number.
+      if (inNotes && !labelOf.has(l) && !labels.has(l) && roleOf(l) === 'P') {
+        const m = l.text.trim().match(NOTE_LEAD)
+        const num = m ? m[1] + m[2] : ''
+        if (m && (Number(m[1]) === lastNote + 1 || Number(m[1]) === 1) && l.runs[0]?.text.trim().startsWith(num)) {
+          // the words start where the lines that wrap under them start; else about a digit width per figure
+          const nx = ordered[i + 1]
+          const wrapX = nx && nx.page === l.page && nx.key === l.key && nx.col === l.col && nx.x0 > l.x0 + 8 && nx.x0 < l.x0 + l.size * 5 && !NOTE_LEAD.test(nx.text.trim()) ? nx.x0 : 0
+          const next = Math.min(l.x1, wrapX || l.x0 + l.size * (0.5 * m[1].length + 0.55))
+          const mark: PLine = { ...l, text: num, x1: Math.min(next - 1, l.x0 + l.size * (0.5 * m[1].length + 0.28)), runs: [{ ...l.runs[0], text: num, x0: l.x0, x1: Math.min(next - 1, l.x0 + l.size * (0.5 * m[1].length + 0.28)) }], lead: undefined }
+          l.text = l.text.replace(/^\s*\S+\s*/, '')
+          l.runs = [{ ...l.runs[0], text: l.runs[0].text.replace(/^\s*\S+\s*/, ''), x0: next }, ...l.runs.slice(1)].filter((r) => r.text)
+          l.x0 = next
+          page.lines.splice(page.lines.indexOf(l), 0, mark)
+          labelOf.set(l, mark)
+          labels.add(mark)
+        }
+      }
+      if (inNotes && labelOf.has(l) && /^\d/.test(labelOf.get(l)!.text.trim())) lastNote = parseInt(labelOf.get(l)!.text.trim(), 10)
       // the edition line was above a display title: read it once the title is done, before the body
       if (editionHold.length && !editionLine(l) && l.size <= book.bodySize * 1.25 && container.kids.some((k) => k.lines.some((x) => x.page === l.page && x.size > book.bodySize * 1.25))) flushEdition(container)
       if (before.has(l)) emit(before.get(l)!)
@@ -623,7 +648,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         inToc = sectionTypeOf(titleCase(text)) === 'toc'
         inFigList = isFigListHeading(text)
         figList = null
-        if (sectionTypeOf(titleCase(text)) === 'notes') (inNotes = true), (notesLevel = level)
+        if (sectionTypeOf(titleCase(text)) === 'notes') (inNotes = true), (notesLevel = level), (lastNote = 0)
         else if (inNotes && level <= notesLevel) inNotes = false
         if (sectionTypeOf(titleCase(text)) === 'index') (inIndex = true), (indexLevel = level)
         else if (level <= indexLevel) inIndex = false

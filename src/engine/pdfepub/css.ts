@@ -67,7 +67,12 @@ span.dropcap { font-family: sans-serif; font-size: 400%; float: left; margin: -0
 p.extract1 { margin: 1em 0 1em 1.5em; text-indent: 0; text-align: left;${t.extractSizePct < 100 ? ` font-size: ${t.extractSizePct}%;` : ''} }
 p.extractt { margin: 1em 0 0 1.5em; text-indent: 0; text-align: left;${t.extractSizePct < 100 ? ` font-size: ${t.extractSizePct}%;` : ''} }
 p.extractint { margin: 0 0 1em 1.5em; text-indent: 1.5em; text-align: left;${t.extractSizePct < 100 ? ` font-size: ${t.extractSizePct}%;` : ''} }
+blockquote.extract { margin: 0; padding: 0; }
 p.extractint0 { margin: 0 0 0 1.5em; text-indent: 1.5em; text-align: left;${t.extractSizePct < 100 ? ` font-size: ${t.extractSizePct}%;` : ''} }
+
+/* verse: one block, the lines of a stanza end in a line break */
+div.poem { margin: 1em 0 1em 1.5em; }
+p.verse { margin: 0 0 1em 0; text-indent: 0; text-align: left;${t.extractSizePct < 100 ? ` font-size: ${t.extractSizePct}%;` : ''} }
 
 /* pictures */
 figure.img_cont { margin: 1em 0; text-align: center; page-break-inside: avoid; }

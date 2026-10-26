@@ -50,7 +50,7 @@ export interface PdfBuildResult {
 }
 
 type Seg = { t: string; b?: boolean; i?: boolean; raw?: boolean }
-type Block = { kind: 'p' | 'extract' | 'raw' | 'li'; cls?: string; html: string }
+type Block = { kind: 'p' | 'extract' | 'raw' | 'li' | 'verse'; cls?: string; html: string }
 interface PSec {
   type: SectionType
   stem: string
@@ -74,8 +74,12 @@ interface Float {
   html: string
   /** picture on a page without text (chapter/section opener): travels to the next section */
   opener: boolean
-  /** chart caption y: the picture is placed there, not at the first paragraph on the page */
+  /** where the picture sits on the page (its top, or the chart caption's y): it is placed at the paragraph break after that line */
   anchorY?: number
+  /** the line it sits beside has been read: it goes in at the next paragraph break (before the open paragraph when it was armed near its start) */
+  armed?: boolean
+  armedPara?: unknown
+  armedLines?: number
 }
 
 const segHtml = (segs: Seg[]) => {
@@ -208,14 +212,19 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (g && g.size === Math.round(l.size) && l.y - g.ls[g.ls.length - 1].y < l.size * 2) g.ls.push(l)
       else groups.push({ size: Math.round(l.size), ls: [l] })
     }
+    // the page marker sits in front of the first element, never inside the heading
     return groups.map((g, i) => {
-      const html = (i === 0 ? mk : '') + g.ls.map((l) => segHtml(segsOf(l))).join(' ')
+      const html = g.ls.map((l) => segHtml(segsOf(l))).join(' ')
       const rank = sizes.indexOf(g.size)
-      return rank === 0 ? `<h1 class="title_1">${html}</h1>` : `<p class="${rank === 1 ? 'title-3' : 'title-2'}">${html}</p>`
+      return (i === 0 ? mk : '') + (rank === 0 ? `<h1 class="title_1">${html}</h1>` : `<p class="${rank === 1 ? 'title-3' : 'title-2'}">${html}</p>`)
     })
   }
   const lead = book.lead
   const step = book.step
+
+  // the width of a full line of body text: a line much shorter than this is a short line (verse, a list), not a wrapped one
+  const widths = book.pages.flatMap((p) => p.lines.filter((l) => l.key === book.bodyKey).map((l) => l.x1 - l.x0)).sort((a, b) => a - b)
+  const measure = widths[Math.floor(widths.length * 0.95)] ?? Infinity
 
   // words the book hyphenates mid-line: line-end hyphens in these words are kept
   const hyphenated = new Set<string>()
@@ -257,7 +266,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   }
 
   // ---------------------------------------------------------------- paragraphs
-  type Para = { kind: 'body' | 'extract' | 'text' | 'caption' | 'hang' | 'li'; first: string; segs: Seg[]; last?: PLine; lastPage: number; dropcap?: string; cont?: boolean; bx?: number }
+  type Para = { kind: 'body' | 'extract' | 'text' | 'caption' | 'hang' | 'li' | 'verse'; first: string; segs: Seg[]; last?: PLine; lastPage: number; dropcap?: string; cont?: boolean; bx?: number; n?: number; ls?: PLine[] }
   let para: Para | null = null
   let pending = '' // page marker waiting for the next text
   let tableCount = 0
@@ -277,8 +286,16 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     // a page marker at the start stays before the drop cap, so the first word is not split ("I|n this")
     if (p.dropcap) html = html.replace(/^((?:<span[^>]*epub:type="pagebreak"[^>]*\/>)*)/, `$1<span class="dropcap">${esc(p.dropcap.length === 1 ? p.dropcap.toLocaleUpperCase() : p.dropcap)}</span>`)
     const sec = cur
-    if (p.kind === 'extract') sec.blocks.push({ kind: 'extract', html, cls: p.cont ? 'cont' : 'start' })
+    // every line of a block set in from the margin, together (a quotation in a smaller face): an extract, not a paragraph
+    const block = (p.kind === 'text' || p.kind === 'body') && !!p.ls && p.ls.length >= 2 && p.ls.every((x) => Math.abs(x.x0 - p.ls![0].x0) < 2 && x.col === p.ls![0].col) && p.ls[0].x0 - p.ls[0].col >= step * 0.5
+    // pictures that waited for a break: the ones that sat beside the first half of this paragraph go in front of it, the rest after it
+    const due = floats.filter((f) => dueFloat(f, p.lastPage, true))
+    floats = floats.filter((f) => !due.includes(f))
+    const early = (f: Float) => f.armedPara === p && (f.armedLines ?? 0) * 2 < (p.n ?? 0)
+    for (const f of due.filter(early)) sec.blocks.push({ kind: 'raw', html: f.html })
+    if (p.kind === 'extract' || block) sec.blocks.push({ kind: 'extract', html, cls: p.cont ? 'cont' : 'start' })
     else if (p.kind === 'li') sec.blocks.push({ kind: 'li', html })
+    else if (p.kind === 'verse') sec.blocks.push({ kind: 'verse', html })
     else {
       const cls =
         p.kind === 'caption' ? 'caption1'
@@ -288,20 +305,26 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         : p.first === 'step' && !p.dropcap ? 'indent' : 'noindent'
       sec.blocks.push({ kind: 'p', cls, html })
     }
-    flushFloats(p.lastPage)
+    for (const f of due.filter((x) => !early(x))) sec.blocks.push({ kind: 'raw', html: f.html })
   }
-  function flushFloats(upto: number, openers = true, y?: number) {
+  /** a picture is due once the line it sits beside has been read (openers and boxes: at the first break on their page) */
+  const dueFloat = (f: Float, upto: number, openers: boolean) =>
+    (f.page < upto || (f.page === upto && (openers || !f.opener))) && (f.anchorY === undefined || !!f.armed) && !tocLike(cur)
+  function flushFloats(upto: number, openers = true) {
     if (!cur) return
-    const due = (f: Float) => {
-      const pageOk = f.page < upto || (f.page === upto && (openers || !f.opener))
-      const here = f.anchorY === undefined ? y === undefined || y === Infinity : y === Infinity || (y !== undefined && f.anchorY <= y)
-      return pageOk && here && !tocLike(cur)
-    }
-    // a picture anchored by its position goes after the paragraph above it, which is still open
-    if (para && y !== undefined && y !== Infinity && floats.some((f) => f.anchorY !== undefined && due(f))) closePara()
     const keep: Float[] = []
-    for (const f of floats) (due(f) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f))
+    for (const f of floats) (dueFloat(f, upto, openers) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f))
     floats = keep
+  }
+  /** the picture sits beside this line: it will be placed at the next paragraph break, never inside the sentence being read */
+  function armFloats(page: number, y: number) {
+    for (const f of floats) if (f.page === page && f.anchorY !== undefined && !f.armed && f.anchorY <= y) Object.assign(f, { armed: true, armedPara: para, armedLines: para?.n ?? 0 })
+    // no paragraph is open: this is a break already
+    if (!para && cur && !tocLike(cur)) {
+      const keep: Float[] = []
+      for (const f of floats) (f.armed ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f))
+      floats = keep
+    }
   }
   const kindOf = (l: PLine) => {
     const off = l.x0 - l.col
@@ -330,6 +353,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     into.segs.push(...segs)
     into.last = l
     into.lastPage = l.page
+    into.n = (into.n ?? 0) + 1
+    ;(into.ls ??= []).push(l)
   }
 
   // ---------------------------------------------------------------- page by page
@@ -401,7 +426,24 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
 
     // captions → pictures
     const CHART_CAP = /^(gr[aá]fica|grafico|gr[aá]fico|figura|cuadro|fig\.|table|graph|chart)\s*\d/i
-    const caps = lines.filter((l) => !inBox.has(l) && (roleOf(l) === 'caption' || CHART_CAP.test(l.text.trim()))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    // Small text that hugs a picture is its caption even when its style is shared with other text (a caption style that also sets notes
+    // or credits is not read as "caption"): directly below the picture, or beside it within its height, smaller than the body text.
+    // The lines under the first one (same style, same left edge, set one under the other) belong to it.
+    const hugging = new Set<PLine>()
+    const shotsOf = page.images.filter((im) => im.jpeg)
+    const capable = (l: PLine) => !inBox.has(l) && l.key !== book.bodyKey && l.size <= book.bodySize * 0.97 && ['text', 'caption'].includes(roleOf(l))
+    for (const l of lines) {
+      if (!capable(l)) continue
+      if (shotsOf.some((im) => (l.y >= im.y1 - 4 && l.y - im.y1 < 24 && l.x0 < im.x1 && l.x1 > im.x0) || (l.y + l.size > im.y0 && l.y < im.y1 + 24 && ((l.x1 <= im.x0 + 4 && im.x0 - l.x1 < 36) || (l.x0 >= im.x1 - 4 && l.x0 - im.x1 < 36))))) hugging.add(l)
+    }
+    for (let grew = true; grew;) {
+      grew = false
+      for (const l of lines) {
+        if (hugging.has(l) || !capable(l)) continue
+        if ([...hugging].some((c) => c.key === l.key && l.y > c.y && l.y - c.y <= c.size * 1.8 && Math.abs(l.x0 - c.x0) < 4)) (hugging.add(l), (grew = true))
+      }
+    }
+    const caps = lines.filter((l) => !inBox.has(l) && (roleOf(l) === 'caption' || CHART_CAP.test(l.text.trim()) || hugging.has(l))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
     // the rest of a chart caption ("Grafica 1.4" / "en porcentaje…") is the next short line, not a new paragraph
     for (const c of [...caps]) {
       if (!CHART_CAP.test(c.text.trim()) && roleOf(c) !== 'caption') continue
@@ -459,6 +501,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       pending = pageMarker
       pageMarker = ''
     }
+    const opener = !page.lines.some((l) => roleOf(l) !== 'caption' && !capLines.has(l))
     pics.forEach((im, k) => {
       const name = `images/pg-${printNo(page.index)}${pics.length > 1 ? `-${k + 1}` : ''}.jpg`
       images.push({ path: name, data: im.jpeg! })
@@ -488,8 +531,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const chartCap = g ? CHART_CAP.test(g.lines.map((l) => l.text).join(' ')) : false
       floats.push({
         page: page.index,
-        opener: !page.lines.some((l) => roleOf(l) !== 'caption'),
-        anchorY: chartCap && g ? g.y0 : undefined,
+        opener,
+        anchorY: opener ? undefined : chartCap && g ? g.y0 : im.y0,
         html: `${f.open}\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n${f.caption('caption1', caption)}` : ''}${extra}\n${f.close}`,
       })
     })
@@ -523,10 +566,27 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const l = ordered[i]
       if (ordered.slice(0, i).some((p) => p.text.trim() === l.text.trim() && Math.abs(p.y - l.y) < 2 && Math.abs(p.x0 - l.x0) < 2)) ordered.splice(i, 1)
     }
+    // verse: three or more short lines of one style, set one under the other with no paragraph gap, are a poem; its lines keep their breaks
+    const verse = new Map<PLine, 'line' | 'stanza'>()
+    {
+      let run: PLine[] = []
+      const endRun = () => {
+        const closing = run.filter((x) => /[.!?]$/.test(x.text.trim())).length
+        if (run.length >= 3 && closing < run.length * 0.8) run.forEach((x, j) => verse.set(x, j && x.y - run[j - 1].y > lead * 1.45 ? 'stanza' : 'line'))
+        run = []
+      }
+      for (const x of ordered) {
+        const a = run[run.length - 1]
+        const fits = (roleOf(x) === 'body' || roleOf(x) === 'text') && !tableAt.has(x) && !x.marker && !x.dropcap && !/^[•▪●◦■·]/.test(x.text.trim()) && x.x1 - x.x0 < measure * 0.78
+        if (fits && (!a || (a.page === x.page && a.col === x.col && roleOf(a) === roleOf(x) && Math.abs(a.size - x.size) < 0.3 && x.y > a.y && x.y - a.y <= lead * 3))) run.push(x)
+        else (endRun(), fits && (run = [x]))
+      }
+      endRun()
+    }
     // ---- feed the lines ----
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
-      flushFloats(page.index, true, l.y)
+      armFloats(page.index, l.y)
       const r = roleOf(l)
       // a stray symbol glyph before a title ("=Epilogue") is not part of it
       if ((r === 'title' || r === 'subhead') && /^\s*[=~#*]+(?=\p{L})/u.test(l.text) && l.runs.length) {
@@ -596,15 +656,25 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
           continue
         }
         if (!cur) newSec('other', 'title')
-        const lead0 = pending
-        pending = ''
-        cur!.blocks.push({ kind: 'raw', html: `<${h} class="${r === 'subhead' ? 'subhead' : 'subhead1'}">${lead0}${segHtml(segsOf(l))}</${h}>` })
+        if (pending) (cur!.blocks.push({ kind: 'raw', html: pending }), (pending = ''))
+        cur!.blocks.push({ kind: 'raw', html: `<${h} class="${r === 'subhead' ? 'subhead' : 'subhead1'}">${segHtml(segsOf(l))}</${h}>` })
         continue
       }
       if (!cur) newSec('other', 'title')
       if (tocLike(cur)) {
         if (pending) (l.mark = pending), (pending = '')
         cur!.raw.push(l)
+        continue
+      }
+      // a poem: the lines of a stanza end in <br/>, a gap of a paragraph starts the next stanza
+      if (verse.has(l) && !['toc', 'index', 'list', 'bibliography', 'glossary', 'copyright'].includes(cur!.type)) {
+        if (para?.kind === 'verse' && verse.get(l) !== 'stanza') para.segs.push({ t: '<br/>', raw: true })
+        else (closePara(), (para = { kind: 'verse', first: 'flush', segs: [], lastPage: l.page }))
+        const v: Para = para!
+        if (pending) (v.segs.push({ t: pending, raw: true }), (pending = ''))
+        v.segs.push(...segsOf(l))
+        v.last = l
+        v.lastPage = l.page
         continue
       }
       // ---- paragraph logic ----
@@ -640,7 +710,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       if (!start && para && shortEnd && (k === 'flush' || para.kind === 'extract') && para.kind !== 'hang') (start = true), (asExtract = para.kind === 'extract')
       else if (!start && para) {
         if (kind === 'hang') start = k === 'flush'
-        else if (para.kind === 'body' && prev && Math.abs(l.x0 - prev.x0) < 2 && k !== 'flush') {
+        else if ((para.kind === 'body' || para.kind === 'text') && prev && Math.abs(l.x0 - prev.x0) < 2 && k !== 'flush') {
           // same left edge as the line above: text wrapped around a drop cap or picture, not an indent
         } else if (para.kind === 'body') {
           if (k === 'step' || k === 'step2') {
@@ -658,7 +728,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       }
       appendLine(l, para!)
     }
-    flushFloats(page.index, true, Infinity)
+    armFloats(page.index, Infinity)
   }
   closePara()
   flushFloats(Infinity)
@@ -675,12 +745,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const p = book.pages[idx]
     const mk = marker(idx)
     if (p.lines.length) {
+      // analyze found the half-title (the title alone) and the full title page (the author's name); a PDF with only one of them keeps the old reading
+      const known = book.titlePage !== undefined || book.halfTitle !== undefined
       const author = meta.authors && p.lines.some((l) => l.text.toLowerCase().includes(meta.authors.toLowerCase()))
-      const type: SectionType = !halfDone && !author ? 'halftitle' : 'title'
+      const type: SectionType = known ? (idx === book.halfTitle ? 'halftitle' : 'title') : !halfDone && !author ? 'halftitle' : 'title'
       if (type === 'halftitle') halfDone = true
       // a second title page (a series page, a title verso set like one) gets its own file: title2, never title twice
       const nSame = front.filter((f) => f.type === type).length
-      const stem = nSame ? `${type}${nSame + 1}` : type
+      const stem = known && type === 'title' && idx === book.titlePage ? 'title' : nSame ? `${type}${nSame + 1}` : type
       if (settings().titlePageAs === 'text') {
         front.push({ type, stem, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
         continue
@@ -722,6 +794,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       segs = []
     }
     for (const l of imprintLines) {
+      // a font without a © glyph map prints it as a lone "c" ("c 2026 A. Author"): the sign is put back
+      if (/^\s*[cC]\s+(?:(?:19|20)\d{2}\b|\p{Lu}\p{Ll}+\s+\p{Lu})/u.test(l.text)) {
+        const r0 = l.runs.find((r) => r.text.trim())
+        if (r0) (r0.text = r0.text.replace(/^(\s*)[cC](?=\s)/, '$1©')), (l.text = l.text.replace(/^(\s*)[cC](?=\s)/, '$1©'))
+      }
       const gap = !!prev && l.y - prev.y > (prev.size + 3) * 1.45
       const shortPrev = !!prev && prev.x1 - left < (right - left) * 0.8
       if (!prev || gap || shortPrev) {
@@ -966,6 +1043,17 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         out.push(`<ul class="bull">\n${items.join('\n')}\n</ul>`)
         continue
       }
+      if (b.kind === 'verse') {
+        // stanzas of one poem (a page marker may sit between two of them)
+        const stanzas: string[] = []
+        while (i < blocks.length && (blocks[i].kind === 'verse' || (blocks[i].kind === 'raw' && blocks[i].html.startsWith('<span') && blocks[i + 1]?.kind === 'verse'))) {
+          stanzas.push(blocks[i].kind === 'verse' ? `<p class="verse">${blocks[i].html}</p>` : blocks[i].html)
+          i++
+        }
+        i--
+        out.push(`<div class="poem">\n${stanzas.join('\n')}\n</div>`)
+        continue
+      }
       if (b.kind !== 'extract') {
         out.push(b.kind === 'raw' ? b.html : `<p class="${b.cls}">${b.html}</p>`)
         continue
@@ -976,15 +1064,17 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       i--
       const paras = run.filter((x) => x.kind === 'extract')
       let k = 0
+      const quote: string[] = []
       for (const x of run) {
         if (x.kind === 'raw') {
-          out.push(x.html)
+          quote.push(x.html)
           continue
         }
         const cls = paras.length === 1 ? 'extract1' : k === 0 ? 'extractt' : k === paras.length - 1 ? 'extractint' : 'extractint0'
         k++
-        out.push(`<p class="${cls}">${x.html}</p>`)
+        quote.push(`<p class="${cls}">${x.html}</p>`)
       }
+      out.push(`<blockquote class="extract">\n${quote.join('\n')}\n</blockquote>`)
     }
     return out.join('\n')
   }
@@ -1018,8 +1108,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       prev = l
     }
     flush('box-noindent')
-    const headHtml = head.length ? `<div class="brownbox">\n<h2 class="box-head">${lead0}${segHtml(head.flatMap((l, i) => [...(i ? [{ t: " " }] : []), ...segsOf(l)]))}</h2>\n</div>\n` : lead0
-    return `<aside class="box">\n${headHtml}<div class="brownbox_1">\n${out.join('\n')}\n</div>\n</aside>`
+    const headHtml = head.length ? `<div class="brownbox">\n<h2 class="box-head">${segHtml(head.flatMap((l, i) => [...(i ? [{ t: " " }] : []), ...segsOf(l)]))}</h2>\n</div>\n` : ''
+    return `${lead0}<aside class="box">\n${headHtml}<div class="brownbox_1">\n${out.join('\n')}\n</div>\n</aside>`
   }
 
   /** Contents page of a book with parts and chapters, from the entries read in the analysis: every entry linked to its section. */

@@ -14,6 +14,12 @@ export const MIN_PICTURE = 6
 /** A drawn mark smaller than this on a side is a bullet or a dot of the text, not an ornament. */
 export const MIN_ORNAMENT = 12
 
+/** A drawing or picture across this much of the page, with prose in it, is a page of text with a background (a form, a tinted spread), not a figure. */
+export const PAGE_COVER = 0.6
+/** Lines this long are sentences, not labels. */
+const PROSE_CHARS = 30
+const MIN_PROSE = 4
+
 const area = (b: Box) => Math.max(0, b.x1 - b.x0) * Math.max(0, b.y1 - b.y0)
 const grow = (b: Box, d: number): Box => ({ x0: b.x0 - d, y0: b.y0 - d, x1: b.x1 + d, y1: b.y1 + d })
 const meets = (a: Box, b: Box) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1
@@ -30,6 +36,9 @@ export function detectFigures(
   // printer's slug, colour bars and bleed marks lie outside the trim: they are furniture, not pictures (PAR-002)
   const onPage = (b: Box) => !opts.trim || insideBox(b, opts.trim)
   const flat = leaves(paints)
+  // prose lines that sit in a box (labels of a chart are short; sentences are not)
+  const prose = (b: Box) => page.lines.filter((l) => l.text.trim().length >= PROSE_CHARS && l.x0 >= b.x0 - 2 && l.x1 <= b.x1 + 2 && H - l.base >= b.y0 - 2 && H - l.base <= b.y1 + 2).length
+  const textPage = (b: Box) => area(b) >= pageArea * PAGE_COVER && prose(b) >= MIN_PROSE
   const add = (box: Box, image?: Uint8Array | null) => {
     if (box.x1 - box.x0 < MIN_PICTURE || box.y1 - box.y0 < MIN_PICTURE || !onPage(box)) return
     const hit = figs.find((f) => !f.vector && meets(f.box, box) && area(box) > 0)
@@ -39,6 +48,7 @@ export function detectFigures(
   // placed images (layout boxes are top-down: flip to PDF space). The text layer misses masks and inline images, so the painted ones are read from the content stream too (PFG-001).
   for (const im of page.images) add({ x0: im.x0, x1: im.x1, y0: H - im.y1, y1: H - im.y0 }, im.jpeg)
   for (const p of flat) if (p.kind === 'image') add(p.box)
+  for (const f of figs) if (textPage(f.box)) f.textOver = true // a picture behind a page of text stays a Figure; the text is not its label (U1)
   // vector drawings: cluster path boxes that touch (with a small margin)
   const boxes = flat
     .filter((p): p is Extract<Paint, { kind: 'path' }> => p.kind === 'path')
@@ -66,6 +76,8 @@ export function detectFigures(
     const inside = page.lines.filter((l) => l.x0 >= c.box.x0 - 2 && l.x1 <= c.box.x1 + 2 && H - l.base >= c.box.y0 - 2 && H - l.base <= c.box.y1 + 2)
     if (inside.filter((l) => Math.abs(l.size - bodySize) < 0.6).length >= 3) continue
     if (logo && inside.length) continue
+    // rules and boxes that add up to most of the page, with sentences in them: a form or a text page, so the text stays text (U1)
+    if (textPage(c.box)) continue
     const hit = figs.find((f) => meets(f.box, c.box))
     if (hit) hit.box = union(hit.box, c.box)
     else figs.push({ page: page.index, box: c.box, lines: [], caption: '', vector: true, logo: logo || undefined })

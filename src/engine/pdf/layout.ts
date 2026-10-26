@@ -3,7 +3,7 @@
 // top-down page points. pdf.js is injected (browser worker build or Node legacy build).
 
 /** A bare list marker: bullet, dash, "12.", "(a)". */
-export const LIST_MARK = /^([•●◦▪■–—-]|\(?\d{1,2}[.)]|\(?[a-z][.)])$/
+export const LIST_MARK = /^([•●◦▪■–—-]|\(?\d{1,3}[.)]|\(?[a-z][.)])$/
 
 export interface Run {
   text: string

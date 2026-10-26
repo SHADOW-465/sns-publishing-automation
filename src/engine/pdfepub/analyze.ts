@@ -5,7 +5,7 @@ import { readContents, readLists, matchHeadings, type Contents } from './content
 import { fillNumbers } from '../pdf/numbers.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
 import { languageFromBook } from '../lang.ts'
-import { COMPANY, CREDIT, FILEISH } from '../indesign/front.ts'
+import { readFront } from './front.ts'
 import { ISBN_LINE } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
 import { imageObject, type Raster } from '../pdf/raster.ts'
@@ -86,6 +86,9 @@ export interface PdfBook {
   lead: number // body line spacing
   step: number // paragraph indent
   imprintPage?: number
+  /** PDF page index of the full title page and of the half-title, when the PDF has them */
+  titlePage?: number
+  halfTitle?: number
   /** the printed contents page(s), read: where each part and chapter starts */
   contents?: Contents
   /** the kinds of notes found (a superscript number plus a numbered line at the foot of the page), each reference matched to its note */
@@ -239,6 +242,17 @@ export async function analyzePdf(
     const [off, n] = [...votes].sort((a, b) => b[1] - a[1])[0]
     if (n >= 3 && n >= group.length * 0.7) for (const g of group) if (g.off === off) takeOut(g.p, (l) => l === g.l)
   }
+  // a running head on too few pages to repeat ("Introduction" on the one page of a short chapter) sits where the others sit, in their style:
+  // the same style on the same line, on three pages or more, marks the place. It is furniture too, or it would be read into the text.
+  const spots: { key: string; y: number; at: Set<number> }[] = []
+  for (const p of pages)
+    for (const l of p.furniture) {
+      if (!/\p{L}/u.test(l.text)) continue
+      const s = spots.find((x) => x.key === l.key && Math.abs(x.y - l.y) < 1.5) ?? (spots.push({ key: l.key, y: l.y, at: new Set() }), spots[spots.length - 1])
+      s.at.add(p.index)
+    }
+  for (const p of pages)
+    !process.env.NO_SPOTS && takeOut(p, (l) => band(p, l) && l.size <= textSize * 1.3 && l.text.trim().length < 60 && /\p{L}/u.test(l.text) && spots.some((s) => s.at.size >= 3 && s.key === l.key && Math.abs(s.y - l.y) < 1.5))
   if (opts.keepFurniture)
     for (const p of pages) {
       p.lines = [...p.lines, ...p.furniture].sort((a, b) => a.y - b.y || a.x0 - b.x0)
@@ -412,34 +426,22 @@ export async function analyzePdf(
   }
 
   // ---- metadata guesses ----
-  const frontText = front.map((i) => pages[i]).filter((p) => p.lines.length)
-  const half = frontText[0]
-  const titlePage = frontText.find((p) => p.lines.length > (half?.lines.length ?? 0)) ?? frontText[1] ?? half
-  const big = (p?: { lines: PLine[] }) => {
-    if (!p) return { title: '', rest: [] as PLine[] }
-    const max = Math.max(...p.lines.map((l) => l.size))
-    const t = p.lines.filter((l) => l.size >= max * 0.5)
-    return { title: titleCase(t.map((l) => l.text.trim()).join(' ')), rest: p.lines.filter((l) => !t.includes(l)) }
-  }
-  const h = big(half)
-  const subtitle = titleCase(h.rest.map((l) => l.text.trim()).join(' '))
-  // the first title-page line that is not on the half-title, skipping the publisher and credit lines
-  const notAuthor = (t: string) => COMPANY.test(t) || CREDIT.test(t) || FILEISH.test(t) || /©|\bisbn\b|copyright/i.test(t) || sectionTypeOf(t) === 'acknowledgments'
-  const rest = titlePage && half ? titlePage.lines.filter((l) => !half.lines.some((x) => shape(x.text) === shape(l.text))).map((l) => l.text.trim()).filter(Boolean) : []
   const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => l.text) : []
   const publisher = imprint.find((t) => /\b(press|publishing|publishers|books|verlag|editorial|ediciones|éditions)\b/i.test(t) && t.length < 60)?.trim() ?? ''
   const year = imprint.join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
   const printIsbn = imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
   const info = await doc.getMetadata().catch(() => null)
-  const fromFile = String(info?.info?.Author ?? '').trim()
-  const author = rest.find((t) => !notAuthor(t)) || (fromFile && !notAuthor(fromFile) ? fromFile : '')
-  // the book's own text decides when the Info language is wrong or missing; a region tag is kept
-  // when it agrees (the Weigel print PDF says de-DE and the text is German, so the book stays de-DE)
+  // the language the PDF declares can be wrong or missing: the book's own text decides (a region tag is kept when it agrees)
   const declared = (info?.info?.Language as string | undefined)?.replace(/_/g, '-').trim()
   const bodyText = pages.flatMap((p) => p.lines.map((l) => l.text)).join(' ')
   const language = languageFromBook(declared, bodyText)
+  const fm = readFront(
+    front.filter((i) => i !== imprintPage).map((i) => pages[i]).filter((p) => p.lines.length),
+    imprint, { title: String(info?.info?.Title ?? '').trim(), author: String(info?.info?.Author ?? '').trim() }, titleCase, language.slice(0, 2),
+  )
+  const { author, subtitle } = fm
   const meta: BookMeta = {
-    title: h.title || titleCase(info?.info?.Title ?? ''),
+    title: fm.title,
     subtitle,
     authors: titleCase(author),
     publisher,
@@ -464,5 +466,5 @@ export async function analyzePdf(
   const brand = [...colours].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#333333'
 
   const notes = pdfNotes(pages.map((p, i) => ({ height: p.height, lines: p.lines, label: String(numbers[i]) })), bodySize)
-  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, contents, notes }
+  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, titlePage: fm.titlePage, halfTitle: fm.halfTitle, contents, notes }
 }

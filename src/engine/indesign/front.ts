@@ -26,8 +26,8 @@ export const COMPANY =
 const LEGAL_FORM = /,?\s*\b(a\.\s?c\.|s\.?\s?a\.?\s?(de\s?c\.?\s?v\.?|u\.?)?|s\.\s?l\.(\s?u\.)?|ltd\.?|limited|llc|inc\.?|gmbh|ag|s\.?\s?r\.?\s?l\.?)\s*\.?$/i
 const PARTICLE = /^(de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|el|st\.?|zu|af)$/i
 /** "Elena Chávez", "RJ Spina", "Ana María de la Fuente", "J. R. R. Tolkien" */
-const NAME = /^(\p{Lu}[\p{L}'’.-]*\.?)(\s+((de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|st\.?|zu)\s+)*\p{Lu}[\p{L}'’.-]*\.?){1,4}$/u
-const NOT_A_NAME = /centro|instituto|institute|universidad|university|colegio|college|departamento|department|facultad|fundaci[óo]n|asociaci[óo]n|derechos|rights|edici[óo]n|edition|traducci|translat|ilustr|illustr|fotograf|photo|cubierta|cover|dise[ñn]o|design|texto|text|reservados|reserved|grupo|editorial|books|press/i
+export const NAME = /^(\p{Lu}[\p{L}'’.-]*\.?)(\s+((de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|st\.?|zu)\s+)*\p{Lu}[\p{L}'’.-]*\.?){1,4}$/u
+export const NOT_A_NAME = /centro|instituto|institute|universidad|university|colegio|college|departamento|department|facultad|fundaci[óo]n|asociaci[óo]n|derechos|rights|edici[óo]n|edition|traducci|translat|ilustr|illustr|fotograf|photo|cubierta|cover|dise[ñn]o|design|texto|text|reservados|reserved|grupo|editorial|books|press/i
 
 const isCaps = (s: string) => /\p{L}/u.test(s) && s === s.toLocaleUpperCase() && s !== s.toLocaleLowerCase()
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length
