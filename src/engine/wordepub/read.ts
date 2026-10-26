@@ -383,6 +383,25 @@ function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>): WordInl
   return joinSplitUrls(out)
 }
 
+/** A URL cut where a paragraph ends (a page break) goes on at the start of the paragraph that runs on from it:
+ *  the rest of the address moves back into the link, without the line-end hyphen. */
+function carryUrlOver(prev: WordInline[], next: WordInline[]): boolean {
+  const a = prev[prev.length - 1]
+  let k = 0
+  while (k < next.length && next[k].t === 'page') k++
+  const b = next[k]
+  if (!a || a.t !== 'text' || !b || b.t !== 'text' || b.href || !(a.href || /(?:https?:\/\/|www\.)\S*$/i.test(a.text))) return false
+  const hyphen = /[-\u2010\u2011]$/.test(a.text)
+  const m = b.text.match(/^[\p{L}\p{N}./:?=&%#~_+-]+/u)
+  if (!m || (!hyphen && !/[./?=&]/.test(m[0]))) return false
+  if (hyphen) a.text = a.text.slice(0, -1)
+  a.text += m[0]
+  if (a.href) a.href = safeUrl(a.text.trim().replace(/[.,;)]+$/, ''))
+  b.text = b.text.slice(m[0].length)
+  if (!b.text) next.splice(k, 1)
+  return true
+}
+
 /** A hyperlink that covers only the start of a URL, and a URL broken after a hyphen at a line end.
  * Word splits a wrapped URL into the next run with no break element: a hyphen at that boundary is the
  * line-end hyphen, and a single leading space is the wrap, not a new sentence. */
@@ -783,7 +802,7 @@ export function readWordBook(data: Uint8Array): WordBook {
     const ilvl = attr(numPr && child(numPr, 'ilvl'), 'val') || '0'
     const numId = attr(numPr && child(numPr, 'numId'), 'val')
     const inlines = inlinesOf(p, nos, rels)
-    const plain = plainOf(inlines)
+    let plain = plainOf(inlines)
     const hasPage = inlines.some((i) => i.t === 'page')
     if (!plain && !hasPage) return
     const tocLevel = facts.toc
@@ -824,6 +843,14 @@ export function readWordBook(data: Uint8Array): WordBook {
     const startsLower = /^\p{Ll}/u.test(plain)
     const prevOpen = !!prevBody && !/[.!?…:;]$/.test(prevBody)
     const runOn = role === 'body' && (styleRun || (startsLower && prevOpen) || (!plain && hasPage))
+    if (runOn) {
+      const before = blocks[blocks.length - 1]
+      if (before?.role === 'body' && carryUrlOver(before.inlines, inlines)) {
+        before.text = plainOf(before.inlines)
+        plain = plainOf(inlines)
+        if (!inlines.length) return
+      }
+    }
     blocks.push({ role, level, ordered, runOn, inlines, text: plain })
     if (role === 'body' && plain) prevBody = plain
     if (role === 'heading') prevBody = ''

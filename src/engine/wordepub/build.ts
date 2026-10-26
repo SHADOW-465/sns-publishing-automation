@@ -256,6 +256,16 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
   }
   if (cur) drafts.push(cur)
 
+  // Text before the first heading is the book's front: title page, then the copyright page, which starts at the
+  // imprint or cataloguing record. It is not back matter (the default type of a section nobody titled).
+  if (drafts.length > 1 && drafts[0].type === 'other' && !drafts[0].head && drafts.slice(1).some((d) => d.type !== 'other')) {
+    const [front] = drafts
+    const imprint = /©|ISBN|copyright|D\.\s?R\.|all rights|todos los derechos|^(?:Nombres|Names|Título|Title|Titre|Titel)\s*:/i
+    const at = front.chunks.findIndex((c) => imprint.test(c.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()))
+    front.type = at === 0 ? 'copyright' : 'title'
+    if (at > 0) drafts.splice(1, 0, { type: 'copyright', nav: '', head: '', chunks: front.chunks.splice(at) })
+  }
+
   for (const [i, nav] of Object.entries(input.sectionNav ?? {})) {
     const t = nav.trim()
     if (t && drafts[Number(i)]) drafts[Number(i)].nav = t
@@ -299,6 +309,10 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
     })
     if (loose) review.push({ level: 'warn', msg: `${loose} entr${loose === 1 ? 'y' : 'ies'} of the contents page match no section, so they are not links.` })
     tocSection.body = tocSection.body.replace(/\n<\/section>$/, `\n${lines.join('\n')}\n</section>`)
+  } else if (tocSection && !/<(?:p|li|a)\b/.test(tocSection.body)) {
+    // a contents page whose typed lines were dropped (they only named the chapters) lists the book's sections instead of staying empty
+    const lines = sections.filter((s) => s.nav && !['halftitle', 'title', 'copyright', 'toc'].includes(s.type)).map((s) => `<p class="${s.type === 'chapter' ? 'toc_1a' : 'toc_1'}"><a href="${esc(s.file)}">${esc(s.nav)}</a></p>`)
+    if (lines.length) tocSection.body = tocSection.body.replace(/\n<\/section>$/, `\n${lines.join('\n')}\n</section>`)
   }
 
   const cover: ImageOut = { path: withRealExt('images/cover.jpg', input.cover.data), data: input.cover.data }

@@ -38,7 +38,7 @@ export function headingsFromTypedContents(blocks: WordBlock[]): WordBlock[] {
   if (heads.length >= Math.ceil(entries.length / 2)) return blocks
   const out = blocks.map((b) => (b.role === 'heading' && b.level <= 2 ? ({ ...b, role: 'body' } as WordBlock) : b))
   out[at] = { role: 'tocmark' }
-  for (let i = at + 1; i < end; i++) if (isBody(out[i])) (out[i] as WordPara).text.trim() && (out[i] = { ...(out[i] as WordPara), text: '', inlines: [] })
+  for (let i = at + 1; i < end; i++) if (isBody(out[i])) (out[i] as WordPara).text.trim() && (out[i] = { ...(out[i] as WordPara), role: 'body', text: '', inlines: [] })
   let from = end
   const strip = (t: string) => normTitle(t.replace(/(?:\s*\.){2,}\s*\d+$|\d+$/, ''))
   const caps = (t: string) => /\p{Lu}/u.test(t) && t === t.toLocaleUpperCase()
@@ -66,7 +66,7 @@ export function headingsFromTypedContents(blocks: WordBlock[]): WordBlock[] {
       if (!next || !(full === `${acc} ${next}` || full.startsWith(`${acc} ${next} `))) break
       title += ' ' + (out[j] as WordPara).text.trim()
       acc = `${acc} ${next}`
-      out[j] = { ...(out[j] as WordPara), text: '', inlines: [] }
+      out[j] = { ...(out[j] as WordPara), role: 'body', text: '', inlines: [] }
       j++
     }
     out[hit] = { ...(out[hit] as WordPara), role: 'heading', level: 1, text: title, inlines: [{ t: 'text', text: title }] }

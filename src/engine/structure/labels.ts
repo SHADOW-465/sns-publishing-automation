@@ -78,6 +78,11 @@ export function mergeOpeners<S extends MergeSec>(secs: S[], titleText: (s: S) =>
       i++
       continue
     }
+    // "ACT ONE" alone, then "Your Writing World" set below it as a heading of its own (the chapter label that used to follow it now opens the chapter): the subtitle of the part
+    if (prev && prev.type === 'part' && prev.title.length && isLabelLine(titleText(prev).trim()) && s.type === 'other' && !s.number && onlyMarkers(s) && onlyMarkers(prev) && t && !isLabelLine(t) && t.split(/\s+/).length <= 10 && nx && nx.type === 'chapter' && nx.number) {
+      out[out.length - 1] = { ...prev, title: [...prev.title, ...s.title], blocks: [...prev.blocks, ...s.blocks] }
+      continue
+    }
     if (nx && onlyMarkers(s) && OPENER_TYPES.test(s.type) && t.split(/\s+/).length <= 2 && (nx.type === 'other' || nx.type === s.type) && !nx.number) {
       out.push({ ...nx, type: s.type, title: [...s.title, ...nx.title], blocks: [...s.blocks, ...nx.blocks], lead: (s.lead ?? '') + (nx.lead ?? '') } as S)
       i++
