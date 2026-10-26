@@ -9,7 +9,7 @@ import { httpValidator, type ValidatorResult } from '../engine/check/gate.ts'
 import { axePages, iframeAxe } from '../engine/check/axe.ts'
 import { Icon, type IconName } from './icons.tsx'
 import { NeedsDialog, NeedsLine } from './NeedsDialog.ts'
-import { acceptableNeeds, type Need } from './needs.ts'
+import { acceptableNeeds, isInput, nextPlan, type Need } from './needs.ts'
 
 // Building blocks of the step-by-step screens: the step bar, inline help, the book outline and
 // the quality report. Plain words first; the technical term in brackets where it helps.
@@ -39,16 +39,21 @@ export function Steps({ steps, at, onGo }: { steps: Step[]; at: number; onGo: (i
   )
 }
 
-export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children, needs = [], onAcceptAll, onContinueAnyway, autoOpen, intro }: {
+export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children, needs = [], onAcceptAll, onFix, onContinueAnyway, onMyself, autoOpen, intro }: {
   onBack?: () => void
   onNext?: () => void
   next?: string
-  /** only for "busy": a step that is not complete passes `needs` instead, so Next explains rather than goes grey */
+  /** only for "busy": a job that is really running. Unsure items never grey Next out: they pass `needs` and open the three choices. */
   nextDisabled?: boolean
   children?: ReactNode
   needs?: Need[]
   onAcceptAll?: () => void
+  /** "Fix with AI": decide every unsure item with the best guess (or the vision model), write it in the review notes, go on */
+  onFix?: () => void
+  /** "Continue anyway": write the unsure items in the review notes as left unsure, go on. Defaults to plain Next. */
   onContinueAnyway?: () => void
+  /** "I'll fix it myself": defaults to highlighting the unsure items on this step */
+  onMyself?: () => void
   /** open the dialog as soon as the step shows (once per visit: the step mounts its StepNav afresh) */
   autoOpen?: boolean
   intro?: ReactNode
@@ -57,6 +62,8 @@ export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children,
   useEffect(() => {
     if (!needs.length) setOpen(false)
   }, [needs.length])
+  const plan = nextPlan({ busy: nextDisabled, needs })
+  const noFile = plan.missingInput.length > 0 && plan.choices.length === 0
   return (
     <div className="stepnav">
       {onBack ? (
@@ -71,12 +78,21 @@ export function StepNav({ onBack, onNext, next = 'Next', nextDisabled, children,
         {children}
       </span>
       {onNext && (
-        <button className="primary" onClick={() => (needs.length ? setOpen(true) : onNext())} disabled={nextDisabled} aria-haspopup={needs.length ? 'dialog' : undefined}>
+        <button className="primary" onClick={() => (plan.opens === 'dialog' ? setOpen(true) : onNext())} disabled={plan.disabled} aria-haspopup={needs.length ? 'dialog' : undefined}>
           {next} <Icon name="right" size={16} />
         </button>
       )}
       {open && needs.length > 0 && (
-        <NeedsDialog needs={needs} intro={intro} onClose={() => setOpen(false)} onAcceptAll={acceptableNeeds(needs).length ? onAcceptAll : undefined} onContinueAnyway={onContinueAnyway} />
+        <NeedsDialog
+          needs={needs}
+          headline={noFile ? 'Add the file first' : undefined}
+          intro={intro ?? (noFile ? 'There is nothing to read yet. Add the file in the box above, then press the button again.' : undefined)}
+          onClose={() => setOpen(false)}
+          onAcceptAll={acceptableNeeds(needs).length ? onAcceptAll : undefined}
+          onFix={onFix}
+          onMyself={onMyself}
+          onContinueAnyway={onContinueAnyway ?? onNext}
+        />
       )}
     </div>
   )
@@ -122,23 +138,6 @@ export const KIND: Record<string, string> = {
   chapter: 'Chapter', conclusion: 'Conclusion', epilogue: 'Epilogue', afterword: 'Afterword', glossary: 'Glossary', appendix: 'Appendix',
   bibliography: 'Bibliography', notes: 'Notes', index: 'Index', about: 'About the author', contributors: 'Contributors', acknowledgments: 'Acknowledgements',
   other: 'Other',
-}
-
-/** Second click goes ahead. The first click, while decisions are still open, only warns. */
-export function useConfirmNext(pending: number, go: () => void) {
-  const [asked, setAsked] = useState(false)
-  useEffect(() => setAsked(false), [pending])
-  return {
-    asked: asked && pending > 0,
-    next: asked && pending > 0 ? 'Continue anyway' : 'Next',
-    onNext: () => {
-      if (pending > 0 && !asked) {
-        setAsked(true)
-        return
-      }
-      go()
-    },
-  }
 }
 
 export function Outline({ sections, files, base = 'OEBPS/', onType, onTitle, titles }: {

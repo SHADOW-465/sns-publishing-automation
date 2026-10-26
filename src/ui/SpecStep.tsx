@@ -178,15 +178,15 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
           <button className="ghost" onClick={onBack}>Back</button>
           <span className="muted small">Spec {current}</span>
           <span className="row" style={{ marginTop: 0 }}>
-            <button onClick={() => guard(async () => onDecided(await decide(spec, actor, false)))} disabled={!actor.trim()} title={actor.trim() ? '' : 'Type your name first'}>
+            <button onClick={() => guard(async () => onDecided(await decide(spec, actor.trim() || 'reviewer', false)))}>
               Continue without accepting
             </button>
-            <button className="primary" onClick={() => guard(async () => onDecided(await decide(spec, actor, true)))} disabled={!actor.trim()} title={actor.trim() ? '' : 'Type your name first'}>
+            <button className="primary" onClick={() => guard(async () => onDecided(await decide(spec, actor.trim() || 'reviewer', true)))}>
               Accept this spec and continue
             </button>
           </span>
         </div>
-        {!actor.trim() && <p className="err small">Accept is off until you type your name above. The name is stored with this decision.</p>}
+        {!actor.trim() && <p className="muted small">No name typed above: the decision is recorded as “reviewer”. You can go on either way.</p>}
         {log.length > 0 && (
           <details className="advanced">
             <summary>Record of decisions for this book ({log.length})</summary>

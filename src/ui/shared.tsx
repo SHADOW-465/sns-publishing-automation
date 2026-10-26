@@ -52,7 +52,7 @@ export function BookDetails({ meta, onChange, note, sources = {}, certifyBlocked
       <p className="muted">{note}</p>
       <div className="form">
         {META_FIELDS.map(([k, label, hint]) => (
-          <label key={k} className={(k === 'eisbn' && !ok) || suspicious(k) ? 'bad' : ''}>
+          <label key={k} id={`meta-${k}`} className={(k === 'eisbn' && !ok) || suspicious(k) ? 'bad' : ''}>
             <span>{label}</span>
             <input value={(meta[k] as string | undefined) ?? ''} placeholder={hint} disabled={certifyBlocked && (k === 'certifiedBy' || k === 'conformsTo')} onChange={(e) => onChange({ ...meta, [k]: e.target.value })} />
             {k === 'eisbn' && !ok && <small className="err">Enter a valid 13-digit e-book ISBN. It is not in the source files.</small>}

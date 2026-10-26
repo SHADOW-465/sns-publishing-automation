@@ -122,6 +122,25 @@ export async function overrideGate(g: ExportGate, p: { actor: string; reason: st
   return rec
 }
 
+/** What is written when "Continue anyway" is pressed without a typed reason. */
+export const DEFAULT_REASON = 'Exported without fixing the open problems. Chosen on screen with “Continue anyway”; no reason was typed.'
+
+/**
+ * "Continue anyway": the export is never blocked. Same record as overrideGate (decision log, report), but a name and a reason are
+ * optional: with none, the name is “reviewer” and the reason is DEFAULT_REASON. If the log cannot be written the file is still released;
+ * the returned record goes into the report and the review notes.
+ */
+export async function continueAnyway(g: ExportGate, p: { actor?: string; reason?: string; client: string; book: string; specHash?: string }): Promise<GateOverride> {
+  const actor = (p.actor ?? '').trim() || 'reviewer'
+  const typed = (p.reason ?? '').trim().replace(/\s+/g, ' ')
+  const reason = typed.length >= MIN_REASON ? typed : DEFAULT_REASON
+  try {
+    return await overrideGate(g, { actor, reason, client: p.client, book: p.book, specHash: p.specHash })
+  } catch {
+    return { actor, reason, at: new Date().toISOString(), fixes: g.fixes.length }
+  }
+}
+
 /** The gate's own messages, in the shape of the other guards (they name the rule): blocked, or exported with an override. */
 export function gateGuards(g: ExportGate, o?: GateOverride): ReviewItem[] {
   if (!g.blocked) return []

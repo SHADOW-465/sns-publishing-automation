@@ -1,9 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { remember, useObjectUrls } from './shared.tsx'
 import { GatedDownload } from './GatedDownload.tsx'
 import { collectPdfGate, type ExportGate } from '../engine/check/exportgate.ts'
-import { Help, Status } from './wizard.tsx'
+import { Help, Status, StepNav } from './wizard.tsx'
+import { targetId, type Need } from './needs.ts'
+import { useReviewNotes, ReviewSummary } from './ReviewNotes.tsx'
+import { leftNote, reviewNotes, withLeft, type DecisionNote } from '../engine/review/decisions.ts'
+import type { GateOverride } from '../engine/check/exportgate.ts'
 import { browserRaster } from './raster-browser.ts'
 import { UA_ROLES, UA_ROLE_HELP, type UaRole, type UaStyle } from '../engine/pdfua/structure.ts'
 import { specForFigures, type UaAnalysis } from '../engine/pdfua/index.ts'
@@ -35,16 +39,19 @@ export function PdfUaFlow() {
   const [crop, setCrop] = useState(true)
   const [result, setResult] = useState<Built>()
   const [notice, setNotice] = useState<string>()
+  const rn = useReviewNotes()
 
-  const run = async (label: string, fn: () => Promise<void>) => {
+  /** a failed job shows its error and returns undefined: the person can try again or go on anyway */
+  const run = async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
     setBusy(label)
     setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
-      await fn()
+      return await fn()
     } catch (e) {
       setError((e as Error).message)
+      return undefined
     } finally {
       setBusy(undefined)
       setProgress(undefined)
@@ -74,20 +81,26 @@ export function PdfUaFlow() {
       setDecorative({})
       setSpec({})
       setAi({})
+      rn.clear()
       setA(r)
       setResult(undefined)
     })
 
-  const onBuild = () =>
+  type Over = { meta?: UaAnalysis['meta']; alt?: Record<string, string>; decorative?: Record<string, boolean>; ai?: typeof ai }
+  const onBuild = (over?: Over) =>
     run('Tagging the PDF…', async () => {
+      const metaNow = over?.meta ?? meta!
+      const altNow = over?.alt ?? alt
+      const decorativeNow = over?.decorative ?? decorative
+      const aiNow = over?.ai ?? ai
       const { buildUa } = await import('../engine/pdfua/index.ts')
       const { openSpec } = await import('../engine/spec/session.ts')
       const { uaOptionsFrom } = await import('../engine/pdfua/structure.ts')
       // the client's layers, then the Accessible PDF defaults, give the options (heading level, bookmarks, logos, links)
-      const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: meta!.isbn || meta!.title, kind: 'accessible-pdf' })
+      const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: metaNow.isbn || metaNow.title, kind: 'accessible-pdf' })
       const options = uaOptionsFrom(uaSpec.resolved.settings)
       const built = await buildUa(a!, {
-        styles, meta: meta!, alt, spec, ai, decorative, cropToTrim: crop, sourceName: pdf!.name, options,
+        styles, meta: metaNow, alt: altNow, spec, ai: aiNow, decorative: decorativeNow, cropToTrim: crop, sourceName: pdf!.name, options,
         onProgress: (done, total, stage) => {
           const name = stage ?? 'Tagging the PDF'
           setBusy(total ? `${name}: ${done} of ${total}` : name)
@@ -120,26 +133,102 @@ export function PdfUaFlow() {
     })
 
   const visionOn = !!visionConfig().apiKey.trim()
+  /** asks the vision model for the pictures given; nothing is set here */
+  const draftNext = async (keys: string[]) => {
+    const targets = a!.figures.filter((f) => keys.includes(f.key) && f.thumb && f.thumb.length)
+    if (!targets.length) return undefined
+    const drafted = await draftPictureAlts(
+      targets.map((f) => ({ id: f.key, bytes: f.thumb!, mime: mimeOf('picture.jpg', f.thumb!), caption: f.caption, nearby: '' })),
+      meta?.lang || 'en',
+      visionConfig(),
+      (done, total) => setProgress({ done, total }),
+    )
+    const next = { ...ai }
+    for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
+    return { next, drafted }
+  }
   const draftFigures = (keys: string[]) =>
     run(keys.length === 1 ? 'Drafting a description…' : 'Drafting picture descriptions…', async () => {
       if (!a) return
-      const targets = a.figures.filter((f) => keys.includes(f.key) && f.thumb && f.thumb.length)
-      if (!targets.length) {
+      const r = await draftNext(keys)
+      if (!r) {
         setNotice('Those pictures have no preview to send to the vision model.')
         return
       }
-      const drafted = await draftPictureAlts(
-        targets.map((f) => ({ id: f.key, bytes: f.thumb!, mime: mimeOf('picture.jpg', f.thumb!), caption: f.caption, nearby: '' })),
-        meta?.lang || 'en',
-        visionConfig(),
-        (done, total) => setProgress({ done, total }),
-      )
-      const next = { ...ai }
-      for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
-      setAi(next)
-      const failed = drafted.filter((d) => d.error)
-      setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt || d.decorative).length} description(s). Approve each one before it is treated as final. A chart’s long description is added to the PDF description.`)
+      setAi(r.next)
+      const failed = r.drafted.filter((d) => d.error)
+      setNotice(failed[0]?.error ?? `Drafted ${r.drafted.filter((d) => d.alt || d.decorative).length} description(s). Approve each one before it is treated as final. A chart’s long description is added to the PDF description.`)
     })
+
+  const pageOf = (page: number) => a?.book.numbers[page] ?? `PDF page ${page + 1}`
+  const figNeed = (f: UaAnalysis['figures'][number], why: string): Need => ({ id: 'alt:' + f.key, label: `Picture on page ${pageOf(f.page)}: ${why}`, group: 'picture', kind: 'choice', target: targetId('alt:' + f.key), where: `page ${pageOf(f.page)}` })
+  const noAlt = 'no description yet'
+  const unapproved = 'AI description not approved yet'
+  const todoFigs = a ? a.figures.filter((f) => !decorative[f.key] && !alt[f.key]?.trim()) : []
+  const pendingFigs = a ? a.figures.filter((f) => ai[f.key] && !ai[f.key].approved && !todoFigs.includes(f)) : []
+  const buildNeeds: Need[] = meta
+    ? [
+        ...(!meta.title.trim() ? [{ id: 'meta:title', label: 'The title is missing', group: 'book title', kind: 'choice' as const, target: 'ua-meta-title', where: 'Document details › Title' }] : []),
+        ...(!meta.lang.trim() ? [{ id: 'meta:lang', label: 'The language is missing', group: 'language', kind: 'choice' as const, target: 'ua-meta-lang', where: 'Document details › Language' }] : []),
+        ...todoFigs.map((f) => figNeed(f, noAlt)),
+        ...pendingFigs.map((f) => figNeed(f, unapproved)),
+      ]
+    : []
+  /** Fix with AI: a missing title takes the file name and a missing language the one the text is in (or English); the vision model describes the pictures
+   *  without a description (when a key is set); every AI draft is approved. What cannot be decided is written as left. */
+  const fixBuild = (): Promise<{ notes: DecisionNote[]; over: Over } | undefined> =>
+    run('Deciding the open items…', async () => {
+      const notes: DecisionNote[] = []
+      let m = meta!
+      if (!m.title.trim()) {
+        const t = pdf!.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim()
+        m = { ...m, title: t }
+        notes.push({ step: 'Build', item: 'The title is missing', chosen: `Used the file name: “${t}”`, how: 'guess', where: 'Document details › Title' })
+      }
+      if (!m.lang.trim()) {
+        const l = a!.book.meta.language || 'en'
+        m = { ...m, lang: l }
+        notes.push({ step: 'Build', item: 'The language is missing', chosen: `Set to “${l}”${a!.book.meta.language ? ', the language the text is in' : ', the default'}`, how: 'guess', where: 'Document details › Language' })
+      }
+      let next = { ...ai }
+      if (visionOn && todoFigs.length) {
+        const r = await draftNext(todoFigs.map((f) => f.key))
+        if (r) {
+          next = r.next
+          const failed = r.drafted.find((d) => d.error)
+          if (failed) setNotice(failed.error)
+        }
+      }
+      const altNow = { ...alt }
+      const decNow = { ...decorative }
+      for (const f of [...todoFigs, ...pendingFigs]) {
+        const d = next[f.key]
+        const need = figNeed(f, todoFigs.includes(f) ? noAlt : unapproved)
+        if (d && (d.decorative || d.alt?.trim())) {
+          if (d.decorative) decNow[f.key] = true
+          else altNow[f.key] = d.alt
+          next[f.key] = { ...d, approved: true }
+          notes.push({ step: 'Build', item: need.label, chosen: d.decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${d.alt}”; accepted without a person reading it.`, how: 'ai', where: need.where })
+        } else notes.push({ ...leftNote('Build', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+      }
+      setMeta(m)
+      setAlt(altNow)
+      setDecorative(decNow)
+      setAi(next)
+      return { notes, over: { meta: m, alt: altNow, decorative: decNow, ai: next } }
+    })
+  const leftNow = (): DecisionNote[] => [
+    ...buildNeeds.map((n) => leftNote('Build', n)),
+  ]
+  const notesText = (o?: GateOverride) =>
+    reviewNotes({ file: result!.fileName, kind: 'Accessible PDF', notes: withLeft(rn.notes, leftNow()), missing: [...(meta?.title.trim() ? [] : ['Title: not given.']), ...(meta?.lang.trim() ? [] : ['Language: not given.'])], gate: result!.gate, override: o })
+  /** Fix with AI on the finished PDF: decide what can be decided, then tag the PDF again */
+  const fixAll = async () => {
+    const f = await fixBuild()
+    if (!f) return
+    rn.add(f.notes)
+    await onBuild(f.over)
+  }
 
   return (
     <div className="flow">
@@ -169,9 +258,7 @@ export function PdfUaFlow() {
           </ul>
           Everything runs in this browser; nothing is uploaded. At the end, open the result in PAC (PDF Accessibility Checker) for the official report.
         </Help>
-        <button className="primary" disabled={!pdf || !!busy} onClick={onAnalyse}>
-          Analyse
-        </button>
+        <StepNav onNext={onAnalyse} next="Analyse" nextDisabled={!!busy} needs={pdf ? [] : [{ id: 'file:pdf', label: 'Add the print PDF', group: 'print PDF', kind: 'choice' }]} />
       </section>
 
       {a && meta && (
@@ -190,7 +277,7 @@ export function PdfUaFlow() {
                   ['isbn', 'E-ISBN', 'optional — added to the file name'],
                 ] as [keyof UaAnalysis['meta'], string, string?][]
               ).map(([k, label, hint]) => (
-                <label key={k} className={(k === 'title' || k === 'lang') && !meta[k] ? 'bad' : ''}>
+                <label key={k} id={`ua-meta-${k}`} className={(k === 'title' || k === 'lang') && !meta[k] ? 'bad' : ''}>
                   <span>{label}</span>
                   <input value={meta[k]} placeholder={hint} onChange={(e) => set(k, e.target.value)} />
                 </label>
@@ -265,15 +352,12 @@ export function PdfUaFlow() {
 
           <section className="card">
             <h2>Build</h2>
-            {!meta.title && <p className="err small">Enter the document title.</p>}
-            <button className="primary" disabled={!!busy || !meta.title || !meta.lang} onClick={onBuild}>
-              {result ? 'Rebuild accessible PDF' : 'Build accessible PDF'}
-            </button>
+            <StepNav onNext={() => onBuild()} next={result ? 'Rebuild accessible PDF' : 'Build accessible PDF'} nextDisabled={!!busy} {...rn.choices('Build', buildNeeds, fixBuild, (over) => onBuild(over))} />
           </section>
         </>
       )}
 
-      {result && <UaResult result={result} />}
+      {result && <UaResult result={result} notes={notesText} onFix={fixAll} busy={!!busy} summary={<ReviewSummary notes={withLeft(rn.notes, leftNow())} build={{ file: result.fileName, kind: 'PDF' }} />} />}
     </div>
   )
 }
@@ -320,7 +404,7 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, ai, busy, visionOn
       </div>
       <div className="images pics">
         {shown.map((f) => (
-          <div key={f.key} className="img-row">
+          <div key={f.key} id={targetId('alt:' + f.key)} className="img-row">
             {urls.get(f.key) ? <img src={urls.get(f.key)} alt="" loading="lazy" /> : <div className="muted small">no preview</div>}
             <div>
               <code>
@@ -371,7 +455,7 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, ai, busy, visionOn
   )
 }
 
-function UaResult({ result }: { result: Built }) {
+function UaResult({ result, notes, onFix, busy, summary }: { result: Built; notes: (o?: GateOverride) => string; onFix: () => Promise<void>; busy: boolean; summary: ReactNode }) {
   const by = (l: ReviewItem['level']) => result.review.filter((r) => r.level === l)
   const errors = by('error')
   const s = result.stats
@@ -393,8 +477,9 @@ function UaResult({ result }: { result: Built }) {
           )),
         )}
       </ul>
+      {summary}
       <div className="row">
-        <GatedDownload gate={result.gate} data={result.pdf} name={result.fileName} type="application/pdf" label={`Download ${result.fileName}`} ctx={{ client: result.client, book: result.fileName }} />
+        <GatedDownload gate={result.gate} data={result.pdf} name={result.fileName} type="application/pdf" label={`Download ${result.fileName}`} notes={notes} onFix={onFix} busy={busy} ctx={{ client: result.client, book: result.fileName }} />
         <span className="muted">Then run PAC (PDF Accessibility Checker) on it as the final check.</span>
       </div>
     </section>

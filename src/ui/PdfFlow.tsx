@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
-import { reviewList } from '../engine/review/confidence.ts'
+import { reviewList, blockingItems, acceptable } from '../engine/review/confidence.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { browserRaster } from './raster-browser.ts'
 import { PDF_ROLES, PDF_ROLE_HELP, type PdfBook, type PdfProfile, type PdfRole, type PdfStyleInfo } from '../engine/pdfepub/analyze.ts'
@@ -21,13 +21,21 @@ import { settings, setSettings, houseSettings } from '../engine/settings.ts'
 import { GatedDownload } from './GatedDownload.tsx'
 import { openSpec, applyBookDetailsToSpec } from '../engine/spec/session.ts'
 import { collectGate, uiStages, type ExportGate } from '../engine/check/exportgate.ts'
-import { outputViolations } from '../engine/output/standards.ts'
+import { outputViolations, defaultFor } from '../engine/output/standards.ts'
+import { structureNeeds, detailNeeds, targetId, keepStylePatch, type Need } from './needs.ts'
+import { useReviewNotes, ReviewSummary } from './ReviewNotes.tsx'
+import { aiDetails, frontMatterText } from '../engine/review/ai-fix.ts'
+import { decideDetails, decideStructure, leftNote, missingDetails, reviewNotes, whereOfItem, withLeft, type DecisionNote } from '../engine/review/decisions.ts'
+import { placeholderCover } from '../engine/epub/placeholder-cover.ts'
+import { ruleById } from '../engine/spec/rules.ts'
+import type { GateOverride } from '../engine/check/exportgate.ts'
 
 // Print PDF, or a Word manuscript read from its heading styles, → EPUB 3. A .docx is the source when
 // one is attached; otherwise the print PDF is. The cover is a JPG or PNG. The vision key stays in Settings.
 
 type AiDraft = { alt: string; longDesc?: string; approved: boolean; decorative?: boolean }
-type Over = { alt?: Record<string, string>; ai?: Record<string, AiDraft>; pictures?: SpecPicture[] }
+/** values for the next build that were set a moment ago (state set in the same click is not seen by the build yet) */
+type Over = { alt?: Record<string, string>; ai?: Record<string, AiDraft>; pictures?: SpecPicture[]; meta?: BookMeta; fix?: Record<string, unknown> }
 
 const emptyMeta = (b: { title: string; authors: string; publisher: string; language: string }): BookMeta => ({
   title: b.title,
@@ -68,17 +76,23 @@ export function PdfFlow() {
   const [stale, setStale] = useState(true)
   const [layout, setLayout] = useState<PrintPage[]>()
   const [navs, setNavs] = useState<Record<number, string>>({})
+  const [acked, setAcked] = useState<Set<string>>(new Set())
+  /** settings the tool set to fit the kind of e-book chosen (Fix with AI); they apply to this book's builds only */
+  const [fixedSettings, setFixedSettings] = useState<Record<string, unknown>>({})
+  const rn = useReviewNotes()
   const scCache = useRef<{ key: string; words: string[] } | undefined>(undefined)
 
-  const run = async (label: string, fn: () => Promise<void>) => {
+  /** a failed job shows its error and returns undefined: the person can try again or go on anyway */
+  const run = async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
     setBusy(label)
     setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30))
     try {
-      await fn()
+      return await fn()
     } catch (e) {
       setError((e as Error).message)
+      return undefined
     } finally {
       setBusy(undefined)
       setProgress(undefined)
@@ -93,6 +107,9 @@ export function PdfFlow() {
       setAi({})
       setSpecPictures([])
       setNavs({})
+      setAcked(new Set())
+      setFixedSettings({})
+      rn.clear()
       setStale(true)
       if (docx) {
         const { readWordBook } = await import('../engine/wordepub/read.ts')
@@ -140,11 +157,12 @@ export function PdfFlow() {
   }
   const rebuild = async (then?: number, over?: Over) => {
     const details = await bookDetailsSettings()
-    if (details) setSettings({ ...houseSettings(), ...details })
+    const extra = { ...details, ...fixedSettings, ...over?.fix }
+    if (Object.keys(extra).length) setSettings({ ...houseSettings(), ...extra })
     try {
       await rebuildBook(then, over)
     } finally {
-      if (details) setSettings(houseSettings())
+      if (Object.keys(extra).length) setSettings(houseSettings())
     }
   }
   const rebuildBook = async (then?: number, over?: Over) => {
@@ -152,8 +170,8 @@ export function PdfFlow() {
     const altNow = over?.alt ?? alt
     const aiNow = over?.ai ?? ai
     const picsNow = over?.pictures ?? specPictures
-    let coverImg = cover
-    if (!coverImg) throw new Error('A cover image is required (JPG or PNG).')
+    const metaNow = over?.meta ?? meta!
+    let coverImg = cover ?? placeholderCover() // no cover must not stop the export: a plain one is used and the review notes say so
     if (book && cover && /\.pdf$/i.test(cover.name)) {
       setBusy('Cutting the front cover out of the cover PDF…')
       const { pdfjs } = await import('./pdf.ts')
@@ -190,10 +208,10 @@ export function PdfFlow() {
           smallCapWords = scCache.current.words
         }
       }
-      r = buildWordEpub(wordBook, { meta: meta!, cover: { name: coverImg.name, data: coverImg.data }, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs, printPages, smallCapWords })
+      r = buildWordEpub(wordBook, { meta: metaNow, cover: { name: coverImg.name, data: coverImg.data }, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs, printPages, smallCapWords })
     } else {
       const { buildPdfEpub } = await import('../engine/pdfepub/build.ts')
-      r = await buildPdfEpub(book!, { styles, meta: meta!, rules, cover: coverImg, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs }, browserRaster)
+      r = await buildPdfEpub(book!, { styles, meta: metaNow, rules, cover: coverImg, alt: altNow, pictures: picsNow, ai: aiNow, sectionNav: navs }, browserRaster)
     }
     setResult(r)
     // `alt` stays the reviewer's own text. Copying the resolved description in here would make the
@@ -217,12 +235,12 @@ export function PdfFlow() {
     // VAL-001: every guard and EPUBCheck, before any download
     setGate(collectGate({ report: rep, review: r.review, stages: uiStages(r.files, settings(), ecNow, a11yNow) }))
     setStale(false)
-    if (book) remember('pdfprofile', meta!.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
-    remember('copyright', meta!.publisher, rules)
+    if (book) remember('pdfprofile', metaNow.publisher, Object.fromEntries(styles.map((s) => [s.key, s.role])))
+    remember('copyright', metaNow.publisher, rules)
     if (then !== undefined) setStep(then)
   }
   const buildAnd = (then?: number, over?: Over) => run('Building the e-book…', () => rebuild(then, over))
-  const go = (i: number) => (i >= 2 && (stale || !result) ? buildAnd(i) : setStep(i))
+  const go = (i: number, over?: Over) => (i >= 2 && (stale || !result) ? buildAnd(i, over) : setStep(i))
   const setRole = (key: string, role: PdfRole) => (setStyles((s) => s.map((x) => (x.key === key ? { ...x, role, unsure: false } : x))), setStale(true))
 
   const ready = !!book || !!wordBook
@@ -236,19 +254,114 @@ export function PdfFlow() {
         noteFindings: book?.notes,
       })
     : undefined
-  const structurePending = structureReview?.items.length ?? 0
-  const structureNext = useConfirmNext(structurePending, () => setStep(3))
+  const blocking = structureReview ? blockingItems(structureReview.items, acked) : []
+  const sectionsNow = (result?.sections ?? []).map((s, i) => ({ nav: (navs[i] ?? '').trim() || s.nav, file: s.file }))
+  const structureBlock = structureNeeds(blocking, acceptable, (it) => whereOfItem(it, sectionsNow))
+  /** Fix with AI on the Structure step: keep the tool's best reading of every unsure item. Nothing changes in the book. */
+  const fixStructure = () => {
+    const d = decideStructure(blocking, { roleOf: (k) => styles.find((x) => x.key === k)?.role, typeOf: (i) => result?.sections[i]?.type, valueOf: (f) => (meta as unknown as Record<string, string> | undefined)?.[f], sections: sectionsNow })
+    setStyles((ss) => ss.map((x) => (d.keepStyles.includes(x.key) ? { ...x, unsure: false, reason: 'kept as read by the reviewer' } : x)))
+    setAcked((a) => new Set([...a, ...d.ack]))
+    return { notes: d.notes }
+  }
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
   const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && (p.decorative || (!!p.alt.trim() && !isPlaceholderAlt(p.alt)))) : []
   const visionOn = !!visionConfig().apiKey.trim()
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
-  const outputProblems = meta ? outputViolations(outputKind, settings()) : []
+  const outputProblems = meta ? outputViolations(outputKind, { ...settings(), ...fixedSettings }) : []
   const outputErrors = outputProblems.filter((p) => p.level === 'error')
+  const fileOf = (path: string) => path.replace('images/', '')
+  const noAlt = 'no description yet'
+  const unapproved = 'AI description not approved yet'
+  const pictureNeed = (path: string, why: string): Need => ({ id: 'alt:' + path, label: `Picture ${fileOf(path)}: ${why}`, group: 'picture', kind: 'choice', target: targetId('alt:' + path), where: `picture file ${fileOf(path)}` })
+  const outputNeed = (p: { message: string; ruleId?: string }, i: number): Need => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice', where: p.ruleId ? `rule ${p.ruleId}` : undefined })
+  const coverNeed: Need = { id: 'cover:missing', label: 'No cover image was added: a plain placeholder cover is used', group: 'cover image', kind: 'choice', where: 'Files › Cover image' }
+  const buildNeeds: Need[] = [...(meta ? detailNeeds(meta) : []), ...(cover ? [] : [coverNeed]), ...outputErrors.map(outputNeed)]
+  const pictureNeeds: Need[] = [...todo.map((p) => pictureNeed(p.path, noAlt)), ...pendingAi.filter((p) => !todo.includes(p)).map((p) => pictureNeed(p.path, unapproved))]
+  /** Fix with AI before the build: title from the file name, a standard value for a setting that does not fit, a placeholder cover. */
+  const fixBuild = async (): Promise<{ notes: DecisionNote[]; over: Over }> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines: string[] = book ? book.pages.slice(0, 10).flatMap((p) => p.lines.map((l) => l.text)) : (wordBook?.blocks ?? []).slice(0, 300).map((x) => String((x as any).text ?? ''))
+    const ai = await aiDetails(meta!, frontMatterText(lines))
+    const d = decideDetails(ai.meta, (docx ?? pdf)?.name)
+    const notes = [...ai.notes, ...d.notes]
+    if (d.meta !== meta) (setMeta(d.meta), setStale(true))
+    const fix = { ...fixedSettings }
+    for (const p of outputErrors.filter((x) => x.ruleId)) {
+      const key = ruleById.get(p.ruleId!)?.key
+      const v = defaultFor(outputKind, p.ruleId!).value
+      if (!key || v === undefined) continue
+      fix[key] = v
+      notes.push({ step: 'Book details', item: p.message, chosen: `Set rule ${p.ruleId} to ${String(v)}, the value the ${outputKind === 'standard-epub' ? 'Standard' : 'Accessible'} EPUB standard asks for.`, how: 'guess', where: `rule ${p.ruleId}` })
+    }
+    setFixedSettings(fix)
+    if (!cover) notes.push({ step: 'Book details', item: coverNeed.label, chosen: 'A plain placeholder cover was used. Add the real cover before publishing.', how: 'guess', where: coverNeed.where })
+    return { notes, over: { meta: d.meta, fix } }
+  }
+  /** asks the vision model for the pictures given; nothing is set here */
+  const draftNext = async (paths: string[]) => {
+    const targets = result!.pictures.filter((p) => paths.includes(p.path))
+    const drafted = await draftPictureAlts(
+      targets.map((p) => {
+        const bytes = result!.files.get(`OEBPS/${p.path}`) ?? new Uint8Array()
+        return { id: p.path, bytes, mime: mimeOf(p.path, bytes), caption: p.caption, nearby: '' }
+      }),
+      meta?.language || wordBook?.language || book?.meta.language || 'en',
+      visionConfig(),
+      (done, total) => setProgress({ done, total }),
+    )
+    const next = { ...ai }
+    for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
+    return { next, drafted }
+  }
+  /** Fix with AI on the pictures: the vision model describes the ones without a description (when a key is set) and every AI draft is approved. */
+  const fixPictures = (): Promise<{ notes: DecisionNote[]; over: Over } | undefined> =>
+    run('Deciding the pictures…', async () => {
+      if (!result) return { notes: [], over: {} }
+      let next = { ...ai }
+      if (visionOn && todo.length) {
+        const r = await draftNext(todo.map((p) => p.path))
+        next = r.next
+        const failed = r.drafted.find((d) => d.error)
+        if (failed) setNotice(failed.error)
+      }
+      const notes: DecisionNote[] = []
+      for (const p of result.pictures.filter((x) => todo.includes(x) || pendingAi.includes(x))) {
+        const need = pictureNeed(p.path, todo.includes(p) ? noAlt : unapproved)
+        const cur = next[p.path]
+        const text = cur?.alt || p.alt
+        const has = !!cur?.decorative || p.decorative || (!!text.trim() && !isPlaceholderAlt(text))
+        if (has && (cur || p.source === 'ai')) {
+          next[p.path] = { alt: text, longDesc: cur?.longDesc || p.longDesc, decorative: cur?.decorative ?? p.decorative, approved: true }
+          notes.push({ step: 'Pictures', item: need.label, chosen: next[p.path].decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${text}”; accepted without a person reading it.`, how: 'ai', where: need.where })
+        } else notes.push({ ...leftNote('Pictures', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+      }
+      setAi(next)
+      setStale(true)
+      return { notes, over: { ai: next } }
+    })
+  /** What is still unsure when the file is made, written next to what was decided on the way. */
+  const leftNow = (): DecisionNote[] => [
+    ...(structureReview?.items ?? []).filter((it) => !acked.has(it.id)).map((it) => leftNote('Structure', { label: it.title, where: whereOfItem(it, sectionsNow) })),
+    ...todo.map((p) => ({ ...leftNote('Pictures', pictureNeed(p.path, noAlt)), chosen: 'Left without a description.' })),
+    ...pendingAi.filter((p) => !todo.includes(p)).map((p) => leftNote('Pictures', pictureNeed(p.path, unapproved))),
+    ...outputErrors.map((p, i) => leftNote('Book details', outputNeed(p, i))),
+    ...(cover ? [] : [{ step: 'Book details', item: coverNeed.label, chosen: 'A plain placeholder cover was used. Add the real cover before publishing.', how: 'left' as const, where: coverNeed.where }]),
+  ]
+  const notesText = (o?: GateOverride) => reviewNotes({ file: epubFileName(meta!), kind: outputKind === 'standard-epub' ? 'Standard EPUB' : 'Accessible EPUB', notes: withLeft(rn.notes, leftNow()), missing: missingDetails(meta!), gate, override: o })
+  /** Fix with AI at the end: the structure and the pictures are decided, then the file is built and checked again */
+  const fixAll = async () => {
+    rn.add(fixStructure().notes)
+    const p = await fixPictures()
+    if (!p) return
+    rn.add(p.notes)
+    await buildAnd(undefined, p.over)
+  }
   const steps = [
     { title: 'Files', hint: wordBook ? 'Word manuscript and cover' : 'print PDF and cover', enabled: true, done: ready },
     { title: 'Book details', hint: 'title, ISBN, copyright', enabled: ready, done: !!meta && isbn13Valid(meta.eisbn) },
-    { title: 'Structure', hint: 'chapters and pages', enabled: ready && !!cover, done: !!result && step > 2 },
+    { title: 'Structure', hint: 'chapters and pages', enabled: ready, done: !!result && step > 2 },
     { title: 'Pictures', hint: 'descriptions', enabled: !!result, done: !!result && todo.length === 0 },
     { title: 'Check & download', hint: 'quality report', enabled: !!result, done: !!report && !stale && errors === 0 },
   ]
@@ -256,18 +369,7 @@ export function PdfFlow() {
   const draftPictures = (paths: string[]) =>
     run(paths.length === 1 ? 'Drafting a description…' : 'Drafting picture descriptions…', async () => {
       if (!result) return
-      const targets = result.pictures.filter((p) => paths.includes(p.path))
-      const drafted = await draftPictureAlts(
-        targets.map((p) => {
-          const bytes = result.files.get(`OEBPS/${p.path}`) ?? new Uint8Array()
-          return { id: p.path, bytes, mime: mimeOf(p.path, bytes), caption: p.caption, nearby: '' }
-        }),
-        meta?.language || wordBook?.language || book?.meta.language || 'en',
-        visionConfig(),
-        (done, total) => setProgress({ done, total }),
-      )
-      const next = { ...ai }
-      for (const d of drafted) if (d.alt || d.longDesc || d.decorative) next[d.id] = { alt: d.alt, longDesc: d.longDesc, decorative: d.decorative, approved: false }
+      const { next, drafted } = await draftNext(paths)
       setAi(next)
       const failed = drafted.filter((d) => d.error)
       setNotice(failed[0]?.error ?? `Drafted ${drafted.filter((d) => d.alt || d.decorative).length} description(s). Each one needs approval.`)
@@ -365,8 +467,15 @@ export function PdfFlow() {
               ))}
             </ul>
           )}
-          <StepNav onBack={() => setStep(0)} onNext={() => go(2)} next="Build the e-book" nextDisabled={!!busy} needs={[...(!cover ? [{ id: 'file:cover', label: 'Add the cover image (JPG or PNG) in step 1', group: 'cover image', kind: 'choice' as const }] : []), ...outputErrors.map((p, i) => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice' as const }))]}>
-            {outputErrors.length ? 'Fix the problems above before building.' : !cover ? 'Add the cover in step 1 first.' : ''}
+          <StepNav
+            onBack={() => setStep(0)}
+            onNext={() => go(2)}
+            next="Build the e-book"
+            nextDisabled={!!busy}
+            onMyself={!cover && buildNeeds.every((n) => n === coverNeed) ? () => setStep(0) : undefined}
+            {...rn.choices('Book details', buildNeeds, fixBuild, (over) => go(2, over))}
+          >
+            {outputErrors.length ? 'Some settings do not fit this kind of e-book.' : !cover ? 'No cover yet: a plain one is used until you add it in step 1.' : ''}
           </StepNav>
         </>
       )}
@@ -388,7 +497,7 @@ export function PdfFlow() {
               <h3>Check these first</h3>
               <ol>
                 {structureReview.items.map((it) => (
-                  <li key={it.id}>
+                  <li key={it.id} id={targetId(it.id)}>
                     <span className={`flag ${it.confidence}`}>{it.confidence === 'low' ? 'not sure' : 'please look'}</span> <span className="muted small">{Math.round(it.score * 100)}%</span> <strong>{it.title}</strong>
                     <div className="muted small">{it.why}</div>
                   </li>
@@ -443,12 +552,7 @@ export function PdfFlow() {
               </div>
             </details>
           )}
-          {structureNext.asked && (
-            <p className="note warnbox" role="status">
-              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look: a missing title, an unknown part, or a guess. Check the list, or continue anyway.
-            </p>
-          )}
-          <StepNav onBack={() => setStep(1)} onNext={structureNext.onNext} next={structureNext.next} />
+          <StepNav onBack={() => setStep(1)} onNext={() => setStep(3)} {...rn.choices('Structure', structureBlock, fixStructure, () => setStep(3))} />
         </section>
       )}
 
@@ -459,6 +563,7 @@ export function PdfFlow() {
           setAlt={(a) => (setAlt(a), setStale(true))}
           onBack={() => setStep(2)}
           onNext={() => buildAnd(4)}
+          choices={rn.choices('Pictures', pictureNeeds, fixPictures, (over) => buildAnd(4, over))}
           busy={!!busy}
           todo={todo.length}
           pending={pendingAi.length}
@@ -483,8 +588,9 @@ export function PdfFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" notes={notesText} onFix={fixAll} busy={!!busy} ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
           </div>
+          <ReviewSummary notes={withLeft(rn.notes, leftNow())} missing={missingDetails(meta)} build={{ file: epubFileName(meta), kind: 'EPUB' }} />
           <Help title="What happens after download?">
             Run EPUBCheck (file validity) and Ace by DAISY (accessibility) as the final check before delivery, and look through the book in a reader such as Apple Books
             or Thorium.
@@ -521,12 +627,14 @@ function needsPictureDescription(p: { path: string; alt: string; decorative: boo
   return !text || isPlaceholderAlt(text) || text === p.caption.trim()
 }
 
-function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, visionOn, onDraft, onDraftOne, onApprove, onApproveAll, onSheet }: {
+function Pictures({ result, alt, setAlt, onBack, onNext, choices, busy, todo, pending, visionOn, onDraft, onDraftOne, onApprove, onApproveAll, onSheet }: {
   result: PdfBuildResult
   alt: Record<string, string>
   setAlt: (a: Record<string, string>) => void
   onBack: () => void
   onNext: () => void
+  /** Fix with AI / Continue anyway for the pictures that still need a description */
+  choices: { needs: Need[]; onFix: () => void; onContinueAnyway: () => void }
   busy: boolean
   todo: number
   pending: number
@@ -574,7 +682,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, vi
         {shown.map((p) => {
           const openDraft = p.source === 'ai' && !p.approved
           return (
-            <div key={p.path} className={`img-row ${needsPictureDescription(p, alt) ? 'todo' : ''} ${openDraft ? 'pending' : ''}`}>
+            <div key={p.path} id={targetId('alt:' + p.path)} className={`img-row ${needsPictureDescription(p, alt) ? 'todo' : ''} ${openDraft ? 'pending' : ''}`}>
               <img src={urls.get(p.path)} alt="" loading="lazy" />
               <div>
                 <code>{p.path.replace('images/', '')}</code>
@@ -595,7 +703,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, busy, todo, pending, vi
           )
         })}
       </div>
-      <StepNav onBack={onBack} onNext={onNext} next="Build and check" nextDisabled={busy}>
+      <StepNav onBack={onBack} onNext={onNext} next="Build and check" nextDisabled={busy} {...choices}>
         {todo ? `${todo} picture(s) still need a description.` : ''}
       </StepNav>
     </section>

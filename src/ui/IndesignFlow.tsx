@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages, useConfirmNext } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { unzip, text } from '../engine/zip.ts'
 import { analyzeSteps, build, usePdfPictures, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
@@ -17,12 +17,16 @@ import { SpecStep } from './SpecStep.tsx'
 import { GatedDownload } from './GatedDownload.tsx'
 import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, applyBookDetailsToSpec, type Spec } from '../engine/spec/session.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
-import { collectGate, uiStages, type ExportGate } from '../engine/check/exportgate.ts'
+import { collectGate, uiStages, type ExportGate, type GateOverride } from '../engine/check/exportgate.ts'
 import { CheckFirst } from './CheckFirst.tsx'
 import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
 import { reviewList, blockingItems, acceptable, acceptAllIds } from '../engine/review/confidence.ts'
-import { structureNeeds, type Need } from './needs.ts'
+import { structureNeeds, detailNeeds, targetId, keepStylePatch, type Need } from './needs.ts'
+import { useReviewNotes, ReviewSummary } from './ReviewNotes.tsx'
+import { aiDetails, frontMatterText } from '../engine/review/ai-fix.ts'
+import { decideDetails, decideStructure, leftNote, missingDetails, reviewNotes, whereOfItem, withLeft, type DecisionNote } from '../engine/review/decisions.ts'
+import { defaultFor } from '../engine/output/standards.ts'
 import { actorName } from './SpecStep.tsx'
 import { setSettings, houseSettings, settings } from '../engine/settings.ts'
 import { outputViolations } from '../engine/output/standards.ts'
@@ -60,18 +64,21 @@ export function IndesignFlow() {
   const [navs, setNavs] = useState<Record<number, string>>({})
   const [spec, setSpec] = useState<Spec>()
   const [decision, setDecision] = useState<Decision>()
+  const rn = useReviewNotes()
 
   const thumbs = useObjectUrls(useMemo(() => [...(analysis?.ex.images ?? [])], [analysis]))
 
-  const run = async (label: string, fn: () => Promise<void> | void) => {
+  /** a failed job shows its error and returns undefined: the person can try again or go on anyway */
+  const run = async <T,>(label: string, fn: () => Promise<T> | T): Promise<T | undefined> => {
     setBusy(label)
     setProgress(undefined)
     setError(undefined)
     await new Promise((r) => setTimeout(r, 30)) // let the status line paint
     try {
-      await fn()
+      return await fn()
     } catch (e) {
       setError((e as Error).message)
+      return undefined
     } finally {
       setBusy(undefined)
       setProgress(undefined)
@@ -112,6 +119,7 @@ export function IndesignFlow() {
       setTypes({})
       setNavs({})
       setSpec(undefined) // a new book: its spec is opened (and decided) again
+      rn.clear()
       setDecision(undefined)
       setStale(true)
       if (pdf) {
@@ -138,10 +146,10 @@ export function IndesignFlow() {
     })
 
   /** builds the EPUB (fast) and runs the quality check on it */
-  const rebuild = (then?: number) =>
+  const rebuild = (then?: number, over?: { images?: ImageChoice[]; spec?: Spec }) =>
     run('Building the preview. Large books can take a minute or two; the page is working…', async () => {
       // the rules the client set (or accepted) in the Spec step are the rules the build follows
-      let sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+      let sp = over?.spec ?? spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
       // the client's Book_Details file is a book-layer setting, read by the spec loader and recorded in the log
       if (bookDetails && sp.layers.find((l) => l.level === 'book')?.bookDetails?.source !== bookDetails.name) {
         const bd = readRequirements(bookDetails.name, bookDetails.data).bookDetails
@@ -154,7 +162,7 @@ export function IndesignFlow() {
       try {
         setProgress({ done: 0, total: 2 })
         await new Promise((r) => setTimeout(r, 30))
-        const r = build(analysis!, { styles, meta: meta!, images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types, sectionNav: navs })
+        const r = build(analysis!, { styles, meta: meta!, images: over?.images ?? images, cover: cover ? { name: cover.name, data: cover.data } : undefined, printPages, sectionTypes: types, sectionNav: navs })
         setResult(r)
         setBusy('Checking the e-book…')
         setProgress({ done: 1, total: 2 })
@@ -216,43 +224,125 @@ export function IndesignFlow() {
       }
     : undefined
   const structureReview = structureInput ? reviewList(structureInput) : { items: [], sure: 0, auto: 0, banner: [] as string[] }
-  const structurePending = structureReview.items.length
-  // anything under 0.6 blocks until a person decides: a style by choosing its meaning, a note or picture by accepting it
-  // (build messages and an untitled page are not decisions: a picture-only page has no title on purpose, and a missing picture description is fixed on its own step)
+  // anything under 0.6 is listed as unsure; it never holds the step: Fix with AI keeps the tool's best reading, I'll fix it myself
+  // shows the item, Continue anyway leaves it (build messages and an untitled part are not decisions: a picture-only page has no title on purpose)
   const blocking = blockingItems(structureReview.items, acked)
-  const structureBlock = structureNeeds(blocking, acceptable)
-  const acceptAll = () => setAcked((s) => new Set([...s, ...acceptAllIds(structureReview.items, s)]))
+  const sectionsNow = liveSections.map((s) => ({ nav: s.nav, file: s.file }))
+  const structureBlock = structureNeeds(blocking, acceptable, (it) => whereOfItem(it, sectionsNow))
+  const acceptAll = () => {
+    const d = decideStructure(blocking.filter(acceptable), { roleOf: () => undefined, typeOf: (i) => liveSections[i]?.type, valueOf: () => undefined, sections: sectionsNow })
+    setAcked((s) => new Set([...s, ...d.ack]))
+    rn.add(d.notes)
+  }
+  /** Fix with AI on the Structure step: keep the tool's best reading of every unsure style, part, picture and note */
+  const fixStructure = () => {
+    const d = decideStructure(blocking, { roleOf: (k) => styles.find((x) => x.key === k)?.role, typeOf: (i) => liveSections[i]?.type, valueOf: (f) => (meta as unknown as Record<string, string> | undefined)?.[f], sections: sectionsNow })
+    // the role stays what it was, so the build does not change: only the "unsure" marks go
+    setStyles((ss) => ss.map((x) => (d.keepStyles.includes(x.key) ? { ...x, ...keepStylePatch(x.role), unsure: false, confidence: 1 } : x)))
+    setAcked((s) => new Set([...s, ...d.ack]))
+    return { notes: d.notes }
+  }
   const fileNeeds: Need[] = exp ? [] : [{ id: 'file:export', label: 'Add the InDesign EPUB export (the .epub or .zip InDesign made)', group: 'InDesign export', kind: 'choice' }]
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
   const outputProblems = outputViolations(outputKind, spec?.resolved.settings ?? settings())
   const outputErrors = outputProblems.filter((p) => p.level === 'error')
-  const structureNext = useConfirmNext(structurePending, () => go(4))
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
   const pendingAi = inline.filter((i) => i.source === 'ai' && !i.approved)
   const visionOn = !!visionConfig().apiKey.trim()
+  const fileOf = (im: ImageChoice) => im.src.split('/').pop()!
+  const pictureNeed = (im: ImageChoice, why: string): Need => ({ id: 'alt:' + im.src, label: `Picture ${fileOf(im)}: ${why}`, group: 'picture', kind: 'choice', target: targetId('alt:' + im.src), where: `picture file ${fileOf(im)}` })
+  const outputNeed = (p: { message: string; ruleId?: string }, i: number): Need => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice', where: p.ruleId ? `rule ${p.ruleId}` : undefined })
+  const noAlt = 'no description yet'
+  const unapproved = 'AI description not approved yet'
+  const pictureNeeds: Need[] = [...outputErrors.map(outputNeed), ...needAlt.map((im) => pictureNeed(im, noAlt)), ...pendingAi.filter((im) => !needAlt.includes(im)).map((im) => pictureNeed(im, unapproved))]
+  /** asks the vision model for the pictures given; returns the new list (nothing is set here) and what happened to each */
+  const draftFor = async (targets: ImageChoice[], list: ImageChoice[]) => {
+    const drafted = await draftPictureAlts(
+      targets.map((im) => {
+        const bytes = analysis!.ex.images.get(im.src) ?? new Uint8Array()
+        return { id: im.src, bytes, mime: mimeOf(im.src, bytes), caption: im.caption, nearby: im.nearby }
+      }),
+      meta?.language || analysis?.meta.language || 'en',
+      visionConfig(),
+      (done, total) => setProgress({ done, total }),
+    )
+    const byId = new Map(drafted.map((d) => [d.id, d]))
+    const next = list.map((im) => {
+      const d = byId.get(im.src)
+      if (!d || (!d.alt && !d.longDesc && !d.decorative)) return im
+      return settleAlt({ ...im, userSet: false, approved: false, layers: { ...im.layers, aiAlt: d.alt, aiLong: d.longDesc, aiDecorative: d.decorative } })
+    })
+    return { next, drafted }
+  }
   const draftImages = (targets: ImageChoice[]) =>
     run(targets.length === 1 ? 'Drafting a description…' : 'Drafting picture descriptions…', async () => {
-      const drafted = await draftPictureAlts(
-        targets.map((im) => {
-          const bytes = analysis!.ex.images.get(im.src) ?? new Uint8Array()
-          return { id: im.src, bytes, mime: mimeOf(im.src, bytes), caption: im.caption, nearby: im.nearby }
-        }),
-        meta?.language || analysis?.meta.language || 'en',
-        visionConfig(),
-        (done, total) => setProgress({ done, total }),
-      )
-      const byId = new Map(drafted.map((d) => [d.id, d]))
-      setImages(images.map((im) => {
-        const d = byId.get(im.src)
-        if (!d || (!d.alt && !d.longDesc && !d.decorative)) return im
-        return settleAlt({ ...im, userSet: false, approved: false, layers: { ...im.layers, aiAlt: d.alt, aiLong: d.longDesc, aiDecorative: d.decorative } })
-      }))
+      const { next, drafted } = await draftFor(targets, images)
+      setImages(next)
       setStale(true)
       const failed = drafted.filter((d) => d.error)
       const kept = drafted.filter((d) => d.alt || d.decorative).length
       setNotice(failed[0]?.error ?? `Drafted ${kept} description(s). Each one needs approval.`)
     })
+  /** Fix with AI on the pictures: the vision model describes the ones without a description (when a key is set), every AI draft is
+   *  approved, and a setting that breaks the chosen kind of e-book takes the standard's own value. What cannot be decided is written as left. */
+  const fixPictures = (): Promise<{ notes: DecisionNote[]; over: { images: ImageChoice[]; spec?: Spec } } | undefined> =>
+    run('Deciding the pictures…', async () => {
+      const notes: DecisionNote[] = []
+      let list = images
+      if (visionOn && needAlt.length) {
+        const { next, drafted } = await draftFor(needAlt, list)
+        list = next
+        const failed = drafted.find((d) => d.error)
+        if (failed) setNotice(failed.error)
+      }
+      list = list.map((im) => (im.placement !== 'drop' && im.source === 'ai' && !im.approved ? { ...im, approved: true } : im))
+      for (const before of inline) {
+        const wasMissing = needAlt.includes(before)
+        if (!wasMissing && !pendingAi.includes(before)) continue
+        const im = list.find((x) => x.src === before.src)!
+        const need = pictureNeed(before, wasMissing ? noAlt : unapproved)
+        if (im.decorative || (!!im.alt.trim() && !isPlaceholderAlt(im.alt))) {
+          notes.push({ step: 'Pictures', item: need.label, chosen: im.decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${im.alt}”; accepted without a person reading it.`, how: 'ai', where: need.where })
+        } else notes.push({ ...leftNote('Pictures', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+      }
+      let sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
+      for (const p of outputErrors.filter((x) => x.ruleId)) {
+        const v = defaultFor(outputKind, p.ruleId!).value
+        if (v === undefined) continue
+        sp = await setRule(sp, 'book', p.ruleId!, v, actorName() || 'reviewer')
+        notes.push({ step: 'Pictures', item: p.message, chosen: `Set rule ${p.ruleId} to ${String(v)}, the value the ${outputKind === 'standard-epub' ? 'Standard' : 'Accessible'} EPUB standard asks for.`, how: 'guess', where: `rule ${p.ruleId}` })
+      }
+      setImages(list)
+      setSpec(sp)
+      setStale(true)
+      return { notes, over: { images: list, spec: sp } }
+    })
+  /** What is still unsure when the file is made, written next to what was decided on the way. */
+  const leftNow = (): DecisionNote[] => [
+    ...structureReview.items.filter((it) => !acked.has(it.id)).map((it) => leftNote('Structure', { label: it.title, where: whereOfItem(it, sectionsNow) })),
+    ...needAlt.map((im) => ({ ...leftNote('Pictures', pictureNeed(im, noAlt)), chosen: 'Left without a description.' })),
+    ...pendingAi.filter((im) => !needAlt.includes(im)).map((im) => leftNote('Pictures', pictureNeed(im, unapproved))),
+    ...outputErrors.map((p, i) => leftNote('Pictures', outputNeed(p, i))),
+    ...(cover ? [] : [{ step: 'Files', item: 'No cover image was added', chosen: 'The placeholder cover from InDesign was kept.', how: 'left' as const, where: 'Files › Cover image' }]),
+  ]
+  const notesText = (o?: GateOverride) => reviewNotes({ file: epubFileName(meta!), kind: outputKind === 'standard-epub' ? 'Standard EPUB' : 'Accessible EPUB', notes: withLeft(rn.notes, leftNow()), missing: missingDetails(meta!), gate, override: o })
+  const detailBlock = meta ? detailNeeds(meta) : []
+  const fixDetails = async () => {
+    const ai = await aiDetails(meta!, frontMatterText((analysis?.ex.blocks ?? []).flatMap((b) => (b.t === 'p' ? [b.text] : []))))
+    const d = decideDetails(ai.meta, exp?.name)
+    if (d.meta !== meta) (setMeta(d.meta), setStale(true))
+    return { notes: [...ai.notes, ...d.notes] }
+  }
+  /** Fix with AI at the end: everything still unsure is decided, and the file is built and checked again */
+  const fixAll = async () => {
+    const s = fixStructure()
+    rn.add(s.notes)
+    const p = await fixPictures()
+    if (!p) return
+    rn.add(p.notes)
+    await rebuild(undefined, p.over)
+  }
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const steps = [
     { title: 'Files', hint: 'what you start from', enabled: true, done: !!analysis },
@@ -303,7 +393,7 @@ export function IndesignFlow() {
             Stores (Apple Books, Amazon, Google Play), library systems and reading apps show these details, and screen readers announce the title and language.
             The language decides the voice a screen reader uses. The print ISBN names the paper edition the page numbers come from.
           </Help>
-          <StepNav onBack={() => setStep(0)} onNext={() => setStep(2)} nextDisabled={!!busy}>
+          <StepNav onBack={() => setStep(0)} onNext={() => setStep(2)} nextDisabled={!!busy} {...rn.choices('Book details', detailBlock, fixDetails, () => setStep(2))}>
             {!isbn13Valid(meta.eisbn) ? 'The e-book ISBN is still missing — you can add it later.' : ''}
           </StepNav>
         </>
@@ -364,13 +454,7 @@ export function IndesignFlow() {
               <button onClick={() => rebuild()} disabled={!!busy}>Update the preview</button>
             </div>
           </details>
-          {structureNext.asked && (
-            <p className="note warnbox" role="status">
-              {structurePending} item{structurePending === 1 ? '' : 's'} still need a look — the same number as “Check these first”.
-              {structureReview.auto > 0 ? ` ${structureReview.auto} other change${structureReview.auto === 1 ? ' was' : 's were'} made automatically and ${structureReview.auto === 1 ? 'is' : 'are'} not in that count.` : ''} Check the list, or continue anyway.
-            </p>
-          )}
-          <StepNav onBack={() => setStep(2)} onNext={structureNext.onNext} next={structureNext.next} nextDisabled={!!busy} needs={structureBlock} onAcceptAll={acceptAll} autoOpen />
+          <StepNav onBack={() => setStep(2)} onNext={() => go(4)} nextDisabled={!!busy} onAcceptAll={acceptAll} autoOpen {...rn.choices('Structure', structureBlock, fixStructure, () => go(4))} />
         </section>
       )}
 
@@ -398,7 +482,7 @@ export function IndesignFlow() {
             {images.map((im) => {
               const chart = needsLongDescription(im.src, im.caption, im.alt)
               return (
-              <div key={im.src} className={`img-row ${im.placement !== 'drop' && !im.decorative && (!im.alt.trim() || isPlaceholderAlt(im.alt)) ? 'todo' : ''} ${im.source === 'ai' && !im.approved ? 'pending' : ''}`}>
+              <div key={im.src} id={targetId('alt:' + im.src)} className={`img-row ${im.placement !== 'drop' && !im.decorative && (!im.alt.trim() || isPlaceholderAlt(im.alt)) ? 'todo' : ''} ${im.source === 'ai' && !im.approved ? 'pending' : ''}`}>
                 <img src={thumbs.get(im.src)} alt="" />
                 <div>
                   <code>{im.src.split('/').pop()}</code> <span className="muted small">{im.width}×{im.height}</span>
@@ -442,8 +526,8 @@ export function IndesignFlow() {
               ))}
             </ul>
           )}
-          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy} needs={outputErrors.map((p, i) => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice' as const }))} autoOpen>
-            {outputErrors.length ? 'Fix the problems above before building.' : needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
+          <StepNav onBack={() => setStep(3)} onNext={() => rebuild(5)} next="Build and check" nextDisabled={!!busy} autoOpen={outputErrors.length > 0} {...rn.choices('Pictures', pictureNeeds, fixPictures, (over) => rebuild(5, over))}>
+            {outputErrors.length ? 'Some settings do not fit this kind of e-book.' : needAlt.length ? `${needAlt.length} picture(s) still need a description.` : ''}
           </StepNav>
         </section>
       )}
@@ -468,9 +552,10 @@ export function IndesignFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" notes={notesText} onFix={fixAll} busy={!!busy} ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
             <button onClick={() => rebuild()} disabled={!!busy}>Build and check again</button>
           </div>
+          <ReviewSummary notes={withLeft(rn.notes, leftNow())} missing={missingDetails(meta)} build={{ file: epubFileName(meta), kind: 'EPUB' }} />
           <Help title="What happens after download?">
             The built-in check covers the common problems. For delivery, run EPUBCheck (file validity) and Ace by DAISY (accessibility) once more — the stores run the same
             validator — and look through the book in a reader such as Apple Books or Thorium.
