@@ -10,7 +10,7 @@ import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts
 import { ROLES, ROLE_HELP, type Profile, type Role, type StyleInfo } from '../engine/indesign/read.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { deliveryCounts } from '../engine/check/counts.ts'
-import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
+import { isbn13Valid, epubFileName, type BookMeta } from '../engine/epub/package.ts'
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
@@ -468,7 +468,7 @@ export function IndesignFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
             <button onClick={() => rebuild()} disabled={!!busy}>Build and check again</button>
           </div>
           <Help title="What happens after download?">

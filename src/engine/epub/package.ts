@@ -207,6 +207,24 @@ export function isbn13Valid(s: string): boolean {
   return (10 - (sum % 10)) % 10 === Number(d[12])
 }
 
+
+/** Book identifier: the e-book ISBN when it is a valid ISBN-13, otherwise a urn:uuid derived from the title
+ *  (never a real-looking ISBN borrowed from another book). */
+export function bookUid(meta: { eisbn?: string; title?: string }): string {
+  if (meta.eisbn && isbn13Valid(meta.eisbn)) return 'urn:isbn:' + isbnDigits(meta.eisbn)
+  let h1 = 0x811c9dc5, h2 = 0x9e3779b9
+  for (const ch of (meta.title || 'untitled').normalize('NFC')) { const c = ch.codePointAt(0)!; h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 ^ c, 2246822519) >>> 0 }
+  const hex = (h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).repeat(2)
+  return `urn:uuid:${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/** Download name: ISBN digits when valid, otherwise NO-ISBN_<title-slug>. */
+export function epubFileName(meta: { eisbn?: string; title?: string }): string {
+  if (meta.eisbn && isbn13Valid(meta.eisbn)) return isbnDigits(meta.eisbn) + '.epub'
+  const slug = (meta.title || 'book').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'book'
+  return 'NO-ISBN_' + slug + '.epub'
+}
+
 export function packageEpub(p: {
   meta: BookMeta
   sections: Section[]
@@ -367,7 +385,7 @@ export function packageEpub(p: {
   put('OEBPS/toc.ncx', `<?xml version="1.0" encoding="utf-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${lang}">
 <head>
-<meta name="dtb:uid" content="urn:isbn:${isbnDigits(meta.eisbn)}"/>
+<meta name="dtb:uid" content="${bookUid(meta)}"/>
 <meta name="dtb:depth" content="${depthOf(tree)}"/>
 <meta name="dtb:totalPageCount" content="${maxPage}"/>
 <meta name="dtb:maxPageNumber" content="${maxPage}"/>
@@ -431,7 +449,7 @@ ${pageList.length ? `<pageList>\n<navLabel><text>${esc(L.pageList)}</text></navL
   put('OEBPS/content.opf', `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="${lang}"${tdm ? ' prefix="tdm: http://www.w3.org/ns/tdmrep#"' : ''}>
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-<dc:identifier id="pub-id">urn:isbn:${isbnDigits(meta.eisbn)}</dc:identifier>
+<dc:identifier id="pub-id">${bookUid(meta)}</dc:identifier>
 <dc:title id="pub-title">${esc(meta.subtitle.trim() ? meta.title : title)}</dc:title>
 ${meta.subtitle.trim() ? `<meta refines="#pub-title" property="title-type">main</meta>
 <dc:title id="pub-subtitle">${esc(meta.subtitle.trim())}</dc:title>

@@ -11,7 +11,7 @@ import type { PdfBuildResult } from '../engine/pdfepub/build.ts'
 import { rulesFor, type CopyrightRules } from '../engine/epub/imprint.ts'
 import { checkEpub, type CheckReport } from '../engine/check/epub.ts'
 import { deliveryCounts } from '../engine/check/counts.ts'
-import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
+import { isbn13Valid, epubFileName, type BookMeta } from '../engine/epub/package.ts'
 import { ALT_SOURCE_LABEL, isPlaceholderAlt, type SpecPicture } from '../engine/epub/alt.ts'
 import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
@@ -483,7 +483,7 @@ export function PdfFlow() {
           <AccessibilityBox result={a11y} />
           <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
           <div className="row">
-            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={`${meta.eisbn ? meta.eisbn.replace(/[^\dXx]/g, '') : meta.title || 'book'}.epub`} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
+            <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
           </div>
           <Help title="What happens after download?">
             Run EPUBCheck (file validity) and Ace by DAISY (accessibility) as the final check before delivery, and look through the book in a reader such as Apple Books

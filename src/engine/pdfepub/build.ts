@@ -342,7 +342,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     }
     // a page with nothing on it (only the slug) has no page marker, as in the hand-made e-books
     if (!page.lines.length && !page.images.length && !page.fills.length) continue
-    if (book.contents?.pages.includes(page.index)) {
+    const numberedToc = (c: NonNullable<typeof book.contents>) => { const es = c.entries.filter((e) => e.kind === 'entry'); return es.length >= 3 && es.filter((e) => /^\d{1,2}[.)]\s+\p{L}/u.test(e.text.trim())).length >= es.length * 0.5 }
+    if (book.contents?.pages.includes(page.index) && (book.contents.entries.some((e) => e.kind === 'part' || sectionTypeOf(e.text) === 'chapter') || numberedToc(book.contents))) {
       // the printed contents, read once (analyze) and rendered from its entries. An edited volume lists
       // "1. Title" rather than "Chapter 1", and "ÍNDICE" may be the body size: it is still the contents.
       const mk = marker(page.index)
