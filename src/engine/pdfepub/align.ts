@@ -59,7 +59,7 @@ export function lineAlignment(pages: PageLines[], pick: (l: PLine) => boolean): 
   return n >= 1 && centred / n >= 0.6 ? 'center' : 'left'
 }
 
-const SANS = /sans|arial|helvetica|gothic|grotesk|myriad|frutiger|futura|calibri|verdana|univers|gill|avenir|segoe|tahoma|trebuchet|optima|din|roboto|open ?sans/i
+const SANS = /sans|arial|helvetica|gothic|grotesk|myriad|frutiger|futura|calibri|verdana|univers|gill|avenir|segoe|tahoma|trebuchet|optima|din\b|roboto|open ?sans/i
 
 /** The family the printed lines are set in, from their font names ("SabonLTStd 24" is serif, "Helvetica Bold 18" is sans-serif). */
 export function fontFamilyOf(keys: string[]): 'serif' | 'sans-serif' {
