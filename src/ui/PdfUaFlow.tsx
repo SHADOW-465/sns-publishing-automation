@@ -26,6 +26,7 @@ export function PdfUaFlow() {
   const [cover, setCover] = useState<Picked>()
   const [altDocx, setAltDocx] = useState<Picked>()
   const [extras, setExtras] = useState<Picked[]>([])
+  const [plates, setPlates] = useState<Picked | undefined>()
   const [busy, setBusy] = useState<string>()
   const [progress, setProgress] = useState<{ done: number; total: number }>()
   const [error, setError] = useState<string>()
@@ -64,6 +65,7 @@ export function PdfUaFlow() {
       const { analyzeUa } = await import('../engine/pdfua/index.ts')
       const inputs = {
         main: pdf!.data,
+        plates: plates?.data,
         extras: extras.map((x) => x.data),
         cover: cover ? { data: cover.data, png: /\.png$/i.test(cover.name) } : undefined,
         altDocx: altDocx?.data,
@@ -244,9 +246,10 @@ export function PdfUaFlow() {
           <FileDrop label="Print PDF" hint="the final PDF of the book" accept="application/pdf" value={pdf} onPick={setPdf} required />
           <FileDrop label="Cover image" hint="placed as page 1" accept="image/jpeg,image/png" value={cover} onPick={setCover} />
           <FileDrop label="Alt text (Word)" hint="descriptions of the pictures" accept=".docx" value={altDocx} onPick={setAltDocx} />
+          <FileDrop label="Plates" hint="a separate plates PDF, added after the book" accept="application/pdf" value={plates} onPick={setPlates} />
         </div>
         <label className="alt">
-          <span>Extra PDFs appended at the end (plates, inserts) — optional</span>
+          <span>Other PDFs appended at the end (inserts) — optional</span>
           <input type="file" accept="application/pdf" multiple onChange={(e) => pickExtras(e.target.files)} />
         </label>
         {extras.length > 0 && <p className="muted small">Appended in this order: {extras.map((x) => x.name).join(', ')}</p>}
@@ -255,6 +258,7 @@ export function PdfUaFlow() {
             <li><strong>Print PDF</strong> — the book to make accessible.</li>
             <li><strong>Cover image</strong> — added as page 1, as publishers deliver it.</li>
             <li><strong>Alt text (Word)</strong> — descriptions of the pictures, if someone wrote them; they are matched to the pictures by label (“Abb. 3”) or order.</li>
+            <li><strong>Plates</strong> — the plate section when it is a PDF of its own: it is added after the book, tagged with it and gets a “Plate” bookmark.</li>
             <li><strong>Extra PDFs</strong> — plates or inserts printed separately, appended at the end.</li>
           </ul>
           Everything runs in this browser; nothing is uploaded. At the end, open the result in PAC (PDF Accessibility Checker) for the official report.

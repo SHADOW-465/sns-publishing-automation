@@ -17,7 +17,9 @@ import { resolveAlt, type SpecPicture } from '../epub/alt.ts'
 
 export interface UaInputs {
   main: Uint8Array
-  /** PDFs appended at the end (plates, inserts) */
+  /** the plates, printed on their own (a separate PDF): appended after the book, tagged with it, and bookmarked */
+  plates?: Uint8Array
+  /** other PDFs appended at the end (inserts), after the plates */
   extras: Uint8Array[]
   /** front cover image placed as page 1 */
   cover?: { data: Uint8Array; png: boolean }
@@ -57,7 +59,8 @@ export interface UaAnalysis {
 
 /** Cover image first, then the book, then extra PDFs; page labels shifted to match. */
 export async function mergeInputs(inp: UaInputs): Promise<Uint8Array> {
-  if (!inp.cover && !inp.extras.length) return inp.main
+  const tail = [...(inp.plates ? [inp.plates] : []), ...inp.extras]
+  if (!inp.cover && !tail.length) return inp.main
   const doc = await PDFDocument.load(inp.main, { updateMetadata: false, ignoreEncryption: true })
   if (inp.cover) {
     const first = doc.getPage(0)
@@ -73,7 +76,7 @@ export async function mergeInputs(inp: UaInputs): Promise<Uint8Array> {
     for (let i = 0; i < old.length; i += 2) nums.push(PDFNumber.of((old[i] as PDFNumber).asNumber() + 1), old[i + 1])
     doc.catalog.set(PDFName.of('PageLabels'), ctx.obj({ Nums: ctx.obj(nums) }))
   }
-  for (const extra of inp.extras) {
+  for (const extra of tail) {
     const src = await PDFDocument.load(extra, { updateMetadata: false, ignoreEncryption: true })
     const copied = await doc.copyPages(src, src.getPageIndices())
     for (const p of copied) doc.addPage(p)
@@ -106,9 +109,13 @@ export async function analyzeUa(
   begin('Reading the pages')
   const book = await analyzePdf(pdfjs, merged, raster, {}, (done, total) => onProgress?.(done, total, 'Reading the pages'), { structure: false, keepFurniture: inp.options?.runningHeads === 'keep' })
   let platePage: number | undefined
-  if (inp.extras.length) {
+  if (inp.plates || inp.extras.length) {
     const main = await PDFDocument.load(inp.main, { updateMetadata: false, ignoreEncryption: true })
     platePage = main.getPageCount() + (inp.cover ? 1 : 0)
+  }
+  if (inp.plates) {
+    const n = (await PDFDocument.load(inp.plates, { updateMetadata: false, ignoreEncryption: true })).getPageCount()
+    review.push({ level: 'info', msg: `Plates: ${n} page${n === 1 ? '' : 's'} from the plates PDF added after the book (from page ${(platePage ?? 0) + 1}); they are tagged like the rest and get a “${inp.options?.plateLabel ?? 'Plate'}” bookmark.` })
   }
   begin('Planning the tags', 0, book.pages.length)
   const plan = await planPages(merged, (done, total, stage) => onProgress?.(done, total, stage ?? 'Planning the tags'), { stageLimitMs: limit })
