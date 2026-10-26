@@ -267,7 +267,8 @@ export function PdfFlow() {
   }
   const todo = result ? result.pictures.filter((p) => needsPictureDescription(p, alt)) : []
   const pendingAi = result ? result.pictures.filter((p) => p.source === 'ai' && !p.approved && (p.decorative || (!!p.alt.trim() && !isPlaceholderAlt(p.alt)))) : []
-  const visionOn = !!visionConfig().apiKey.trim()
+  // the picture AI is always there: the key typed in Settings, else the app's own server route (api/ai-fix)
+  const visionOn = true
   const errors = (report ? deliveryCounts(report, result?.review ?? []).errors : 0) + (ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
   const outputProblems = meta ? outputViolations(outputKind, { ...settings(), ...fixedSettings }) : []
@@ -336,7 +337,7 @@ export function PdfFlow() {
         if (has && (cur || p.source === 'ai')) {
           next[p.path] = { alt: text, longDesc: cur?.longDesc || p.longDesc, decorative: cur?.decorative ?? p.decorative, approved: true }
           notes.push({ step: 'Pictures', item: need.label, chosen: next[p.path].decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${text}”; accepted without a person reading it.`, how: 'ai', where: need.where })
-        } else notes.push({ ...leftNote('Pictures', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+        } else notes.push({ ...leftNote('Pictures', need), chosen: 'The picture AI gave no description. Left without one.' })
       }
       setAi(next)
       setStale(true)
@@ -657,8 +658,7 @@ function Pictures({ result, alt, setAlt, onBack, onNext, choices, busy, todo, pe
         People who cannot see the pictures hear this description instead (“alt text”). The caption is shown beside the picture and is not reused as the description. {todo} of {result.pictures.length} still
         need a real description — what the picture shows, in a sentence or two.
       </p>
-      {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
-      {pending > 0 && (
+            {pending > 0 && (
         <p className="note warnbox">
           {pending} AI draft{pending === 1 ? '' : 's'} need approval before this book can be marked as certified. They are counted as items to check, not as missing descriptions.
         </p>

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { handle, groq, POST, MODELS } from '../api/ai-fix.ts'
+import { handle, groq, POST, MODELS, VISION_MODELS } from '../api/ai-fix.ts'
 import { aiDetails, callAiFix, frontMatterText } from '../src/engine/review/ai-fix.ts'
 
 const reply = (content: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status, headers })
@@ -75,4 +75,65 @@ test('groq falls back to the next free model when the key has no access to one',
   assert.deepEqual(await groq('k', [{ role: 'user', content: 'json' }], f), { ok: 1 })
   assert.equal(seen[0], MODELS[0])
   assert.equal(seen[1], MODELS[1])
+})
+
+// ---- B9 item 10: picture descriptions through the server route ----------------------------------------------------------------
+const JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AP//Z'
+
+test('vision: the picture goes to a vision model as an image part, the answer is one short plain sentence', async () => {
+  const seen: { model: string; messages: { content: unknown }[] }[] = []
+  const f = (async (_u: string, init: RequestInit) => {
+    seen.push(JSON.parse(String(init.body)))
+    return new Response(JSON.stringify({ choices: [{ message: { content: '<think>hm</think> "Image of a brick mill beside a canal, with a barge moored at the lock gate and chimneys behind it that rise into a grey sky over the town and its crowded streets, long after the last shift."' } }] }), { status: 200 })
+  }) as unknown as typeof fetch
+  const r = (await handle({ task: 'vision', image: JPEG, caption: 'The mill', lang: 'en-GB' }, 'k', f)) as { alt: string }
+  assert.ok(r.alt.length > 20 && r.alt.length <= 150, String(r.alt.length))
+  assert.doesNotMatch(r.alt, /^image of|think|"/i)
+  assert.equal(seen[0].model, VISION_MODELS[0])
+  const parts = seen[0].messages[1].content as { type: string; image_url?: { url: string } }[]
+  assert.equal(parts.find((p) => p.type === 'image_url')?.image_url?.url, JPEG)
+  assert.match(JSON.stringify(seen[0]), /English/)
+})
+
+test('vision: a model the key cannot use is skipped for the next vision model; a bad image, an empty answer or a caption copy throw (the route answers fallback)', async () => {
+  const seen: string[] = []
+  const f = (async (_u: string, init: RequestInit) => {
+    const m = JSON.parse(String(init.body)).model
+    seen.push(m)
+    if (seen.length === 1) return new Response('{"error":{"message":"model_not_found"}}', { status: 404 })
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'A woman cooks on a stove.' } }] }), { status: 200 })
+  }) as unknown as typeof fetch
+  assert.equal(((await handle({ task: 'vision', image: JPEG }, 'k', f)) as { alt: string }).alt, 'A woman cooks on a stove.')
+  assert.deepEqual(seen, [VISION_MODELS[0], VISION_MODELS[1]])
+  const empty = (async () => new Response(JSON.stringify({ choices: [{ message: { content: '   ' } }] }), { status: 200 })) as unknown as typeof fetch
+  await assert.rejects(handle({ task: 'vision', image: JPEG }, 'k', empty))
+  await assert.rejects(handle({ task: 'vision', image: 'https://example.com/x.jpg' }, 'k', empty), /bad image/)
+  const same = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'The mill' } }] }), { status: 200 })) as unknown as typeof fetch
+  await assert.rejects(handle({ task: 'vision', image: JPEG, caption: 'The mill' }, 'k', same))
+})
+
+test('vision: the route answers 200 with the description, 413 for a huge body, 503 with no key, and never echoes the key', async () => {
+  const old = process.env.GROQ_API_KEY
+  const realFetch = globalThis.fetch
+  process.env.GROQ_API_KEY = 'gsk_secret_for_test'
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'A brick mill by a canal.' } }] }), { status: 200 })) as typeof fetch
+    const ok = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
+    const text = await ok.text()
+    assert.equal(ok.status, 200)
+    assert.equal(JSON.parse(text).alt, 'A brick mill by a canal.')
+    assert.ok(!text.includes('gsk_secret_for_test'))
+    const big = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: 'data:image/jpeg;base64,' + 'A'.repeat(700_000) }) }))
+    assert.equal(big.status, 413)
+    globalThis.fetch = (async () => new Response('boom gsk_secret_for_test', { status: 500 })) as typeof fetch
+    const bad = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
+    assert.equal(bad.status, 502)
+    const badText = await bad.text()
+    assert.equal(JSON.parse(badText).fallback, true)
+    assert.ok(!badText.includes('gsk_secret_for_test'), 'an upstream error that echoes the key is redacted')
+  } finally {
+    globalThis.fetch = realFetch
+    if (old === undefined) delete process.env.GROQ_API_KEY
+    else process.env.GROQ_API_KEY = old
+  }
 })

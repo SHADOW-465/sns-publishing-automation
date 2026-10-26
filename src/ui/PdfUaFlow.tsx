@@ -132,7 +132,8 @@ export function PdfUaFlow() {
       setNotice(`Loaded ${pictures.length} picture description${pictures.length === 1 ? '' : 's'}. ${n} match a caption on this PDF. A typed description still wins.`)
     })
 
-  const visionOn = !!visionConfig().apiKey.trim()
+  // the picture AI is always there: the key typed in Settings, else the app's own server route (api/ai-fix)
+  const visionOn = true
   /** asks the vision model for the pictures given; nothing is set here */
   const draftNext = async (keys: string[]) => {
     const targets = a!.figures.filter((f) => keys.includes(f.key) && f.thumb && f.thumb.length)
@@ -209,7 +210,7 @@ export function PdfUaFlow() {
           else altNow[f.key] = d.alt
           next[f.key] = { ...d, approved: true }
           notes.push({ step: 'Build', item: need.label, chosen: d.decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${d.alt}”; accepted without a person reading it.`, how: 'ai', where: need.where })
-        } else notes.push({ ...leftNote('Build', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+        } else notes.push({ ...leftNote('Build', need), chosen: 'The picture AI gave no description. Left without one.' })
       }
       setMeta(m)
       setAlt(altNow)
@@ -392,8 +393,7 @@ function Figures({ a, alt, setAlt, decorative, setDecorative, ai, busy, visionOn
         <span>Picture descriptions (spec sheet)</span>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onSheet(f); e.target.value = '' }} />
       </label>
-      {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
-      <div className="row">
+            <div className="row">
         <button onClick={onDraft} disabled={busy || !visionOn || todo.length === 0}>Draft the missing descriptions</button>
         <label>
           <input type="radio" checked={filter === 'todo'} onChange={() => setFilter('todo')} /> Needs a description ({todo.length})

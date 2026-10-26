@@ -22,16 +22,24 @@ test('a German book asks for a classified description that does not repeat the c
   assert.match(visionPrompt('en-GB', '', ''), /Write alt and longdesc in English/)
 })
 
-test('without a key nothing is sent', async () => {
-  let called = 0
-  await assert.rejects(
-    draftPictureAlts([item], 'de', { ...cfg, apiKey: '  ' }, undefined, async () => {
-      called++
-      return new Response('{}')
-    }),
-    /vision model are off/,
-  )
-  assert.equal(called, 0)
+test('without a key nothing goes to Groq from the browser: the picture goes to the app’s own route, and any failure leaves it without a draft', async () => {
+  const urls: string[] = []
+  const bodies: { task?: string; image?: string; caption?: string }[] = []
+  const ok = async (url: string | URL | Request, init?: RequestInit) => {
+    urls.push(String(url))
+    bodies.push(JSON.parse(String(init?.body)))
+    return Response.json({ model: 'm', alt: 'Ein alter Saal mit Holzbänken.' })
+  }
+  const out = await draftPictureAlts([item], 'de', { ...cfg, apiKey: '  ' }, undefined, ok as typeof fetch)
+  assert.deepEqual(urls, ['/api/ai-fix'])
+  assert.equal(bodies[0].task, 'vision')
+  assert.match(bodies[0].image ?? '', /^data:image\/[a-z]+;base64,/)
+  assert.equal(out[0].alt, 'Ein alter Saal mit Holzbänken.')
+  assert.ok(!out[0].error)
+  // the route is down or has no key: no throw, the picture is just left without a draft
+  const down = await draftPictureAlts([item, { ...item, id: 'b' }], 'de', { ...cfg, apiKey: '' }, undefined, (async () => new Response('{"fallback":true}', { status: 503 })) as typeof fetch)
+  assert.equal(down.length, 2)
+  assert.ok(down.every((d) => !d.alt && d.error))
 })
 
 test('the request uses the configured model and retries after a rate limit', async () => {

@@ -6,6 +6,7 @@
 import { ALT_AIM, fitAlt, repeatsCaption } from './alt.ts'
 import { extOf, mediaType } from './image.ts'
 import { settings } from '../settings.ts'
+import { callAiFix } from '../review/ai-fix.ts'
 
 export const VISION_KEY = 'automation:vision'
 export const GROQ_VISION_BASE = 'https://api.groq.com/openai/v1'
@@ -185,7 +186,7 @@ export interface AltDraftResult {
   error?: string
 }
 
-const OFF = 'Picture descriptions from a vision model are off. Add an API key in Settings.'
+const NO_SERVER = 'The picture AI did not answer (the app’s own AI route is not reachable or is not set up).'
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type Fetch = typeof fetch
@@ -240,7 +241,8 @@ export async function draftPictureAlts(
   onProgress?: (done: number, total: number) => void,
   doFetch: Fetch = fetch,
 ): Promise<AltDraftResult[]> {
-  if (!cfg.apiKey.trim()) throw new Error(OFF)
+  // no key typed in Settings: the app's own server route asks the vision model (the key lives there, never in the browser)
+  if (!cfg.apiKey.trim()) return draftViaServer(items, lang, onProgress, doFetch)
   const out: AltDraftResult[] = []
   for (let i = 0; i < items.length; i++) {
     onProgress?.(i, items.length)
@@ -262,6 +264,29 @@ export async function draftPictureAlts(
       const message = (e as Error).message
       if (/refused|API key/i.test(message)) throw new Error(message)
       out.push({ id: item.id, alt: '', longDesc: '', decorative: false, kind: '', error: message })
+    }
+  }
+  onProgress?.(items.length, items.length)
+  return out
+}
+
+/** The server route /api/ai-fix (task "vision"): a picture shrunk to about 800 px goes up, a short description (150 characters at most) comes back. Any failure leaves that picture without a draft; nothing throws. */
+export async function draftViaServer(items: AltDraftRequest[], lang: string, onProgress?: (done: number, total: number) => void, doFetch: Fetch = fetch): Promise<AltDraftResult[]> {
+  const out: AltDraftResult[] = []
+  for (let i = 0; i < items.length; i++) {
+    onProgress?.(i, items.length)
+    const item = items[i]
+    const none = (error: string): AltDraftResult => ({ id: item.id, alt: '', longDesc: '', decorative: false, kind: '', error })
+    try {
+      const shrunk = await shrinkForVision(item.bytes, item.mime)
+      const r = await callAiFix<{ alt?: string }>(
+        { task: 'vision', image: dataUrl(shrunk.bytes, shrunk.mime), caption: item.caption, lang, max: Math.min(150, settings().altMaxChars) },
+        { fetchImpl: doFetch, timeoutMs: 40_000 },
+      )
+      const alt = fitAlt(String(r?.alt ?? ''), 150).replace(LEADING, '').trim()
+      out.push(alt && !repeatsCaption(alt, item.caption) ? { id: item.id, alt, longDesc: '', decorative: false, kind: 'photo' } : none(r ? 'The draft repeated the caption, so it was not kept.' : NO_SERVER))
+    } catch (e) {
+      out.push(none((e as Error).message || NO_SERVER))
     }
   }
   onProgress?.(items.length, items.length)

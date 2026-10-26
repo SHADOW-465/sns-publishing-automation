@@ -215,7 +215,7 @@ export function SettingsFlow() {
             <input type="password" autoComplete="off" value={vision.apiKey} placeholder="Stored in this browser only" onChange={(e) => (setVision({ ...vision, apiKey: e.target.value }), saveVisionConfig({ ...vision, apiKey: e.target.value }))} />
           </label>
         </div>
-        {!vision.apiKey.trim() && <p className="muted">Picture descriptions from a vision model are off. Add an API key here to turn them on.</p>}
+        {!vision.apiKey.trim() && <p className="muted">With no key here, picture descriptions are drafted by the app’s own server (Fix with AI). A key here is used instead, straight from this browser.</p>}
       </section>
 
       <section className="card">

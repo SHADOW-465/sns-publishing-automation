@@ -266,7 +266,8 @@ export function IndesignFlow() {
   const inline = images.filter((i) => i.placement !== 'drop')
   const needAlt = inline.filter((i) => !i.decorative && (!i.alt.trim() || isPlaceholderAlt(i.alt)))
   const pendingAi = inline.filter((i) => i.source === 'ai' && !i.approved)
-  const visionOn = !!visionConfig().apiKey.trim()
+  // the picture AI is always there: the key typed in Settings, else the app's own server route (api/ai-fix)
+  const visionOn = true
   const fileOf = (im: ImageChoice) => im.src.split('/').pop()!
   const pictureNeed = (im: ImageChoice, why: string): Need => ({ id: 'alt:' + im.src, label: `Picture ${fileOf(im)}: ${why}`, group: 'picture', kind: 'choice', target: targetId('alt:' + im.src), where: `picture file ${fileOf(im)}` })
   const outputNeed = (p: { message: string; ruleId?: string }, i: number): Need => ({ id: 'output:' + i, label: p.message, group: 'setting', kind: 'choice', where: p.ruleId ? `rule ${p.ruleId}` : undefined })
@@ -321,7 +322,7 @@ export function IndesignFlow() {
         const need = pictureNeed(before, wasMissing ? noAlt : unapproved)
         if (im.decorative || (!!im.alt.trim() && !isPlaceholderAlt(im.alt))) {
           notes.push({ step: 'Pictures', item: need.label, chosen: im.decorative ? 'The picture AI marked it decorative; accepted without a person reading it.' : `The picture AI wrote “${im.alt}”; accepted without a person reading it.`, how: 'ai', where: need.where })
-        } else notes.push({ ...leftNote('Pictures', need), chosen: visionOn ? 'The picture AI gave no description. Left without one.' : 'No picture AI is set up (add a key in Settings), so it is left without a description.' })
+        } else notes.push({ ...leftNote('Pictures', need), chosen: 'The picture AI gave no description. Left without one.' })
       }
       let sp = spec ?? (await openSpec({ client: meta!.publisher, series: '', book: meta!.eisbn || meta!.title }))
       for (const p of outputErrors.filter((x) => x.ruleId)) {
@@ -482,8 +483,7 @@ export function IndesignFlow() {
             People who cannot see the pictures hear this description instead (“alt text”). Say what the picture shows, in about {settings().altMaxChars} characters, and do not repeat the caption.
             Tick “decorative” only for ornaments that carry no information: those get an empty description so a screen reader skips them.
           </p>
-          {!visionOn && <p className="muted">Picture descriptions from a vision model are off. Add an API key in Settings to draft the ones that are still empty.</p>}
-          {pendingAi.length > 0 && (
+                    {pendingAi.length > 0 && (
             <p className="note warnbox">
               {pendingAi.length} AI draft{pendingAi.length === 1 ? '' : 's'} need approval before this book can be marked as certified. They are counted as items to check, not as missing descriptions.
             </p>
