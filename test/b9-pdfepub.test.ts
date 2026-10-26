@@ -260,3 +260,23 @@ test('5: a page of pictures between two pages of text keeps its marker in page o
   assert.doesNotMatch(file(r.files, /chapter01\.xhtml$/), /A mill by the river/)
   assert.deepEqual(marks.slice(0, 7), [4, 5, 6, 7, 8, 9, 10])
 })
+
+test('3: a caption set beside a picture is one figcaption even when only its last line reaches the picture', async () => {
+  const doc = await PDFDocument.create()
+  const serif = await doc.embedFont(StandardFonts.TimesRoman)
+  const img = await doc.embedPng(PNG)
+  for (let i = 0; i < 5; i++) {
+    const p = doc.addPage([W, H])
+    if (i === 1) {
+      p.drawImage(img, { x: 190, y: H - 260, width: 150, height: 110 })
+      ;['Ultraviolet therapy', 'was used to prevent', 'rickets in a hospital.', '(Courtesy of the Museum)'].forEach((t, k) => p.drawText(t, { x: 60, y: H - 200 - k * 11, size: 9, font: serif }))
+      flow(p, serif, 60, 290, { seed: 1 })
+      flow(p, serif, 50, 90, { seed: 4 })
+    } else flow(p, serif, 130, 90, { seed: i })
+  }
+  const b = await analyzePdf(pdfjs, new Uint8Array(await doc.save()), nodeRaster)
+  const r = await buildPdfEpub(b, input(b, { title: 'Caps', authors: 'Ada Lovelace-Stone' }), nodeRaster)
+  const html = xhtml(r.files)
+  assert.match(html, /<figcaption[^>]*>Ultraviolet therapy was used to prevent rickets in a hospital\. \(Courtesy of the Museum\)<\/figcaption>/)
+  assert.doesNotMatch(html, /<p[^>]*>[^<]*Ultraviolet/)
+})

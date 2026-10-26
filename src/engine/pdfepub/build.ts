@@ -428,19 +428,19 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const CHART_CAP = /^(gr[aá]fica|grafico|gr[aá]fico|figura|cuadro|fig\.|table|graph|chart)\s*\d/i
     // Small text that hugs a picture is its caption even when its style is shared with other text (a caption style that also sets notes
     // or credits is not read as "caption"): directly below the picture, or beside it within its height, smaller than the body text.
-    // The lines under the first one (same style, same left edge, set one under the other) belong to it.
+    // The lines above and under it (same style, same left edge, set one under the other) belong to it: a caption beside a picture may reach it with its last line only.
     const hugging = new Set<PLine>()
     const shotsOf = page.images.filter((im) => im.jpeg)
     const capable = (l: PLine) => !inBox.has(l) && l.key !== book.bodyKey && l.size <= book.bodySize * 0.97 && ['text', 'caption'].includes(roleOf(l))
     for (const l of lines) {
       if (!capable(l)) continue
-      if (shotsOf.some((im) => (l.y >= im.y1 - 4 && l.y - im.y1 < 24 && l.x0 < im.x1 && l.x1 > im.x0) || (l.y + l.size > im.y0 && l.y < im.y1 + 24 && ((l.x1 <= im.x0 + 4 && im.x0 - l.x1 < 36) || (l.x0 >= im.x1 - 4 && l.x0 - im.x1 < 36))))) hugging.add(l)
+      if (shotsOf.some((im) => (l.y >= im.y1 - 4 && l.y - im.y1 < 24 && l.x0 < im.x1 && l.x1 > im.x0) || (l.y + l.size > im.y0 && l.y < im.y1 + 24 && ((l.x1 <= im.x0 + 4 && im.x0 - l.x1 < 60) || (l.x0 >= im.x1 - 4 && l.x0 - im.x1 < 60))))) hugging.add(l)
     }
     for (let grew = true; grew;) {
       grew = false
       for (const l of lines) {
         if (hugging.has(l) || !capable(l)) continue
-        if ([...hugging].some((c) => c.key === l.key && l.y > c.y && l.y - c.y <= c.size * 1.8 && Math.abs(l.x0 - c.x0) < 4)) (hugging.add(l), (grew = true))
+        if ([...hugging].some((c) => c.key === l.key && l.y !== c.y && Math.abs(l.y - c.y) <= c.size * 1.8 && Math.abs(l.x0 - c.x0) < 4)) (hugging.add(l), (grew = true))
       }
     }
     const caps = lines.filter((l) => !inBox.has(l) && (roleOf(l) === 'caption' || CHART_CAP.test(l.text.trim()) || hugging.has(l))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
