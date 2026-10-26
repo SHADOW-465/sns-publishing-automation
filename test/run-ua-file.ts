@@ -1,6 +1,6 @@
 // Headless Accessible-PDF run on any input PDF, with the options given as JSON, and the picture / tag numbers of what it wrote.
 //   node --import ./test/setup.ts test/run-ua-file.ts input.pdf outDir [optionsJson] [cover.jpg] [extra.pdf,extra2.pdf]
-// Environment: UA_ALT_DOCX=alt.docx (the client's Word file of descriptions), UA_PLACEHOLDER_ALT=1 (describe whatever is still undescribed, to see the other errors).
+// Environment: UA_PLATES=plates.pdf (a separate plates PDF, the Plates slot), UA_ALT_DOCX=alt.docx (the client's Word file of descriptions), UA_PLACEHOLDER_ALT=1 (describe whatever is still undescribed, to see the other errors).
 import { resolve, basename } from 'node:path'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { PDFDocument } from 'pdf-lib'
@@ -17,6 +17,7 @@ const t = Date.now()
 const a = await analyzeUa(pdfjs, nodeRaster, {
   main: read(resolve(input)), extras: (extrasArg ? extrasArg.split(',') : []).map((e) => read(resolve(e))), options,
   cover: cover ? { data: read(resolve(cover)), png: false } : undefined,
+  plates: process.env.UA_PLATES ? read(resolve(process.env.UA_PLATES)) : undefined,
   altDocx: process.env.UA_ALT_DOCX ? read(resolve(process.env.UA_ALT_DOCX)) : undefined,
 }, (d, n, s) => d % 80 === 0 && console.log(`${s ?? ''} ${d}/${n}`))
 console.log('META', JSON.stringify(a.meta), 'FIGURES', a.figures.length, `(${((Date.now() - t) / 1000).toFixed(0)} s)`)

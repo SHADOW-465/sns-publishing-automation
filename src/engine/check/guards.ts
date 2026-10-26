@@ -40,7 +40,7 @@ export function postBuildGuards(files: Files): string[] {
 
   const toc = pages.find(([n]) => n === 'toc.xhtml')
   if (toc) {
-    const hrefs = [...toc[1].matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((h) => h && !/^[a-z][a-z0-9+.-]*:/i.test(h))
+    const hrefs = [...toc[1].matchAll(/<a\b[^>]*?\shref="([^"]+)"/g)].map((m) => m[1]).filter((h) => h && !/^[a-z][a-z0-9+.-]*:/i.test(h))
     const missing = hrefs.filter((h) => {
       const file = decodeURIComponent(h.split('#')[0])
       return file && !names.has(file.split('/').pop()!)
