@@ -3,7 +3,13 @@ import { isbn13Valid, type BookMeta } from '../engine/epub/package.ts'
 import { settings } from '../engine/settings.ts'
 import { imageMime } from '../engine/epub/image.ts'
 
+// The same file asked for twice within 2 s (a double click, or two re-renders settling after Fix with AI) downloads once
+let lastDownload = { key: '', at: 0 }
 export function download(data: Uint8Array | string, name: string, type: string) {
+  const key = name + ':' + (typeof data === 'string' ? data.length : data.byteLength)
+  const now = Date.now()
+  if (key === lastDownload.key && now - lastDownload.at < 2000) return
+  lastDownload = { key, at: now }
   const url = URL.createObjectURL(new Blob([data as BlobPart], { type }))
   const a = Object.assign(document.createElement('a'), { href: url, download: name })
   a.click()
