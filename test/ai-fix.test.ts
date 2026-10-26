@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { handle, groq, POST } from '../api/ai-fix.ts'
+import { handle, groq, POST, MODELS } from '../api/ai-fix.ts'
 import { aiDetails, callAiFix, frontMatterText } from '../src/engine/review/ai-fix.ts'
 
 const reply = (content: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status, headers })
@@ -62,4 +62,17 @@ test('client: AI values are applied and written as AI decisions', async () => {
 test('no browser source mentions GROQ_API_KEY', () => {
   const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [join(d, n)]))
   for (const f of walk('src')) assert.ok(!readFileSync(f, 'utf8').includes('GROQ_API_KEY'), f)
+})
+
+test('groq falls back to the next free model when the key has no access to one', async () => {
+  const seen: string[] = []
+  const f = (async (_u: string, init: RequestInit) => {
+    const m = JSON.parse(String(init.body)).model
+    seen.push(m)
+    if (seen.length === 1) return new Response('{"error":{"message":"The model does not exist or you do not have access to it.","code":"model_not_found"}}', { status: 404 })
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' } }] }), { status: 200 })
+  }) as unknown as typeof fetch
+  assert.deepEqual(await groq('k', [{ role: 'user', content: 'json' }], f), { ok: 1 })
+  assert.equal(seen[0], MODELS[0])
+  assert.equal(seen[1], MODELS[1])
 })

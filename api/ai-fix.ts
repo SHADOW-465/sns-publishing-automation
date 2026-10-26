@@ -2,6 +2,9 @@
 // browser, never logged and never returned. Any failure answers { fallback: true } and the app keeps its own best guesses.
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 export const MODEL = 'llama-3.3-70b-versatile'
+// Free Groq models, tried in order when the key has no access to one (404 / model_not_found / decommissioned).
+export const MODELS = [MODEL, 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'qwen/qwen3-32b', 'llama-3.1-8b-instant']
+let workingModel = 0
 const MAX_BODY = 200_000
 const MAX_TEXT = 14_000
 const MAX_ITEMS = 120
@@ -15,18 +18,24 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function groq(key: string, messages: { role: string; content: string }[], f: typeof fetch = fetch): Promise<unknown> {
-  for (let attempt = 0; ; attempt++) {
+  for (let attempt = 0, mi = workingModel; ; attempt++) {
     const ac = new AbortController()
     const t = setTimeout(() => ac.abort(), TIMEOUT_MS)
     try {
-      const r = await f(GROQ_URL, { method: 'POST', signal: ac.signal, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: MODEL, temperature: 0, response_format: { type: 'json_object' }, messages }) })
+      const r = await f(GROQ_URL, { method: 'POST', signal: ac.signal, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: MODELS[mi], temperature: 0, response_format: { type: 'json_object' }, messages }) })
       if (r.status === 429 && attempt < 2) {
         const ra = Number(r.headers.get('retry-after'))
         await sleep(Math.min(8000, Number.isFinite(ra) && ra > 0 ? ra * 1000 : 1500 * (attempt + 1)))
         continue
       }
+      if ((r.status === 404 || r.status === 400) && mi < MODELS.length - 1) {
+        const txt = await r.text().catch(() => '')
+        if (r.status === 404 || /model/i.test(txt)) { mi++; attempt--; continue }
+        throw new Error('groq ' + r.status + ' ' + txt.replace(/[^\w .,:-]/g, ' ').slice(0, 120))
+      }
       if (!r.ok) throw new Error('groq ' + r.status + ' ' + (await r.text().catch(() => '')).replace(/[^\w .,:-]/g, ' ').slice(0, 120))
       const d = (await r.json()) as { choices?: { message?: { content?: string } }[] }
+      workingModel = mi
       return JSON.parse(d.choices?.[0]?.message?.content ?? '')
     } finally {
       clearTimeout(t)
