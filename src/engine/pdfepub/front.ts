@@ -66,11 +66,14 @@ export function readFront(
   const read = (p: FrontPage) => {
     const ls = p.lines.filter((l) => l.text.trim()).sort((a, b) => a.y - b.y)
     const max = Math.max(...ls.map((l) => l.size))
-    const titleLines = ls.filter((l) => l.size >= max * 0.8)
+    // the author: a line the imprint confirms, else the first line that reads as a person; the biggest type is the title, never the author
+    const people = ls.filter((l) => l.size < max - 0.5 && !!personLine(l.text, lang))
+    // (the author stands under a subtitle that is set in capitalised words, so with no confirmation the lowest person line wins)
+    const person = people.find((l) => known(personLine(l.text, lang).split(', ')[0])) ?? people[people.length - 1]
+    const confirmed = person && known(personLine(person.text, lang).split(', ')[0])
+    // title type: the lines near the biggest size ("CONTEMPORARY" 60 pt over "CERAMICS" 100 pt), not the author's line or the small print under it
+    const titleLines = ls.filter((l) => l.size >= max * 0.55 && l !== person)
     const rest = ls.filter((l) => !titleLines.includes(l))
-    // the author: a line the imprint confirms, else the first line that reads as a person
-    const confirmed = rest.find((l) => !!personLine(l.text, lang) && known(personLine(l.text, lang).split(', ')[0]))
-    const person = confirmed ?? rest.find((l) => !!personLine(l.text, lang))
     return { p, ls, titleLines, rest, author: person ? personLine(person.text, lang) : '', authorLine: person, confirmed: !!confirmed }
   }
   const reads = text.map(read)
@@ -105,7 +108,7 @@ export function readFront(
   let subtitle = ''
   const src = titlePage ?? half
   if (src && src !== half) {
-    const sub = src.rest.filter((l) => l !== src.authorLine && !personLine(l.text, lang) && !COMPANY.test(l.text) && !CREDIT.test(l.text) && !FILEISH.test(l.text) && !/©|\bisbn\b|copyright/i.test(l.text)
+    const sub = src.rest.filter((l) => l !== src.authorLine && !COMPANY.test(l.text) && !CREDIT.test(l.text) && !FILEISH.test(l.text) && !/©|\bisbn\b|copyright/i.test(l.text)
       && (!src.authorLine || l.y < src.authorLine.y))
     subtitle = titleCase(sub.map((l) => l.text.trim()).join(' '))
   } else if (half) {

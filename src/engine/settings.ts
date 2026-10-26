@@ -193,7 +193,7 @@ const SCHEMA = {
   /** alignment of the heading of the contents page */
   contentsHeadingAlign: { def: 'print', choices: ['print', 'left', 'center'] },
   /** typeface family of the heading of the contents page */
-  contentsHeadingFont: { def: 'sans-serif', choices: ['serif', 'sans-serif'] },
+  contentsHeadingFont: { def: 'print', choices: ['print', 'serif', 'sans-serif'] },
   /** alignment of the copyright page */
   copyrightAlign: { def: 'print', choices: ['print', 'left', 'center'] },
   /** the size of quoted extracts and verse, as a share of the body text */

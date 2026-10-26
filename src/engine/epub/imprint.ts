@@ -5,6 +5,7 @@
 //    (Crowood reference); the Spanish reference keeps its print wording.
 
 import { isHousePrintOnly } from '../settings.ts'
+import { plausibleAuthor } from './names.ts'
 
 export const PRINT_ONLY =
   /druck und bindung|gesamtherstellung|^\s*(satz|druck|herstellung|schrift)\s*:|gedruckt auf|printed in (germany|austria|switzerland)|gedrukt (door|op)|drukwerk|bedrukt|dep[óo]sito legal|impreso en|printed (in|and bound)|gedruckt|imprim[ée] (en|au|par)|stampato|impresso (em|no)|printed by|typeset by|typesetting by|composici[óo]n|maquetaci[óo]n|papel (utilizado|empleado)|para la impresi[óo]n de este libro|paper (used|in this book|from responsible)|printed on (acid|recycled|fsc|paper)|\bfsc\b|papier (utilis|issu|aus)|carta (utilizzata|certificata)|papel (certificado|reciclado)|bosques (y plantaciones )?gestionad|se termin[óo] de imprimir|terminó de imprimirse|acab[óo]se de imprimir|achev[ée] d.imprimer|finito di stampare|this book was printed/i
@@ -77,7 +78,8 @@ export function transformImprint(
     noticeDone = true
     if (opt.rules.ebookNotice) out.push({ html: opt.esc(fill(opt.rules.ebookNotice)), cls: 'spaced' })
     const hasCopy = src.some((p) => /^©|^copyright ©/i.test(p.text) && p.text.includes(opt.author))
-    if (opt.rules.copyrightLine && !hasCopy) out.push({ html: opt.esc(fill(opt.rules.copyrightLine)), cls: 'spaced' })
+    // a copyright line is only made from a name that can be an author (never "First published 2026")
+    if (opt.rules.copyrightLine && !hasCopy && plausibleAuthor(opt.author)) out.push({ html: opt.esc(fill(opt.rules.copyrightLine)), cls: 'spaced' })
   }
   for (const p of src) {
     if (PRINT_ONLY.test(p.text) || isHousePrintOnly(p.text)) {

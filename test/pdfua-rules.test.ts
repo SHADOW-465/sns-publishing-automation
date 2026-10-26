@@ -74,7 +74,8 @@ test('end notes anywhere: small numbers are matched to the numbered entries, and
   const st = buildStructure(book, new Map([...roles, ['B 9', 'P'] as [string, UaRole]]), new Map())
   const pairs = endnotePairs(st, book)
   assert.equal(pairs.length, 3)
-  assert.deepEqual(pairs.map((p) => [p.ref.page, p.entry.n, p.entry.line.text.replace(/^\d+\. /, '')]), [[0, 1, 'First note'], [0, 2, 'Second note'], [1, 1, 'Restarted note']])
+  // a number set in the same run as its words is split off as the label (Lbl) of its item, the words are the LBody (U4)
+  assert.deepEqual(pairs.map((p) => [p.ref.page, p.entry.n, p.entry.own, find(st.root, 'LI').find((li) => li.kids[0] === p.entry.host)?.kids[1].lines.map((l) => l.text).join(' ')]), [[0, 1, true, 'First note'], [0, 2, true, 'Second note'], [1, 1, true, 'Restarted note']])
 })
 
 test('frames, hairlines and page-edge borders around a picture are furniture; drawn art stays', () => {

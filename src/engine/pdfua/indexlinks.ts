@@ -63,13 +63,13 @@ export function indexNumberSpans(text: string): IndexLocator[] {
     const start = at + m[0].indexOf(num)
     out.push({ pageNo: Number(num), start, end: start + num.length })
     const endDigits = m[2]
-    if (m[3]) {
-      const noteAt = at + m[0].lastIndexOf(m[3])
-      out.push({ pageNo: endDigits ? expandPageEnd(Number(num), endDigits) : Number(num), note: Number(m[4]), start: noteAt, end: noteAt + m[3].length })
-    }
     if (endDigits) {
       const endAt = at + m[0].indexOf(endDigits, m[0].indexOf(num) + num.length)
       out.push({ pageNo: expandPageEnd(Number(num), endDigits), start: endAt, end: endAt + endDigits.length })
+    }
+    if (m[3]) {
+      const noteAt = at + m[0].lastIndexOf(m[3])
+      out.push({ pageNo: endDigits ? expandPageEnd(Number(num), endDigits) : Number(num), note: Number(m[4]), start: noteAt, end: noteAt + m[3].length })
     }
   }
   return out

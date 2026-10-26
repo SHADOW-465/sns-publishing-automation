@@ -304,7 +304,7 @@ test('PHD-006: a chapter name in capitals inside the notes is a heading, not the
   assert.deepEqual(headingGuards({ ...st, nodes: st.nodes }, book).filter((x) => x.msg.startsWith('PHD-006')), [])
   // a tree that still holds the name inside a list item: the guard names the rule
   const li = st.nodes.find((n) => n.tag === 'LBody')!
-  const swallowed = { ...li, tag: 'LBody', lines: [book.pages[0].lines[5]] }
+  const swallowed = { ...li, tag: 'LBody', lines: [book.pages[0].lines.find((l) => l.text.startsWith('UNO.'))!] }
   assert.match(headingGuards({ headings: [], owner: new Map(), nodes: [swallowed] } as never, book)[0].msg, /^PHD-006: “UNO\. LA PRIMERA DIMENSIÓN” on page 1 is inside a list item/)
 })
 

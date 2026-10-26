@@ -19,8 +19,11 @@ import { bytes, type Files } from '../src/engine/zip.ts'
 test('index locators are the page numbers after the name, not numbers inside the name', () => {
   assert.deepEqual(indexNumberSpans('Abdera, 55').map((s) => s.pageNo), [55])
   const note = indexNumberSpans('Achaea (province), 60, 305n.129')
-  assert.deepEqual(note.map((s) => s.pageNo), [60, 305])
-  assert.equal(note[1].end - note[1].start, 3, '305 is the link; n.129 stays beside it')
+  assert.deepEqual(note.map((s) => s.pageNo), [60, 305, 305])
+  assert.equal(note[1].end - note[1].start, 3, '305 is the link to its page')
+  assert.equal(note[1].note, undefined)
+  assert.equal(note[2].note, 129, 'n.129 is a second link, to that note (U3)')
+  assert.equal('Achaea (province), 60, 305n.129'.slice(note[2].start, note[2].end), 'n.129')
   assert.deepEqual(indexNumberSpans('World War 2, 14').map((s) => s.pageNo), [14])
   assert.deepEqual(indexNumberSpans('Smith, John, 12, 14').map((s) => s.pageNo), [12, 14])
   const range = indexNumberSpans('Rome, 48–9')

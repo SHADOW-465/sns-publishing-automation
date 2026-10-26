@@ -252,7 +252,7 @@ export async function analyzePdf(
       s.at.add(p.index)
     }
   for (const p of pages)
-    !process.env.NO_SPOTS && takeOut(p, (l) => band(p, l) && l.size <= textSize * 1.3 && l.text.trim().length < 60 && /\p{L}/u.test(l.text) && spots.some((s) => s.at.size >= 3 && s.key === l.key && Math.abs(s.y - l.y) < 1.5))
+    takeOut(p, (l) => band(p, l) && l.size <= textSize * 1.3 && l.text.trim().length < 60 && /\p{L}/u.test(l.text) && spots.some((s) => s.at.size >= 3 && s.key === l.key && Math.abs(s.y - l.y) < 1.5))
   if (opts.keepFurniture)
     for (const p of pages) {
       p.lines = [...p.lines, ...p.furniture].sort((a, b) => a.y - b.y || a.x0 - b.x0)

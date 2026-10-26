@@ -498,9 +498,9 @@ export const RULES: Rule[] = [
   },
   {
     id: 'TYP-05', group: 'Typography', title: 'Typeface of the contents-page heading', kind: 'free', type: 'choice', key: 'contentsHeadingFont',
-    help: 'Serif or sans-serif family for the heading of the printed contents page.',
-    choices: [['serif', 'Serif'], ['sans-serif', 'Sans-serif']],
-    example: (v) => `h1.TOC-1 { font-family: ${v}; }`, keywords: ['contents font', 'toc font'], origin: 'Correction P2; Crowood reference is sans-serif',
+    help: 'As in print, serif or sans-serif, for the heading of the printed contents page.',
+    choices: [['print', 'As the printed page'], ['serif', 'Serif'], ['sans-serif', 'Sans-serif']],
+    example: (v) => `h1.TOC-1 { font-family: ${v === 'print' ? '(as printed)' : v}; }`, keywords: ['contents font', 'toc font'], origin: 'Correction P2; Crowood reference is sans-serif',
   },
   {
     id: 'TYP-06', group: 'Typography', title: 'Alignment of the copyright page', kind: 'free', type: 'choice', key: 'copyrightAlign',

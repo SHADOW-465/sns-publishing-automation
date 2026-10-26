@@ -11,7 +11,7 @@ import { transformImprint, PRINT_RIGHTS, type CopyrightRules, type ImprintPara }
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss, type PdfTypography } from './css.ts'
-import { bodyAlignment, lineAlignment } from './align.ts'
+import { bodyAlignment, fontFamilyOf, lineAlignment } from './align.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
@@ -194,7 +194,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       chapterTitle: st.chapterTitleAlign === 'print' ? lineAlignment(book.pages, (l) => roleOf(l) === 'title' || roleOf(l) === 'chapter-number') : st.chapterTitleAlign,
       chapterTitleFont: st.chapterTitleFont,
       contentsHeading: st.contentsHeadingAlign === 'print' ? lineAlignment(book.pages.filter((p) => p.index === tocPage), (l) => l.size === tocTop) : st.contentsHeadingAlign,
-      contentsHeadingFont: st.contentsHeadingFont,
+      contentsHeadingFont: st.contentsHeadingFont === 'print' ? fontFamilyOf(tocPage === undefined ? [] : book.pages[tocPage].lines.filter((l) => l.size === tocTop).map((l) => l.key)) : st.contentsHeadingFont,
       copyright: st.copyrightAlign === 'print' ? lineAlignment(book.pages.filter((p) => p.index === book.imprintPage), (l) => !!l.imprint) : st.copyrightAlign,
       extractSizePct: st.extractSizePct,
       chapterClass: st.pdfChapterClass,
@@ -498,10 +498,21 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     // page marker: goes with the first text of the page, or with its first picture/box
     let pageMarker = marker(page.index)
     if (hasText) {
-      pending = pageMarker
+      pending += pageMarker // an earlier page's marker that has not found its text yet stays in front of this one: markers keep their order
       pageMarker = ''
     }
-    const opener = !page.lines.some((l) => roleOf(l) !== 'caption' && !capLines.has(l))
+    // a picture on a page with no text at all opens what follows; a picture with its caption is a figure of the text before it
+    // (a paragraph that is still open runs on past this page, so the picture is not an opener either)
+    const opener = !para && page.lines.every((l) => roleOf(l) === 'caption' && !capLines.has(l))
+    if (!hasText && !opener && pageMarker) {
+      // a page of pictures in the middle of the text: its marker goes into the text now, in page order, not with a picture that waits for a paragraph break
+      const m = pending + pageMarker
+      pending = ''
+      pageMarker = ''
+      if (para) para.segs.push({ t: m, raw: true })
+      else if (cur) cur.blocks.push({ kind: 'raw', html: m })
+      else pending = m
+    }
     pics.forEach((im, k) => {
       const name = `images/pg-${printNo(page.index)}${pics.length > 1 ? `-${k + 1}` : ''}.jpg`
       images.push({ path: name, data: im.jpeg! })
@@ -577,7 +588,9 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       }
       for (const x of ordered) {
         const a = run[run.length - 1]
-        const fits = (roleOf(x) === 'body' || roleOf(x) === 'text') && !tableAt.has(x) && !x.marker && !x.dropcap && !/^[•▪●◦■·]/.test(x.text.trim()) && x.x1 - x.x0 < measure * 0.78
+        // text wrapped round a picture is short, but it is prose: a line that ends at a picture or starts after it is not verse
+        const roundPicture = page.images.some((im) => x.y + x.size > im.y0 && x.y < im.y1 && (Math.abs(im.x0 - x.x1) < 45 || Math.abs(x.x0 - im.x1) < 45))
+        const fits = (roleOf(x) === 'body' || roleOf(x) === 'text') && !tableAt.has(x) && !x.marker && !x.dropcap && !/^[•▪●◦■·]/.test(x.text.trim()) && x.x1 - x.x0 < measure * 0.78 && !roundPicture
         if (fits && (!a || (a.page === x.page && a.col === x.col && roleOf(a) === roleOf(x) && Math.abs(a.size - x.size) < 0.3 && x.y > a.y && x.y - a.y <= lead * 3))) run.push(x)
         else (endRun(), fits && (run = [x]))
       }

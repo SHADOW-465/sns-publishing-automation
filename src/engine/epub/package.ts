@@ -9,6 +9,7 @@ import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOption
 import { applyBookDetails, type PlanResult } from '../spec/bookdetails.ts'
 import { postBuildGuards, bookDetailsGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards, pageMarkGuards, smallCapsGuards, linkGuards } from '../check/guards.ts'
 import { prepareEpubImages, rewriteImagePaths } from './image-spec.ts'
+import { plausibleAuthor } from './names.ts'
 
 export interface BookMeta {
   title: string
@@ -300,7 +301,11 @@ export function packageEpub(p: {
   const docTitle = (t: string) => (standard && settings().stdTitle === 'book' ? title : standard && settings().stdTitle === 'main' ? meta.title : t)
   const doc = (t: string, body: string) => xhtmlDoc(langAttrs, docTitle(t), 'css/style.css', body, standard)
   // ---- content documents ----
-  const coverAlt = L.coverAlt({ title, authors: authors.join(', '), publisher: meta.publisher })
+  // the cover's description names the title and the author; with no author a person can be named (a printing line is not one) it is only "Cover of <title>"
+  const nameable = authors.filter(plausibleAuthor)
+  const coverAlt = nameable.length && nameable.length === authors.length && title.trim()
+    ? L.coverAlt({ title, authors: nameable.join(', '), publisher: meta.publisher })
+    : lang.startsWith('en') ? `Cover of ${title.trim() || 'the book'}` : `${L.cover}${title.trim() ? `: ${title.trim()}` : ''}`
   // house style: the content of every page sits in <div xml:lang="…"> inside its section
   const langDiv = (body: string) =>
     !settings().langWrapper || (standard && settings().stdWrappers === 'none') ? body :
