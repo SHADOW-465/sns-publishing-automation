@@ -304,10 +304,31 @@ export function writeUa(
       return d.get(PDFName.of('Subtype'))?.toString() === '/Link' ? [{ a, ...covered(d) }] : []
     })
     const hidden = new Set<PDFObject>()
+    const targetOf = (a: PDFObject) => {
+      const d = a instanceof PDFRef ? ctx.lookup(a, PDFDict) : (a as PDFDict)
+      const act = d.lookupMaybe(PDFName.of('A'), PDFDict)
+      const uri = act?.get(PDFName.of('URI'))?.toString() ?? ''
+      const dest = (act?.get(PDFName.of('D')) ?? d.get(PDFName.of('Dest')))?.toString() ?? ''
+      return uri || dest
+    }
+    const centres = (a: Box, b: Box) => Math.hypot((a.x0 + a.x1) / 2 - (b.x0 + b.x1) / 2, (a.y0 + a.y1) / 2 - (b.y0 + b.y1) / 2) <= 4
+    const area = (b: Box) => Math.max(0, b.x1 - b.x0) * Math.max(0, b.y1 - b.y0)
+    // a caption sitting against a button (same target, a few points away) is the same click, not a second reference
+    const against = (a: Box, b: Box) => {
+      const dx = a.x1 < b.x0 ? b.x0 - a.x1 : b.x1 < a.x0 ? a.x0 - b.x1 : 0
+      const dy = a.y1 < b.y0 ? b.y0 - a.y1 : b.y1 < a.y0 ? a.y0 - b.y1 : 0
+      return dx + dy > 0 && dx + dy <= 20 && (dx === 0 || dy === 0)
+    }
     if (opts.stackedLinks !== 'all')
       links.forEach((x, j) => {
-        if (x.text) return
-        for (const y of links.slice(j + 1)) if (!y.text && overlap(x.b, y.b) >= 0.5) return void hidden.add(x.a)
+        const xt = targetOf(x.a)
+        for (const y of links.slice(j + 1)) {
+          const same = !!xt && xt === targetOf(y.a)
+          // a later rectangle on the same spot is the one a reader can click. Same target, stacked or
+          // sitting on the same point, is one link. Two mentions of a URL in different places both stay.
+          if ((!x.text && !y.text && overlap(x.b, y.b) >= 0.5) || (same && (overlap(x.b, y.b) >= 0.45 || centres(x.b, y.b)))) hidden.add(x.a)
+          else if (same && against(x.b, y.b)) hidden.add(area(x.b) < area(y.b) ? x.a : y.a)
+        }
       })
     droppedLinks += hidden.size
     for (const a of annots.asArray()) {

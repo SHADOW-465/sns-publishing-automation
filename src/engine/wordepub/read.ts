@@ -269,7 +269,12 @@ function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>): WordInl
       && (prev.href ?? '') === face.href
     if (same) {
       // each piece is already collapsed, so only the join can make a double space
-      const add = s.replace(/[ \t\n\r]+/g, ' ')
+      let add = s.replace(/[ \t\n\r]+/g, ' ')
+      // a wrapped URL is split at the line: a hyphen on that boundary is not part of the address,
+      // and one trailing space is the wrap ("planalto. " + "gov.br")
+      const urlRun = /(?:https?:\/\/|www\.)\S*$/i.test(prev.text) || (/\/\S*$/.test(prev.text) && !/\s/.test(prev.text))
+      if (urlRun && /[-\u2010\u2011]$/.test(prev.text) && /^[\p{L}\p{N}]/u.test(add) && !/\s/.test(add)) prev.text = prev.text.replace(/[-\u2010\u2011]$/, '')
+      if (/https?:\/\/\S+ $/i.test(prev.text) && /^[\p{L}\p{N}]/u.test(add) && /[./]/.test(add) && !/\s/.test(add)) prev.text = prev.text.replace(/ $/, '')
       prev.text = prev.text.endsWith(' ') && add.startsWith(' ') ? prev.text + add.slice(1) : prev.text + add
     }
     else out.push({
@@ -375,6 +380,81 @@ function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>): WordInl
   if (pPr && child(pPr, 'pageBreakBefore')) pagePending = true
   for (const c of kids(p)) if (local(c) !== 'pPr') walk(c, FACE)
   if (pagePending) flushPage()
+  return joinSplitUrls(out)
+}
+
+/** A hyperlink that covers only the start of a URL, and a URL broken after a hyphen at a line end.
+ * Word splits a wrapped URL into the next run with no break element: a hyphen at that boundary is the
+ * line-end hyphen, and a single leading space is the wrap, not a new sentence. */
+function joinSplitUrls(inlines: WordInline[]): WordInline[] {
+  const urlChar = /^[\p{L}\p{N}./:?=&%#~_+-]+$/u
+  // the next run of a wrapped URL, without the single wrap space. A space after "_" or "/" ("del_ Consejo") is the same wrap.
+  const continuation = (raw: string): string => {
+    let t = raw.startsWith(' ') && !raw.startsWith('  ') ? raw.slice(1) : raw
+    t = t.replace(/([/_\-=?&.]) +(?=[\p{L}\p{N}_])/gu, '$1')
+    return t.match(/^[\p{L}\p{N}./:?=&%#~_+-]+/u)?.[0] ?? ''
+  }
+  const out = [...inlines]
+  for (let i = 0; i < out.length - 1; i++) {
+    const a = out[i]
+    const b = out[i + 1]
+    if (a.t === 'text' && !a.href && /https?:\/\/\s*$/i.test(a.text) && b.t === 'text' && b.href && /^www\./i.test(b.text.trim())) {
+      const m = a.text.match(/^(.*?)(https?:\/\/)\s*$/i)
+      if (!m) continue
+      b.text = `${m[2]}${b.text.trim()}`
+      b.href = safeUrl(b.text.replace(/[.,;)]+$/, ''))
+      if (m[1].trim()) a.text = m[1]
+      else { out.splice(i, 1); i-- }
+    }
+  }
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i]
+    if (a.t !== 'text') continue
+    const urlish = !!a.href || /https?:\/\/\S*\s?$/i.test(a.text)
+    if (!urlish) continue
+    let j = i + 1
+    while (j < out.length && (out[j].t === 'br' || (out[j].t === 'text' && !out[j].href && out[j].text.trim() === ''))) j++
+    const b = out[j]
+    if (!b || b.t !== 'text' || (b.href && b.href !== a.href)) continue
+    const gap = j > i + 1
+    const tight = !gap && !/\s$/.test(a.text) && !/^\s/.test(b.text)
+    if (b.href === a.href && (tight || gap)) {
+      a.text += b.text
+      out.splice(i + 1, j - i)
+      i--
+      continue
+    }
+    if (!/(https?:|www\.|\/)/i.test(a.text)) continue
+    const leadSpace = !tight && !gap && /^ \S/u.test(b.text)
+    const extra = continuation(leadSpace || /^\s/.test(b.text) ? b.text.replace(/^ +/, ' ') : b.text)
+    if (!extra || !urlChar.test(extra)) continue
+    const dotSpace = /https?:\/\/\S+ $/i.test(a.text)
+    const hyphenBreak = /[-\u2010\u2011]$/.test(a.text.trimEnd())
+    const urlTail = /[./?=&]|[\p{Ll}\p{Lu}]|\d.*\p{L}|\p{L}.*\d|^\d{3,}/u.test(extra)
+    // a word with no whitespace after the URL ("Pickerill") is the next sentence, not the address
+    if (!urlTail && !hyphenBreak) continue
+    if (!tight && !leadSpace && !dotSpace && !gap) continue
+    if ((gap || leadSpace || dotSpace) && /^\p{Lu}/u.test(extra) && !/\//.test(extra) && !hyphenBreak && !/\.[a-z]{2,}/i.test(extra)) continue
+    if (/[-\u2010\u2011]$/.test(a.text.trimEnd()) && /^[\p{L}\p{N}]/u.test(extra)) a.text = a.text.replace(/[-\u2010\u2011](\s*)$/, '$1')
+    if (dotSpace) a.text = a.text.replace(/ $/, '')
+    a.text += extra
+    const whole = a.text.trim().replace(/[.,;)]+$/, '')
+    if (/^https?:\/\//i.test(whole)) a.href = safeUrl(whole)
+    a.text = a.text.replace(/\/ +(?=[\p{L}\p{N}])/gu, '/')
+    const collapsed = (b.text.startsWith(' ') && !b.text.startsWith('  ') ? b.text.slice(1) : b.text).replace(/([/_\-=?&.]) +(?=[\p{L}\p{N}_])/gu, '$1')
+    const rest = collapsed.startsWith(extra) ? collapsed.slice(extra.length) : ''
+    if (!rest.trim()) out.splice(i + 1, j - i)
+    else {
+      b.text = rest
+      if (j > i + 1) out.splice(i + 1, j - i - 1)
+    }
+    i--
+  }
+  for (const a of out) {
+    if (a.t !== 'text' || !(a.href || /https?:\/\//i.test(a.text))) continue
+    a.text = a.text.replace(/\/ +(?=[\p{L}\p{N}])/gu, '/')
+    if (a.href && /^https?:\/\//i.test(a.text.trim())) a.href = safeUrl(a.text.trim().replace(/[.,;)]+$/, ''))
+  }
   return out
 }
 

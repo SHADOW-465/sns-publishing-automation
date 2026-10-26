@@ -265,6 +265,29 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   const hanging = new Set([...votes].filter(([, v]) => v >= 3).map(([k]) => k)) // per page: notes and bibliography often share a style
   let itemStart: PLine | undefined // first line of the current list item
   let pendingPrefix: PLine[] = [] // chapter numbers wait for their title
+  let editionHold: PLine[] = [] // "Segunda edición" on the title page is read after the title, as its own paragraph
+  const EDITION = /\b(edici[oó]n|edition|auflage|ausgabe)\b/i
+  const editionCore = /edici[oó]n|edition|auflage|ausgabe/i
+  // "E D I C I Ó N  D E L  V I G É S I M O" is one word with tracking, not eight words
+  const untrack = (raw: string) => {
+    const parts = raw.trim().split(/\s+/)
+    if (parts.length >= 6 && parts.filter((p) => [...p].length <= 2).length / parts.length >= 0.6) return parts.join('')
+    return raw.trim()
+  }
+  const editionLine = (l: PLine) => {
+    const raw = l.text.trim()
+    const flat = untrack(raw)
+    if (flat !== raw) return flat.length <= 48 && editionCore.test(flat)
+    return raw.length <= 60 && raw.split(/\s+/).length <= 8 && EDITION.test(raw)
+  }
+  const flushEdition = (into: SNode) => {
+    for (const e of editionHold) {
+      const p = mk('P')
+      own(e, p)
+      into.kids.push(p)
+    }
+    editionHold = []
+  }
   let floats: SNode[] = []
   let inToc = false
   let inFigList = false // under the heading of a list of illustrations
@@ -297,12 +320,37 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   for (const page of book.pages) {
     tick?.()
     const figs = figuresByPage.get(page.index) ?? []
+    const squareBeside = (l: PLine) => page.images.some((im) => {
+      const w = im.x1 - im.x0
+      const h = im.y1 - im.y0
+      if (w < 28 || h < 28 || w > 160 || h > 160 || w / h < 0.75 || w / h > 1.35) return false
+      const overlapsY = l.y < im.y1 + 8 && l.y + l.size > im.y0 - 8
+      const outsideX = l.x1 < im.x0 - 3 || l.x0 > im.x1 + 3
+      return overlapsY && outsideX
+    })
     const inFig = (l: PLine) => figs.find((f) => {
       const top = page.height - f.box.y1
       const bottom = page.height - f.box.y0
+      // a sentence beside a QR is body text, even when the figure box was grown over it
+      if (squareBeside(l)) return false
       // a label of a chart may run a little past the edge of the drawing: it belongs to the picture when most of it lies inside (PHD-007)
       const inside = Math.min(l.x1, f.box.x1 + 2) - Math.max(l.x0, f.box.x0 - 2)
-      return inside >= (l.x1 - l.x0) * 0.5 && l.y >= top - 2 && l.y + l.size <= bottom + 2
+      if (inside >= (l.x1 - l.x0) * 0.5 && l.y >= top - 2 && l.y + l.size <= bottom + 2) return true
+      // only a chart-sized picture takes labels past its edge; an ornament or a publisher mark beside a title is not one
+      if (f.logo || f.ornament || f.box.x1 - f.box.x0 < 90 || f.box.y1 - f.box.y0 < 90) return false
+      // a short heading that starts inside the drawing and runs past its edge is still a label (pyramid rows)
+      const head = /^H\d$/.test(roleOf(l))
+      const t0 = l.text.trim()
+      if (head && t0.length <= 48 && t0.split(/\s+/).length <= 6 && !/[.!?]/.test(t0) && !/^(figura|figure|fig\.|gr[aá]fic|cuadro|table|chart)\b/i.test(t0) && l.x0 >= f.box.x0 - 4 && l.x0 <= f.box.x1 + 8 && l.y >= top - 4 && l.y <= bottom + 8) return true
+      // pyramid / pie labels sit just outside a drawn chart and were tagged as headings. A caption sentence does not.
+      if (!f.vector) return false
+      const t = l.text.trim()
+      if (t.length > (head ? 48 : 22) || /[.!?]/.test(t) || /^(figura|figure|fig\.|gr[aá]fic|cuadro|table|chart)\b/i.test(t)) return false
+      if (!head && t.split(/\s+/).length > 2) return false
+      if (head && t.split(/\s+/).length > 6) return false
+      const dx = l.x1 < f.box.x0 - 2 ? f.box.x0 - l.x1 : l.x0 > f.box.x1 + 2 ? l.x0 - f.box.x1 : 0
+      const dy = l.y + l.size < top - 2 ? top - (l.y + l.size) : l.y > bottom + 2 ? l.y - bottom : 0
+      return dx <= 40 && dy <= 40 && dx + dy > 0
     })
     const lines: PLine[] = []
     for (const l of page.lines) {
@@ -492,8 +540,22 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
       flushTables(l.y)
+      // the edition line was above a display title: read it once the title is done, before the body
+      if (editionHold.length && !editionLine(l) && l.size <= book.bodySize * 1.25 && container.kids.some((k) => k.lines.some((x) => x.page === l.page && x.size > book.bodySize * 1.25))) flushEdition(container)
       if (before.has(l)) emit(before.get(l)!)
       const text = l.text.trim()
+      // an edition line on the title page is not the title and is not the first thing read
+      if (editionLine(l) && (front.has(l.page) || l.page === titlePage || l.page === book.pages[0]?.index)) {
+        closePara()
+        if (!headings.some((h) => h.lines[0]?.page === l.page)) {
+          editionHold.push(l)
+          continue
+        }
+        const ep = mk('P')
+        own(l, ep)
+        container.kids.push(ep)
+        continue
+      }
       // title pages: the title is the heading; subtitle and author lines in display type are text
       const lastH = headings[headings.length - 1]
       const prevL = ordered[i - 1]
@@ -568,6 +630,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         tocLevel = level
         container = sect
         sect.kids.push(h)
+        if (editionHold.length && (level === 1 || h.tag === 'H1')) flushEdition(sect)
         if (inToc) {
           container = mk('TOC')
           sect.kids.push(container)
@@ -650,6 +713,28 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         para = { node: n, last: l, kind: 'Note' }
         continue
       }
+      // a sentence beside a small square picture (a QR code) is its own paragraph
+      const besideSquare = (x: PLine): string | undefined => {
+        for (const im of page.images) {
+          const w = im.x1 - im.x0
+          const h = im.y1 - im.y0
+          if (w < 28 || h < 28 || w > 140 || h > 140 || w / h < 0.75 || w / h > 1.35) continue
+          const overlapsY = x.y < im.y1 + 8 && x.y + x.size > im.y0 - 8
+          const outsideX = x.x1 < im.x0 - 3 || x.x0 > im.x1 + 3
+          if (overlapsY && outsideX && x.text.trim().length > 12) return `i${im.x0.toFixed(0)}`
+        }
+        for (const f of figs) {
+          const w = f.box.x1 - f.box.x0
+          const h = f.box.y1 - f.box.y0
+          if (w < 28 || h < 28 || w > 140 || h > 140 || w / h < 0.75 || w / h > 1.35) continue
+          const top = page.height - f.box.y1
+          const bottom = page.height - f.box.y0
+          const overlapsY = x.y < bottom + 8 && x.y + x.size > top - 8
+          const outsideX = x.x1 < f.box.x0 - 3 || x.x0 > f.box.x1 + 3
+          if (overlapsY && outsideX && x.text.trim().length > 12) return `f${f.box.x0.toFixed(0)}`
+        }
+        return undefined
+      }
       // ---- paragraphs and list items ----
       const prev = para?.kind !== 'Note' ? para?.last : undefined
       const off = l.x0 - l.col
@@ -664,6 +749,10 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const centred = !!prev && sameFlow && Math.abs(mid(l) - mid(prev)) < 4 && Math.abs(l.x0 - prev.x0) > 3
       let start = !para || para.kind === 'Note' || gap || bullet || (indented && !(para.kind === 'LI' && Math.abs(l.x0 - para.last.x0) < 3)) || (!!prevShort && /^[\p{Lu}‘“(]/u.test(text))
       if (prev && Math.abs(l.x0 - prev.x0) < 2 && !bullet && !gap && !prevShort && para?.kind === 'P') start = false // wrapped text keeps its paragraph
+      const hereSq = besideSquare(l)
+      const prevSq = prev ? besideSquare(prev) : undefined
+      if (hereSq && hereSq !== prevSq) start = true
+      if (prevSq && hereSq !== prevSq) start = true
       if (centred && para?.kind === 'P' && !bullet && l.size === prev!.size) start = l.y - prev!.y > prev!.size * 1.9
       // hanging indents (bibliographies): a flush line starts the entry, indented lines continue it
       // (a flush line after a full line that stops mid-sentence is a wrapped line, not a new entry: a cover note beside a hanging list)
@@ -672,6 +761,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       // entry ends in a number or a colon, and then it starts a sub-entry
       if (inIndex && para?.kind === 'P' && !bullet && para.last) start = l.x0 - l.col < 4 || /[\d.:;]$/.test(para.last.text.trim())
       if (para?.kind === 'LI' && para.first && !bullet && !gap && l.x0 > para.first.x0 + 2 && sameFlow) start = false // hanging indent of a list item
+      // a sentence beside a QR stays its own paragraph; a hanging indent must not pull it into the line above
+      if (hereSq && hereSq !== prevSq) start = true
+      if (prevSq && hereSq !== prevSq) start = true
       if (!start) {
         own(l, para!.node)
         para!.last = l
@@ -715,8 +807,10 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     }
     flushTables(Infinity)
     if (tail.length) emit(tail)
+    if (editionHold.length && headings.some((h) => h.lines[0]?.page === page.index)) flushEdition(sect)
   }
   closePara()
+  if (editionHold.length) flushEdition(container)
   flushToc()
 
   // inline pieces (superscript note numbers, drop caps) belong to the line they sit on

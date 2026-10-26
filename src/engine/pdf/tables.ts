@@ -51,6 +51,24 @@ function merge(rs: Rule[]): Rule[] {
   return out
 }
 
+/** Column edges where the same gutter is stroked on at least two row rules (a segmented rule, not one long stroke). */
+function edgeCols(raw: Rule[], stack: Rule[], x0: number, x1: number): number[] | undefined {
+  const ys = stack.map((r) => r.p)
+  const segs = raw.filter((r) => r.b - r.a > 6 && ys.some((y) => Math.abs(r.p - y) < 1.5))
+  if (segs.length < 4) return undefined
+  const pts = segs.flatMap((r) => [r.a, r.b]).sort((a, b) => a - b)
+  const edges: number[] = []
+  const counts: number[] = []
+  for (const x of pts) {
+    const last = edges.length - 1
+    if (last >= 0 && x - edges[last] <= 3) counts[last]++
+    else (edges.push(x), counts.push(1))
+  }
+  const kept = edges.filter((_, i) => counts[i] >= 2)
+  if (kept.length < 4 || kept[kept.length - 1] - kept[0] < (x1 - x0) * 0.5) return undefined
+  return kept
+}
+
 const cluster = (xs: number[]) => {
   const out: number[] = []
   for (const x of [...xs].sort((a, b) => a - b)) if (!out.length || x - out[out.length - 1] > TOL) out.push(x)
@@ -151,12 +169,40 @@ export function detectTables<L extends Line>(page: { width: number; height: numb
       return cx >= x0 - 2 && cx <= x1 + 2 && cy >= y0 - l.size && cy <= y1 + 2 && l.x1 - l.x0 < (x1 - x0) * 0.75
     })
     if (lines.length < 4) continue
-    // column starts are left edges. A word's centre falls into the next column when the label is wider than the gap, so keep the starts and assign by x0.
-    const starts: number[] = []
-    // right-aligned numbers start a few points after their left-aligned heading; real columns on this grid sit ~40pt apart
-    for (const x of lines.map((l) => l.x0).sort((a, b) => a - b)) if (!starts.length || x - starts[starts.length - 1] > 24) starts.push(x)
-    const cols = [...starts, x1]
+    // a row rule drawn as separate strokes (one per column, touching at the gutter) marks the real columns.
+    // Merging those strokes erases the gutters, and clustering left edges then invents a column per number.
+    const fromEdges = edgeCols(page.rules?.h ?? [], stack, x0, x1)
+    let cols: number[]
+    if (fromEdges) cols = fromEdges
+    else {
+      // column starts are left edges. A word's centre falls into the next column when the label is wider than the gap, so keep the starts and assign by x0.
+      const starts: number[] = []
+      // right-aligned numbers start a few points after their left-aligned heading; real columns on this grid sit ~40pt apart
+      for (const x of lines.map((l) => l.x0).sort((a, b) => a - b)) if (!starts.length || x - starts[starts.length - 1] > 24) starts.push(x)
+      cols = [...starts, x1]
+    }
     if (cols.length < 4) continue // two columns is a contents entry and its page number, not this kind of table
+    // group rules with several baselines between them are one data row each, not one stacked cell
+    if (fromEdges) {
+      const split: number[] = []
+      for (let i = 0; i < rows.length - 1; i++) {
+        const top = rows[i]
+        const bot = rows[i + 1]
+        const band = lines.filter((l) => l.y >= top - 2 && l.y < bot - 3).sort((a, b) => a.y - b.y)
+        const groups: L[][] = []
+        for (const l of band) {
+          const g = groups[groups.length - 1]
+          if (g && l.y - g[0].y < 8) g.push(l)
+          else groups.push([l])
+        }
+        split.push(top)
+        if (groups.length > 1 && groups.every((g) => g.length >= 2)) {
+          for (let k = 0; k < groups.length - 1; k++) split.push((groups[k][0].y + groups[k + 1][0].y) / 2)
+        }
+      }
+      split.push(rows[rows.length - 1])
+      rows.splice(0, rows.length, ...split)
+    }
     const nR = rows.length - 1
     const nC = cols.length - 1
     const cells: TableCell<L>[] = []
@@ -164,7 +210,10 @@ export function detectTables<L extends Line>(page: { width: number; height: numb
     for (const l of lines) {
       const cx = (l.x0 + l.x1) / 2
       const cy = l.y + l.size / 2
-      const c = Math.max(0, cols.findIndex((x, i) => i < nC && l.x0 >= x - 4 && l.x0 < cols[i + 1] - 4))
+      const found = fromEdges
+        ? cols.findIndex((x, i) => i < nC && cx >= x - 1.5 && cx <= cols[i + 1] + 1.5)
+        : cols.findIndex((x, i) => i < nC && l.x0 >= x - 4 && l.x0 < cols[i + 1] - 4)
+      const c = found >= 0 ? found : cx <= cols[0] ? 0 : nC - 1
       const r = Math.max(0, rows.findIndex((y, i) => i < nR && cy >= y - l.size && cy < rows[i + 1] + 2))
       cells.find((k) => k.r === r && k.c === c)?.lines.push(l)
     }

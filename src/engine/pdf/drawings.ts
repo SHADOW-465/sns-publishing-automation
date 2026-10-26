@@ -48,7 +48,33 @@ export function clusterDrawings(
       return cx > c.box.x0 && cx < c.box.x1 && cy > c.box.y0 && cy < c.box.y1 && l.text.trim().length > 45
     })
     if (prose.length) continue
-    out.push(c.box)
+    out.push(absorbLabels(c.box, page.lines))
   }
   return out
+}
+
+const CAPTION = /^(gr[aá]fica|grafico|gr[aá]fico|figura|cuadro|fig\.|table|graph|chart)\b/i
+
+/** Axis numbers and pie labels sit just outside the paths. Pull those short labels into the picture; leave the caption and prose. */
+function absorbLabels(box: DrawBox, lines: { x0: number; x1: number; y: number; size: number; text: string }[]): DrawBox {
+  let b = box
+  for (let pass = 0; pass < 4; pass++) {
+    let grew = false
+    for (const l of lines) {
+      const t = l.text.trim()
+      if (!t || t.length > 36 || CAPTION.test(t)) continue
+      // a legend title ("Títulos normalizados") has no digit; a sentence does
+      if (t.length > 28 && !/\d|%/.test(t)) continue
+      if (t.split(/\s+/).length > 4 && !/\d|%/.test(t)) continue
+      const cx = (l.x0 + l.x1) / 2
+      const cy = l.y + l.size / 2
+      const dx = Math.max(0, b.x0 - cx, cx - b.x1)
+      const dy = Math.max(0, b.y0 - cy, cy - b.y1)
+      if (dx > 96 || dy > 42) continue
+      const next = union(b, { x0: l.x0 - 1, y0: l.y - 1, x1: l.x1 + 1, y1: l.y + l.size + 1 })
+      if (next.x0 !== b.x0 || next.y0 !== b.y0 || next.x1 !== b.x1 || next.y1 !== b.y1) (b = next), (grew = true)
+    }
+    if (!grew) break
+  }
+  return b
 }

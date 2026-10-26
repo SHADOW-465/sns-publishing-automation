@@ -1,7 +1,7 @@
 import { type PdfBook, type PLine, type PdfRole, type PdfStyleInfo, columnStarts, columnOf, titleCase } from './analyze.ts'
 import { extractFootnotes } from './notes.ts'
 import { noteRef, noteLabel, figureWrap, longDescHtml } from '../epub/markup.ts'
-import { joinRaisedLines, markSmallCapRuns, type ImgBox, type FillBox } from '../pdf/layout.ts'
+import { joinRaisedLines, markSmallCapRuns, repairOrdinalHtml, type ImgBox, type FillBox } from '../pdf/layout.ts'
 import { smallCapsSpan } from '../indesign/inline.ts'
 import type { Raster } from '../pdf/raster.ts'
 import { esc } from '../xml.ts'
@@ -17,7 +17,7 @@ import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 import { linkIndexLocators } from '../pdfua/indexlinks.ts'
-import { mergeLabelSections, mergeOpeners } from '../structure/labels.ts'
+import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
 
 // =============================================================================================
 // Print PDF → EPUB, step 2: rebuild the text flow, pictures and navigation.
@@ -74,6 +74,8 @@ interface Float {
   html: string
   /** picture on a page without text (chapter/section opener): travels to the next section */
   opener: boolean
+  /** chart caption y: the picture is placed there, not at the first paragraph on the page */
+  anchorY?: number
 }
 
 const segHtml = (segs: Seg[]) => {
@@ -288,10 +290,14 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     }
     flushFloats(p.lastPage)
   }
-  function flushFloats(upto: number, openers = true) {
+  function flushFloats(upto: number, openers = true, y?: number) {
     if (!cur) return
     const keep: Float[] = []
-    for (const f of floats) f.page <= upto && (openers || !f.opener) && !tocLike(cur) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f)
+    for (const f of floats) {
+      const pageOk = f.page < upto || (f.page === upto && (openers || !f.opener))
+      const here = f.anchorY === undefined ? y === undefined || y === Infinity : y === Infinity || (y !== undefined && f.anchorY <= y)
+      pageOk && here && !tocLike(cur) ? cur.blocks.push({ kind: 'raw', html: f.html }) : keep.push(f)
+    }
     floats = keep
   }
   const kindOf = (l: PLine) => {
@@ -336,11 +342,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     }
     // a page with nothing on it (only the slug) has no page marker, as in the hand-made e-books
     if (!page.lines.length && !page.images.length && !page.fills.length) continue
-    if (book.contents?.pages.includes(page.index) && book.contents.entries.some((e) => e.kind === 'part' || sectionTypeOf(e.text) === 'chapter')) {
-      // the printed contents of a book with parts and chapters: read once (analyze), rendered from its entries
+    if (book.contents?.pages.includes(page.index)) {
+      // the printed contents, read once (analyze) and rendered from its entries. An edited volume lists
+      // "1. Title" rather than "Chapter 1", and "ÍNDICE" may be the body size: it is still the contents.
       const mk = marker(page.index)
       if (page.index === book.contents.pages[0]) {
-        const head = page.lines.filter((l) => l.size >= book.bodySize * 1.2 && sectionTypeOf(l.text.trim()) === 'toc').sort((a, b) => a.y - b.y)[0]
+        const head = page.lines.filter((l) => sectionTypeOf(l.text.trim().replace(/\s+/g, ' ')) === 'toc').sort((a, b) => b.size - a.size || a.y - b.y)[0]
         const s = newSec('toc', 'title', book.numbers[page.index])
         if (head) s.title.push(segsOf(head))
         s.entries = book.contents.entries
@@ -389,10 +396,27 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const inBox = new Set(boxes.flatMap((b) => b.lines))
 
     // captions → pictures
-    const caps = lines.filter((l) => roleOf(l) === 'caption' && !inBox.has(l)).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    const CHART_CAP = /^(gr[aá]fica|grafico|gr[aá]fico|figura|cuadro|fig\.|table|graph|chart)\s*\d/i
+    const caps = lines.filter((l) => !inBox.has(l) && (roleOf(l) === 'caption' || CHART_CAP.test(l.text.trim()))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    // the rest of a chart caption ("Grafica 1.4" / "en porcentaje…") is the next short line, not a new paragraph
+    for (const c of [...caps]) {
+      if (!CHART_CAP.test(c.text.trim()) && roleOf(c) !== 'caption') continue
+      for (const l of lines) {
+        if (l === c || caps.includes(l) || inBox.has(l)) continue
+        const t = l.text.trim()
+        const wrapped = /^\p{Ll}/u.test(t)
+        if (l.y < c.y - 2 || l.y - (c.y + c.size) > c.size * (wrapped ? 3 : 1.35)) continue
+        if (Math.abs(l.x0 - c.x0) > 18) continue
+        if (t.length < 8 || t.length > 90 || CHART_CAP.test(t)) continue
+        if (t.split(/\s+/).length > 14) continue
+        caps.push(l)
+      }
+    }
+    caps.sort((a, b) => a.y - b.y || a.x0 - b.x0)
     const groups: { lines: PLine[]; x0: number; x1: number; y0: number; y1: number }[] = []
     for (const c of caps) {
-      const g = !c.marker && groups.find((g) => Math.abs(g.x0 - c.x0) < 14 && c.y - g.y1 < c.size * 1.2 && c.y >= g.y1 - 2)
+      const cont = /^\p{Ll}/u.test(c.text.trim())
+      const g = !c.marker && groups.find((g) => Math.abs(g.x0 - c.x0) < 14 && c.y - g.y1 < c.size * (cont ? 3 : 1.2) && c.y >= g.y1 - 2)
       if (g) {
         g.lines.push(c)
         g.y1 = c.y + c.size
@@ -408,9 +432,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         .map((im) => {
           const dx = Math.max(0, im.x0 - g.x1, g.x0 - im.x1)
           const dy = Math.max(0, im.y0 - g.y1, g.y0 - im.y1)
-          return { im, d: Math.hypot(dx, dy) + (g.y1 <= im.y0 + 4 ? 40 : 0) }
+          const chart = CHART_CAP.test(g.lines[0]?.text ?? '')
+          return { im, d: Math.hypot(dx, dy) + (g.y1 <= im.y0 + 4 && !chart ? 40 : 0), chart }
         })
-        .filter((x) => x.d < 90)
+        .filter((x) => x.d < (x.chart ? 160 : 90))
         .sort((a, b) => a.d - b.d)
       if (scored[0]) capOf.set(scored[0].im, g)
     }
@@ -420,7 +445,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     tableCount += tables.filter((t) => t.lines.length).length
     const inTable = new Set<PLine>(tables.flatMap((t) => t.lines))
     const tableAt = new Map<PLine, PdfTable<PLine>>(tables.map((t) => [[...t.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0)[0], t]))
-    const flow = lines.filter((l) => !inBox.has(l) && (!inTable.has(l) || tableAt.has(l)) && !(roleOf(l) === 'caption' && groups.some((g) => used.has(g) && g.lines.includes(l))))
+    const capLines = new Set([...used].flatMap((g) => g.lines))
+    const flow = lines.filter((l) => !inBox.has(l) && (!inTable.has(l) || tableAt.has(l)) && !capLines.has(l))
     const hasText = flow.length > 0
 
     // page marker: goes with the first text of the page, or with its first picture/box
@@ -455,9 +481,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(name, choice, '', meta.language)
       const f = figureWrap('img_cont')
+      const chartCap = g ? CHART_CAP.test(g.lines.map((l) => l.text).join(' ')) : false
       floats.push({
         page: page.index,
         opener: !page.lines.some((l) => roleOf(l) !== 'caption'),
+        anchorY: chartCap && g ? g.y0 : undefined,
         html: `${f.open}\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n${f.caption('caption1', caption)}` : ''}${extra}\n${f.close}`,
       })
     })
@@ -471,7 +499,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const starts = columnStarts(bodyLines.length > 3 ? bodyLines : flow.filter((l) => roleOf(l) === 'body' || roleOf(l) === 'text'))
     const colStarts = starts.length ? starts : columnStarts(flow)
     for (const l of flow) l.col = columnOf(colStarts, l.x0)
-    const isFull = (l: PLine) => colStarts.some((s) => s > l.x0 + 20 && l.x1 > s + 10)
+    // a chapter opener (the label, then the title) sits at the top. Its lines are centred and of different widths, so a
+    // column split invented from those widths would read the title before the label. They stay in vertical order.
+    const openerLine = (l: PLine) => l.y < page.height * 0.45 && (roleOf(l) === 'title' || roleOf(l) === 'chapter-number' || isLabelLine(l.text.trim()))
+    const isFull = (l: PLine) => openerLine(l) || colStarts.some((s) => s > l.x0 + 20 && l.x1 > s + 10)
     const fulls = flow.filter(isFull).sort((a, b) => a.y - b.y)
     const ordered: PLine[] = []
     let top = -Infinity
@@ -491,6 +522,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     // ---- feed the lines ----
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
+      flushFloats(page.index, true, l.y)
       const r = roleOf(l)
       // a stray symbol glyph before a title ("=Epilogue") is not part of it
       if ((r === 'title' || r === 'subhead') && /^\s*[=~#*]+(?=\p{L})/u.test(l.text) && l.runs.length) {
@@ -515,7 +547,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         cur!.raw.push(l)
         continue
       }
-      if (r === 'chapter-number') {
+      // "CHAPTER 2" set in the subhead face, directly above the chapter title, is the chapter's label. It is not a
+      // subhead of the previous chapter (the contents match is what usually marks it chapter-number; this covers the miss).
+      const nxt = ordered[i + 1]
+      const labelBeforeTitle = (r === 'subhead' || r === 'subhead2' || r === 'text') && isLabelLine(l.text.trim()) && !PART_LABEL.test(l.text.trim())
+        && !!nxt && nxt.page === l.page && nxt.y >= l.y - 2 && (roleOf(nxt) === 'title' || roleOf(nxt) === 'chapter-number')
+      if (r === 'chapter-number' || labelBeforeTitle) {
         const s = cur && cur.number === undefined && !cur.blocks.length && cur.title.length && cur.firstPage === book.numbers[page.index] ? cur : newSec('chapter', 'title', book.numbers[page.index])
         // "Primera parte" / "Part One" opens a part; anything else ("Capítulo 1", "3") a chapter
         const kind = sectionTypeOf(l.text.trim())
@@ -617,6 +654,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       }
       appendLine(l, para!)
     }
+    flushFloats(page.index, true, Infinity)
   }
   closePara()
   flushFloats(Infinity)
@@ -728,6 +766,15 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       counters.set(base, n)
       s.stem = n > 1 || s.type === 'part' ? `${base}${n}` : base
     }
+    // two title lines with the same words ("Love Your Book" painted twice) are one heading
+    const seenTitle: typeof s.title = []
+    for (const segs of s.title) {
+      const bit = plain(segs)
+      const prevBit = seenTitle.length ? plain(seenTitle[seenTitle.length - 1]) : ''
+      if (bit.length >= 8 && bit === prevBit) continue
+      seenTitle.push(segs)
+    }
+    s.title = seenTitle
     const title = titleCase(s.title.map(plain).join(' '))
     // "Capítulo 1. Title", "Primera parte: Title", "3: Title" — as the InDesign workflow names them
     s.nav ||= !s.number ? title : s.type === 'part' ? `${sentence(s.number)}: ${title}` : /\p{L}/u.test(s.number) && /\d$/.test(s.number) ? `${s.number}. ${title}` : `${s.number}: ${title}`
@@ -779,6 +826,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const shown = new Map(here.map((n, i) => [n.id, noteLabel(n.label, ++pdfNoteNo, i + 1)]))
     body = body.replace(/(<a epub:type="noteref" href="#fn-(\d+)"[^>]*>)[^<]*(<\/a>)/g, (m, a, id, c) => (shown.has(Number(id)) ? `${a}${esc(shown.get(Number(id))!)}${c}` : m))
     if (here.length) body += `\n<div class="footnotes">\n${here.map((n) => `<div epub:type="footnote" id="fn-${n.id}" role="doc-footnote">\n<p class="Nota-al-pie"><a epub:type="backlink" href="#fnr-${n.id}" role="doc-backlink">${esc(shown.get(n.id)!)}</a> ${esc(n.text)}</p>\n</div>`).join('\n')}\n</div>`
+    body = repairOrdinalHtml(body)
     bodyOf.set(s, body)
     for (const m of body.matchAll(/id="page-([^"]+)"/g)) pageFile.set(m[1], `${s.stem}.xhtml`)
   }
@@ -855,7 +903,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   function renderTable(t: PdfTable<PLine>): string {
     const nC = t.cols.length - 1
     const span = t.cols[nC] - t.cols[0]
-    const widths = Array.from({ length: nC }, (_, c) => Math.max(10, Math.round(((t.cols[c + 1] - t.cols[c]) / span) * 100)))
+    const floor = nC >= 7 ? 3 : 10
+    const widths = Array.from({ length: nC }, (_, c) => Math.max(floor, Math.round(((t.cols[c + 1] - t.cols[c]) / span) * 100)))
     for (let over = widths.reduce((a, b) => a + b, 0) - 100; over !== 0; over -= Math.sign(over)) {
       const k = over > 0 ? widths.indexOf(Math.max(...widths)) : widths.indexOf(Math.min(...widths))
       widths[k] -= Math.sign(over)

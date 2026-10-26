@@ -508,6 +508,43 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       }
   }
 
+  // ---- 2a-subregion. under the region parts of a guidebook, a few dozen words that only name the next
+  // place ("Hai Phong e Cat Ba") are the opening of the section that follows, not a chapter of their own.
+  {
+    const words = (x: Sec) => x.items.reduce((n, b) => n + (b.t === 'p' && b.text ? b.text.split(/\s+/).filter(Boolean).length : 0), 0)
+    if (secs.filter((x) => x.type === 'part').length >= 2 && secs.filter((x) => x.type === 'chapter').length >= 6) {
+      const sub = input.styles.find((s) => s.role === 'h2' || s.role === 'h3')?.key
+      const regionWord = /\b(nord|sud|centrale?|north|south|central|norte|sur|centro|norden|s[üu]den)\b/i
+      for (let i = 0; i < secs.length - 1; ) {
+        const x = secs[i]
+        const nx = secs[i + 1]
+        const title = x.title.map((t) => t.text).join(' ')
+        const opener = x.type === 'chapter' && !x.label.length && words(x) > 0 && words(x) < 120 && !sectionTypeOf(title) && !regionWord.test(title)
+        if (!opener) { i++; continue }
+        const heads = x.title.filter((b): b is PBlock => b.t === 'p')
+        if (sub) for (const h of heads) h.key = sub
+        // a chain of short openers ("Hai Phong", then "Nam Dinh") collapses into the next real chapter
+        if (nx.type === 'chapter' && words(nx) > 0) {
+          const n = words(x)
+          nx.items.unshift(...heads, ...x.items)
+          secs.splice(i, 1)
+          review.push({ level: 'info', msg: `"${title}" is a short place opener (${n} words) and stays inside the next section.` })
+          continue
+        }
+        // the opener sits on the last page of a region, and the next section is the following part
+        const prev = i > 0 ? secs[i - 1] : undefined
+        if ((nx.type === 'part' || nx.type !== 'chapter') && prev?.type === 'chapter') {
+          const n = words(x)
+          prev.items.push(...heads, ...x.items)
+          secs.splice(i, 1)
+          review.push({ level: 'info', msg: `"${title}" is a short place opener (${n} words) and stays inside the previous section.` })
+          continue
+        }
+        i++
+      }
+    }
+  }
+
   // ---- 2a''. a short unlabelled "chapter" before the contents page (an author's name in the chapter style on the
   // title pages) is a front page, not a chapter
   {

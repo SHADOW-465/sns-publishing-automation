@@ -1,5 +1,6 @@
 import { type Face, type StyleSheet } from './css.ts'
 import { fusedTocPage } from './read.ts'
+import { repairOrdinalHtml } from '../pdf/layout.ts'
 import { classesOf, esc, epubType, pageBreakOf, tag } from '../xml.ts'
 
 // Converts one InDesign paragraph into clean inline XHTML — the "remove unnecessary italic/bold"
@@ -316,5 +317,7 @@ function render(segs: Seg[], base: Face, lang: string, heading: boolean): string
   html = html.replace(/(\p{Ll}+)<span class="small-caps">/gu, (_, low: string) => `<span class="small-caps">${low.toLocaleUpperCase(lang)}`)
   for (let prev = ''; prev !== html; ) (prev = html), (html = html.replace(/(<span class="small-caps">[^<]*)<\/span>( ?)<span class="small-caps">/g, '$1$2'))
   if (heading) html = html.trim()
-  return html
+  // "1<sup>th</sup>3" is one ordinal split across the number: "13<sup>th</sup>"
+  html = html.replace(/(\d+)<sup>(st|nd|rd|th)<\/sup>(\d+)/gi, '$1$3<sup>$2</sup>')
+  return repairOrdinalHtml(html)
 }

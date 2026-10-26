@@ -1,4 +1,4 @@
-import { pageLayout, splitSpread, isBoldFont, type Line, type PageLayout } from '../pdf/layout.ts'
+import { pageLayout, splitSpread, isTwoUpSpread, isBoldFont, type Line, type PageLayout } from '../pdf/layout.ts'
 import { clusterDrawings } from '../pdf/drawings.ts'
 import { isSlug } from '../pdf/slug.ts'
 import { readContents, readLists, matchHeadings, type Contents } from './contents.ts'
@@ -158,7 +158,7 @@ export async function analyzePdf(
       im.jpeg = obj ? await raster.image(obj, im.crop, settings().imageMaxPx).catch(() => null) : null
     }
     // a spread PDF (two printed pages side by side) is read as two pages, or the left page's text would be a "column" of the right one
-    if (opts.splitSpreads && layout.width > layout.height * 1.2) for (const half of splitSpread(layout, i - 1)) raw.push({ ...half, index: raw.length })
+    if (opts.splitSpreads && isTwoUpSpread(layout)) for (const half of splitSpread(layout, i - 1)) raw.push({ ...half, index: raw.length })
     else raw.push({ ...layout, src: i - 1, index: raw.length })
     page.cleanup()
     onProgress?.(i, doc.numPages)
@@ -368,11 +368,21 @@ export async function analyzePdf(
   const step = [...offs].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 12
 
   // ---- front matter: pages before the first real section ----
+  const tocSet = new Set(contents?.pages ?? [])
   const isSectionStart = (l: PLine) =>
     roleOf.get(l.key) === 'chapter-number' ||
     ((roleOf.get(l.key) === 'title' || roleOf.get(l.key) === 'subhead') && !!sectionTypeOf(titleCase(l.text)))
-  const firstContent = pages.findIndex((p) => p.lines.some(isSectionStart))
-  const front = pages.slice(0, Math.max(0, firstContent)).map((p) => p.index)
+  const styledStart = pages.findIndex((p) => !tocSet.has(p.index) && p.lines.some(isSectionStart))
+  const wordsOf = (p: { lines: PLine[] }) => p.lines.reduce((n, l) => n + (l.text.trim() ? l.text.trim().split(/\s+/).length : 0), 0)
+  // no display-type opener (an edited volume sets "INTRODUCCIÓN" in the body face): the short pages
+  // before the printed contents are the half-title and the title, not a back-matter section
+  let front: number[]
+  if (styledStart >= 0) front = pages.slice(0, styledStart).map((p) => p.index).filter((i) => !tocSet.has(i))
+  else if (contents) {
+    const forced = pages.findIndex((p) => !tocSet.has(p.index) && p.lines.some((l) => l.forced === 'title' || l.forced === 'chapter-number'))
+    const cut = forced >= 0 ? forced : contents.pages[0]
+    front = pages.slice(0, cut).filter((p) => !tocSet.has(p.index) && wordsOf(p) < 80).map((p) => p.index)
+  } else front = []
 
   // ---- imprint: the column holding ISBN + copyright wording ----
   let imprintPage: number | undefined

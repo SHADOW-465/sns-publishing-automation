@@ -111,6 +111,50 @@ export const isItalicFont = (f: string) => /italic|oblique|-it$|-\w*it$|It$/.tes
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
 
+const ORD_SUF = 'st|nd|rd|th'
+
+/** The English ordinal suffix of a number ("11" → "th", "21" → "st"). */
+export function ordinalSuffix(n: number): string {
+  const d = Math.abs(n) % 100
+  if (d >= 11 && d <= 13) return 'th'
+  return ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[Math.abs(n) % 10] ?? 'th'
+}
+
+/**
+ * Ordinals whose raised suffix was read as its own line, or glued onto the next word
+ * ("16the century", "13 century", a paragraph that is only "th").
+ * Already-marked superscripts stay as they are.
+ */
+export function repairOrdinalHtml(html: string): string {
+  let s = html
+  s = s.replace(new RegExp(`(\\d{1,2})(${ORD_SUF})e(\\s+centur(?:y|ies))`, 'gi'), (_m, n: string, suf: string, tail: string) => `${n}<sup>${suf.toLowerCase()}</sup> the${tail}`)
+  s = s.replace(new RegExp(`(\\d{1,2})<sup>(${ORD_SUF})</sup>e(\\s+centur(?:y|ies))`, 'gi'), '$1<sup>$2</sup> the$3')
+  s = s.replace(new RegExp(`(\\d{1,2})(\\s+and\\s+)(\\d{1,2})(?:<sup>(${ORD_SUF})</sup>|(${ORD_SUF}))(?=\\s+centur)`, 'gi'), (m, a: string, mid: string, b: string, sup: string | undefined, plain: string | undefined) => {
+    const suf = (sup ?? plain ?? '').toLowerCase()
+    if (!suf || ordinalSuffix(Number(a)) !== suf) return m
+    const second = sup ? `${b}<sup>${suf}</sup>` : `${b}<sup>${suf}</sup>`
+    return `${a}<sup>${suf}</sup>${mid}${second}`
+  })
+  s = s.replace(/(\d{1,2})(?!\s*(?:st|nd|rd|th)\b)(\s+centur(?:y|ies))/gi, (m, n: string, tail: string, offset: number, whole: string) => {
+    const before = whole.slice(Math.max(0, offset - 6), offset)
+    if (/<sup>$/i.test(before) || /\d$/.test(before)) return m
+    return `${n}<sup>${ordinalSuffix(Number(n))}</sup>${tail}`
+  })
+  s = s.replace(/<p\b[^>]*>\s*(st|nd|rd|th)\s*<\/p>\s*/gi, (full, suf: string, offset: number, whole: string) => {
+    if (suf !== suf.toLowerCase()) return full
+    const prev = whole.slice(Math.max(0, offset - 600), offset)
+    return /\d(?:<sup>[a-z]+<\/sup>)?\s+centur/i.test(prev) ? '' : full
+  })
+  return s
+}
+
+/** "Love Your Book Love Your Book" and "slugslug" — the same phrase painted twice — is one phrase. */
+function collapseRepeat(s: string): string {
+  const t = s.trim()
+  const m = t.match(/^(.{8,}?)(?:\s+)?\1$/)
+  return m ? s.replace(t, m[1]) : s
+}
+
 export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /** a landscape page drawn sideways: read it upright. Off for PDF/UA, whose tags use the PDF's own coordinates. */ unrotate?: boolean } = {}): Promise<PageLayout> {
   const OPS = pdfjs.OPS
   const opName: Record<number, string> = Object.fromEntries(Object.entries(OPS).map(([k, v]) => [v as number, k]))
@@ -303,6 +347,18 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
       const prev = cur[cur.length - 1]
       // a gap wider than one em is a column gutter (index columns sit ~1.2em apart), not a word space
       if (prev && (it.x - prev.x1 > Math.max(prev.size, it.size) * 1.0 || gutters.some((g) => prev.x1 <= g && it.x >= g))) emit()
+      // two strings drawn on the same spot (a later layer over an earlier one): keep the top layer
+      const paintsOver = (a: Item, b: Item) => {
+        const ov = Math.min(a.x1, b.x1) - Math.max(a.x, b.x)
+        if (ov <= 2) return false
+        const aw = a.x1 - a.x
+        const bw = b.x1 - b.x
+        const both = ov > aw * 0.7 && ov > bw * 0.7
+        // a later layer that starts on the same edge covers the text under it, even when one string is longer
+        const sameEdge = Math.abs(a.x - b.x) < 4 && ov > Math.min(aw, bw) * 0.7
+        return both || sameEdge
+      }
+      if (cur.some((p) => paintsOver(p, it))) cur = cur.filter((p) => !paintsOver(p, it))
       cur.push(it)
     }
     emit()
@@ -355,7 +411,7 @@ export async function pageLayout(pdfjs: Any, page: Any, index: number, opts: { /
       y: its[0].base - sz,
       size: sz,
       font,
-      text: runs.map((r) => r.text).join('').replace(/\s+/g, ' '),
+      text: collapseRepeat(runs.map((r) => r.text).join('').replace(/\s+/g, ' ')),
       marker,
       sc: sc || undefined,
     }
@@ -401,10 +457,19 @@ export function joinRaisedLines<L extends Line>(lines: L[]): L[] {
         if (l.x0 < r.x0 - h.size * 0.4 || l.x0 > r.x1 + h.size * 0.4 || !r.text.length) return
         const avg = (r.x1 - r.x0) / r.text.length
         if (!(avg > 0)) return
-        const at = Math.max(0, Math.min(r.text.length, Math.round((l.x0 - r.x0) / avg)))
+        // the ordinal follows the whole number ("13th"), never a digit in the middle ("1th3")
+        let at = -1
+        let near = Infinity
+        for (const m of r.text.matchAll(/\d+/g)) {
+          const startX = r.x0 + m.index * avg
+          const endX = r.x0 + (m.index + m[0].length) * avg
+          if (l.x0 < startX - h.size * 0.35 || l.x0 > endX + h.size * 0.6) continue
+          const d = Math.abs(l.x0 - endX)
+          if (d < near) (near = d), (at = m.index + m[0].length)
+        }
+        if (at < 0) return
         const dist = Math.abs(r.x0 + at * avg - l.x0)
-        if (dist > h.size * 0.45) return
-        if (!/\d$/.test(r.text.slice(0, at))) return
+        if (dist > h.size * 1.1) return
         if (!best || dist < best.dist) best = { host: h, run: ri, at, dist }
       })
     }
@@ -423,6 +488,19 @@ export function joinRaisedLines<L extends Line>(lines: L[]): L[] {
     host.text = host.runs.map((run) => run.text).join('').replace(/\s+/g, ' ')
     host.x1 = Math.max(host.x1, l.x1)
     drop.add(l)
+  }
+  // "1" + raised "th" + "9" is the ordinal 19th. The suffix was read between the digits.
+  for (const l of lines) {
+    if (drop.has(l)) continue
+    const rs = l.runs
+    for (let i = 0; i < rs.length - 2; i++) {
+      const a = rs[i]
+      const b = rs[i + 1]
+      const c = rs[i + 2]
+      if (!/^\d+$/.test(a.text) || !b.sup || !/^(st|nd|rd|th)$/i.test(b.text.trim()) || !/^\d+$/.test(c.text)) continue
+      rs.splice(i, 3, { ...a, text: a.text + c.text, x1: c.x1 }, b)
+      l.text = rs.map((run) => run.text).join('').replace(/\s+/g, ' ')
+    }
   }
   // a note call pdf.js lifted onto its own line: a short raised digit at the end of the line it belongs to.
   // EPUB only (this function is not used by the PDF/UA tagger, which matches each glyph to its own line).
@@ -559,6 +637,21 @@ export async function smallCapTokensOf(pdfjs: Any, data: Uint8Array): Promise<st
     for (const t of smallCapTokens(glyphChunks(ops, pdfjs.OPS))) all.add(t)
   }
   return [...all]
+}
+
+/**
+ * A wide page is a 2-up spread when the middle is a gutter. A landscape table is wide too,
+ * but its rules and lines cross the middle, so cutting it would drop the right-hand columns.
+ */
+export function isTwoUpSpread(l: PageLayout): boolean {
+  if (l.width < l.height * 1.2) return false
+  const mid = l.width / 2
+  const band = Math.max(8, l.width * 0.03)
+  const crossing = l.lines.filter((ln) => ln.x0 < mid - 2 && ln.x1 > mid + 2).length
+  const rulesCross = (l.rules?.h ?? []).filter((r) => r.a < mid - band && r.b > mid + band).length
+  if (rulesCross >= 3 || crossing >= 2) return false
+  const left = l.lines.filter((ln) => (ln.x0 + ln.x1) / 2 < mid).length
+  return left >= 4 && l.lines.length - left >= 4
 }
 
 /** A 2-up spread (two printed pages side by side) as two pages, left then right; things are placed by their centre. */
