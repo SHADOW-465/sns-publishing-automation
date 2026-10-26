@@ -24,7 +24,8 @@ import { settings, isHousePrintOnly, variantProps, type StyleRule } from '../set
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
-import { pairPictures, type PdfPicture } from './pdfpictures.ts'
+import { pairPictures, type PdfPicture, type Render } from './pdfpictures.ts'
+import type { DecisionNote } from '../review/decisions.ts'
 
 // =============================================================================================
 // InDesign EPUB export  →  house-style accessible EPUB 3
@@ -68,6 +69,10 @@ export interface Analysis {
   notes: NoteFinding[]
   /** pictures counted in the print PDF, once it was read for them (IMG-011) */
   printPictures?: number
+  /** where each picture came from once the Links folder and the print PDF were used: 'links', 'pdf' (its own picture file), 'page' (drawn from the PDF page) */
+  pictureFrom: Map<string, 'links' | 'pdf' | 'page'>
+  /** pictures the tool drew from a page, or could not replace: for the review notes, with file name and page */
+  pictureNotes: DecisionNote[]
 }
 
 export interface BuildInput {
@@ -155,16 +160,41 @@ function imageChoices(ex: Export, publisher: string, pictures: SpecPicture[]): I
   return images
 }
 
-/** The package lacks pictures the export refers to: take them from the print PDF (IMG-009). Returns what could not be paired. */
-export function usePdfPictures(a: Analysis, pics: PdfPicture[], pictures: SpecPicture[] = []): string[] {
-  a.printPictures = pics.filter((p) => !p.full).length
-  const { paired, unmatched, all } = pairPictures(a.ex, pics)
-  for (const [src, data] of paired) a.ex.images.set(src, data)
-  if (paired.size) {
+/**
+ * The package lacks pictures the export refers to: take them from the print PDF (IMG-009). Returns what could not be placed.
+ * What order cannot place is looked for by its page and the text around it (`printPages`); a box with no picture file that
+ * fits is drawn from the page with `render`. Whatever is still InDesign's grey placeholder is an error and a review note.
+ */
+export async function usePdfPictures(
+  a: Analysis, pics: PdfPicture[], pictures: SpecPicture[] = [],
+  o: { printPages?: PrintPage[]; render?: Render; onRender?: (done: number, total: number) => void } = {},
+): Promise<string[]> {
+  a.printPictures = pics.filter((p) => !p.full && p.data.length).length
+  const { paired, render, all, late, unmatched: none } = pairPictures(a.ex, pics, { printPages: o.printPages, keep: new Set(a.ex.links.used.keys()) })
+  const drawn = render.length && o.render ? await o.render(render, o.onRender) : new Map<string, Uint8Array>()
+  for (const [src, data] of paired) (a.ex.images.set(src, data), a.pictureFrom.set(src, 'pdf'))
+  for (const [src, data] of drawn) (a.ex.images.set(src, data), a.pictureFrom.set(src, 'page'))
+  const name = (s: string) => s.split('/').pop() ?? s
+  const pageOf = (s: string) => (a.ex.blocks.find((b) => b.t === 'img' && b.src === s) as { page: string } | undefined)?.page ?? ''
+  const pagePdf = new Map(render.map((j) => [j.src, j.page]))
+  if (paired.size || drawn.size) {
     a.images = imageChoices(a.ex, a.meta.publisher, pictures)
-    a.review.push({ level: 'info', msg: all ? `All ${paired.size} pictures taken from the print PDF at its own resolution (the client asks for pictures from the PDF, not from InDesign).` : `${paired.size} picture(s) were missing from the InDesign package or were InDesign's grey placeholder; taken from the print PDF.` })
+    if (paired.size) a.review.push({ level: 'info', msg: all ? `All ${paired.size} pictures taken from the print PDF at its own resolution (the client asks for pictures from the PDF, not from InDesign).` : `${paired.size} picture(s) were missing from the InDesign package or were InDesign's grey placeholder, or smaller than in the PDF; taken from the print PDF.` })
   }
-  if (unmatched.length) a.review.push({ level: 'error', msg: `${unmatched.length} picture(s) are missing or only InDesign's grey placeholder, and could not be matched to the print PDF. Where InDesign gave a grey placeholder, that placeholder is still in the EPUB: replace it by hand (${unmatched.slice(0, 3).map((s) => s.split('/').pop()).join(', ')}).` })
+  if (drawn.size) {
+    a.review.push({ level: 'warn', msg: `${drawn.size} picture(s) have no picture file in the print PDF that fits (a map or chart drawn as vectors, or a picture cut by its frame); the page was drawn at ${settings().imageDpi} dpi where the picture stands. Check them: anything printed on top of the picture is in it (${[...drawn.keys()].slice(0, 3).map(name).join(', ')}).` })
+    for (const src of drawn.keys())
+      a.pictureNotes.push({ step: 'Pictures', item: `${name(src)} was not in the InDesign package`, chosen: `Drawn from print page ${pagePdf.get(src) || pageOf(src) || '?'} of the PDF at ${settings().imageDpi} dpi, because the PDF holds no picture file that fits. Check it: text printed over the picture is in it.`, how: 'guess', where: `picture file ${name(src)}, printed page ${pagePdf.get(src) || pageOf(src) || '?'}` })
+  }
+  for (const [src, page] of late)
+    if (paired.has(src)) a.pictureNotes.push({ step: 'Pictures', item: `${name(src)} was found by its page, not by its place in the book`, chosen: `Took the picture printed on page ${page || '?'} of the PDF, near where the book puts it. Check that it is the right one.`, how: 'guess', where: `picture file ${name(src)}, printed page ${page || '?'}` })
+  // what was missing before this step and is neither paired nor drawn (a picture taken from the PDF is not tested for being a placeholder again)
+  const unmatched = [...none, ...render.filter((j) => !drawn.has(j.src)).map((j) => j.src)]
+  for (const src of unmatched) {
+    const page = pageOf(src)
+    a.review.push({ level: 'error', msg: `${name(src)} is missing or only InDesign's grey placeholder, and could not be found in the print PDF. Where InDesign gave a grey placeholder, that placeholder is still in the EPUB: replace it by hand.`, where: `picture file ${name(src)}${page ? `, printed page ${page}` : ''}` })
+    a.pictureNotes.push({ step: 'Pictures', item: `${name(src)} is missing or only InDesign's grey placeholder`, chosen: 'Not found in the print PDF either. The placeholder (or nothing) is in the EPUB: replace it by hand.', how: 'left', where: `picture file ${name(src)}${page ? `, printed page ${page}` : ''}` })
+  }
   return unmatched
 }
 
@@ -198,7 +228,14 @@ function finishAnalysis(ex: Export, styles: StyleInfo[], pictures: SpecPicture[]
     review.push({ level: 'warn', msg: 'Footnote references found but no footnote text — check the InDesign export options.' })
   const sources = { title: fm.source.title, subtitle: fm.source.subtitle, authors: fm.source.author, publisher: fm.source.publisher, printIsbn: fm.printIsbn ? 'copyright page' : '' }
   const notes = indesignNotes(ex, (b) => role.get(b.key) ?? 'p')
-  return { ex, styles, meta, sources, images, review, notes }
+  const pictureFrom = new Map<string, 'links' | 'pdf' | 'page'>([...ex.links.used.keys()].map((k) => [k, 'links']))
+  const pictureNotes: DecisionNote[] = []
+  if (ex.links.used.size) review.push({ level: 'info', msg: `${ex.links.used.size} picture(s) taken from the Links folder of the InDesign package (the originals, long side at most ${settings().imageMaxPx} px, RGB JPEG).` })
+  for (const [src, link] of ex.links.unreadable) {
+    const name = src.split('/').pop() ?? src
+    review.push({ level: 'warn', msg: `${name}: its original ${link.split('/').pop()} is in the Links folder, but this tool cannot read that file type (TIFF, PSD, AI, EPS). The picture comes from the print PDF.`, where: `picture file ${name}` })
+  }
+  return { ex, styles, meta, sources, images, review, notes, pictureFrom, pictureNotes }
 }
 
 /** Read the export, decide styles, then the front matter. `onStage` fires before each step (the caller can paint between them). */

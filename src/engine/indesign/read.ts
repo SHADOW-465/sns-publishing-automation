@@ -7,6 +7,8 @@ import { type Files, text } from '../zip.ts'
 import { parseXml, resolvePath, tag, classesOf, textOf, pageBreakOf, epubType } from '../xml.ts'
 import { pickLanguage } from '../lang.ts'
 import { settings } from '../settings.ts'
+import { adoptLinks, type LinksUsed } from './links.ts'
+import { rootExport } from './package.ts'
 
 // ---------------------------------------------------------------------------------------------
 // Reading an InDesign "Export > EPUB (reflowable)" package and flattening it to a block stream.
@@ -32,11 +34,14 @@ export interface Export {
   /** zip path -> bytes, images only */
   images: Map<string, Uint8Array>
   coverImage?: string
+  /** pictures replaced by the originals of the package's Links folder, and Links files this tool cannot read */
+  links: LinksUsed
   /** the entries of the export's own navigation document (InDesign writes one when a contents style is set), with their depth */
   nav: { text: string; level: number }[]
 }
 
-export function readExport(files: Files): Export {
+export function readExport(given: Files): Export {
+  const files = rootExport(given) // a folder, or a zip made on a Mac, keeps the export inside another folder; a package may hold the .epub itself
   const container = files.get('META-INF/container.xml')
   if (!container) throw new Error('Not an EPUB export: META-INF/container.xml is missing.')
   const opfPath = text(container).match(/full-path="([^"]+)"/)?.[1]
@@ -60,6 +65,9 @@ export function readExport(files: Files): Export {
 
   const images = new Map<string, Uint8Array>()
   for (const it of items.values()) if (it.type.startsWith('image/') && files.has(it.href)) images.set(it.href, files.get(it.href)!)
+
+  // the originals in a Links folder beside the export (an InDesign package) come before anything the PDF holds
+  const links = adoptLinks(files, images, coverImage)
 
   const pkg = opf.documentElement
   // InDesign lists every language used in the document (en-GB, en-US, es-ES…): the text decides
@@ -179,7 +187,7 @@ export function readExport(files: Files): Export {
 
   const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
   const creators = Array.from(opf.getElementsByTagName('dc:creator')).map((e) => (e.textContent ?? '').trim()).filter(Boolean)
-  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage, nav }
+  return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage, links, nav }
 }
 
 /** Paragraph grouping key: the named paragraph style, or the override classes if it has none. */

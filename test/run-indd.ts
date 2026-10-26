@@ -11,7 +11,7 @@ import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { altTally } from '../src/engine/epub/alt.ts'
 import { printReport } from './check-epub.ts'
 import { read } from './samples.ts'
-import { readPdfPictures, exportPictures } from '../src/engine/indesign/pdfpictures.ts'
+import { readPdfPictures, exportPictures, missingPictures, pdfRenderer } from '../src/engine/indesign/pdfpictures.ts'
 import { nodeRaster } from './raster-node.ts'
 import { openSpec, applySpec, applyBookDetailsToSpec } from '../src/engine/spec/session.ts'
 import { readRequirements } from '../src/engine/spec/requirements.ts'
@@ -26,12 +26,18 @@ console.log('META', a.meta)
 for (const s of a.styles) console.log(String(s.count).padStart(5), s.role.padEnd(14), s.key.padEnd(34), '|', s.samples[0]?.slice(0, 60))
 const printPages = pdf ? await readPrintPages(pdfjs as never, read(resolve(pdf))) : undefined
 // the package may lack pictures: take them from the print PDF (and count them there for the quality check)
+const peak = { rss: 0 }
+const memTimer = setInterval(() => (peak.rss = Math.max(peak.rss, process.memoryUsage().rss)), 200)
 if (pdf && (exportPictures(a.ex).length || process.env.COUNT_PICTURES)) {
   const t0 = Date.now()
-  const pics = await readPdfPictures(pdfjs, read(resolve(pdf)), nodeRaster, printPages)
-  const left = usePdfPictures(a, pics)
-  console.log(`PDF PICTURES ${pics.length} read in ${Date.now() - t0} ms; not paired: ${left.length}`)
-}
+  const pdfBytes = read(resolve(pdf))
+  const pics = await readPdfPictures(pdfjs, pdfBytes, nodeRaster, printPages)
+  const left = await usePdfPictures(a, pics, [], { printPages, render: pdfRenderer(pdfjs, pdfBytes, nodeRaster) })
+  console.log(`PDF PICTURES ${pics.filter((p) => p.data.length).length} read in ${Date.now() - t0} ms; not placed: ${left.length}; drawn from pages: ${[...a.pictureFrom.values()].filter((v) => v === 'page').length}`)
+} else if (missingPictures(a.ex).length) await usePdfPictures(a, []) // no PDF: the grey placeholders are still listed, never silent
+clearInterval(memTimer)
+if (process.env.MEMORY) console.log(`PEAK MEMORY (rss) ${Math.round(peak.rss / 1048576)} MB`)
+for (const n of a.pictureNotes) console.log(`NOTE [${n.how}] ${n.item} -> ${n.chosen} (${n.where})`)
 const cover = coverPath ? { name: basename(coverPath), data: read(resolve(coverPath)) } : undefined
 // the client's own style (bundled client layer, matched on the publisher) and any house settings apply, as in the app
 let spec = await openSpec({ client: a.meta.publisher, series: '', book: eisbn || a.meta.title }, DEFAULT_SETTINGS)

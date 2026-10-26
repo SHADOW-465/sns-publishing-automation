@@ -19,7 +19,7 @@ import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, applyBookD
 import { readRequirements } from '../engine/spec/requirements.ts'
 import { collectGate, uiStages, type ExportGate, type GateOverride } from '../engine/check/exportgate.ts'
 import { CheckFirst } from './CheckFirst.tsx'
-import { exportPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
+import { exportPictures, missingPictures, pdfRenderer, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
 import { reviewList, blockingItems, acceptable, acceptAllIds } from '../engine/review/confidence.ts'
 import { structureNeeds, detailNeeds, targetId, keepStylePatch, type Need } from './needs.ts'
@@ -133,15 +133,32 @@ export function IndesignFlow() {
         // pictures come from the print PDF, not from InDesign (client image spec); missing or grey-placeholder ones too (IMG-009)
         if (exportPictures(a.ex).length) {
           const { pdfjs } = await import('./pdf.ts')
+          // page by page, each page released before the next: a 70 MB book is never in memory whole
           const pics = await readPdfPictures(pdfjs, pdf.data, browserRaster, pp, (done, total) => {
             setBusy(`Taking the pictures from the print PDF, page ${done} of ${total}…`)
             setProgress({ done, total })
           })
-          usePdfPictures(a, pics)
+          await usePdfPictures(a, pics, [], {
+            printPages: pp,
+            render: pdfRenderer(pdfjs, pdf.data, browserRaster),
+            onRender: (done, total) => {
+              setBusy(`Drawing the pictures the PDF has no file for, ${done} of ${total}…`)
+              setProgress({ done, total })
+            },
+          })
+          rn.add(a.pictureNotes)
           setAnalysis({ ...a })
           setImages(a.images)
         }
-      } else setPrintPages(undefined)
+      } else {
+        setPrintPages(undefined)
+        // no print PDF to take pictures from: InDesign's grey placeholders are still listed, never placed silently
+        if (missingPictures(a.ex).length) {
+          await usePdfPictures(a, [])
+          rn.add(a.pictureNotes)
+          setAnalysis({ ...a })
+        }
+      }
       setStep(1)
     })
 
@@ -242,7 +259,7 @@ export function IndesignFlow() {
     setAcked((s) => new Set([...s, ...d.ack]))
     return { notes: d.notes }
   }
-  const fileNeeds: Need[] = exp ? [] : [{ id: 'file:export', label: 'Add the InDesign EPUB export (the .epub or .zip InDesign made)', group: 'InDesign export', kind: 'choice' }]
+  const fileNeeds: Need[] = exp ? [] : [{ id: 'file:export', label: 'Add the InDesign EPUB export (the .epub, a .zip, or the unzipped folder)', group: 'InDesign export', kind: 'choice' }]
   const outputKind = (meta?.profile ?? settings().defaultProfile) === 'standard' ? 'standard-epub' as const : 'accessible-epub' as const
   const outputProblems = outputViolations(outputKind, spec?.resolved.settings ?? settings())
   const outputErrors = outputProblems.filter((p) => p.level === 'error')
@@ -366,7 +383,7 @@ export function IndesignFlow() {
             cleans it up and makes it accessible.
           </p>
           <div className="drops">
-            <FileDrop label="InDesign EPUB export" hint="the .epub (or .zip) InDesign made" accept=".zip,.epub" value={exp} onPick={setExp} required />
+            <FileDrop label="InDesign EPUB export" hint="the .epub InDesign made, a .zip of it, or its unzipped folder (with a Links folder, if you have one)" accept=".zip,.epub" value={exp} onPick={setExp} required folder />
             <FileDrop label="Cover image" hint="final front cover, JPG or PNG, 1600×2560 px ideal" accept="image/jpeg,image/png" value={cover} onPick={changed(setCover)} required />
             <FileDrop label="Print PDF" hint="the printed book: used to check every page number" accept="application/pdf" value={pdf} onPick={setPdf} />
             <FileDrop label="Book_Details" hint="the client’s .xlsx: file names, epub:type and roles" accept=".xlsx" value={bookDetails} onPick={changed(setBookDetails)} />

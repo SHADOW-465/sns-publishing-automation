@@ -63,7 +63,7 @@ test('1: a package without its pictures takes them from the print PDF, and says 
   // with the PDF: both pictures are in the package, every <img> has bytes, and the count agrees
   const pics = await readPdfPictures(pdfjs, await printPdf(2), nodeRaster)
   assert.equal(pics.length, 2)
-  assert.deepEqual(usePdfPictures(a, pics), [])
+  assert.deepEqual(await usePdfPictures(a, pics), [])
   const r = buildBook(a)
   const html = [...r.files].filter(([p]) => p.endsWith('.xhtml')).map(([, d]) => text(d)).join('\n')
   assert.equal((html.match(/<img\b[^>]*src="images\/pic\d\.jpg"/g) ?? []).length, 2)
