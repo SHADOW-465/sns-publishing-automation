@@ -4,12 +4,12 @@ import { settings } from '../engine/settings.ts'
 import { imageMime } from '../engine/epub/image.ts'
 
 // The same file asked for twice within 2 s (a double click, or two re-renders settling after Fix with AI) downloads once
-let lastDownload = { key: '', at: 0 }
+const recentDownloads = new Map<string, number>()
 export function download(data: Uint8Array | string, name: string, type: string) {
-  const key = name + ':' + (typeof data === 'string' ? data.length : data.byteLength)
+  const key = name
   const now = Date.now()
-  if (key === lastDownload.key && now - lastDownload.at < 2000) return
-  lastDownload = { key, at: now }
+  if (now - (recentDownloads.get(key) ?? 0) < 2000) return
+  recentDownloads.set(key, now)
   const url = URL.createObjectURL(new Blob([data as BlobPart], { type }))
   const a = Object.assign(document.createElement('a'), { href: url, download: name })
   a.click()
