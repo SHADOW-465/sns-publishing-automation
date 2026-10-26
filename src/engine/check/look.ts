@@ -208,7 +208,7 @@ export function compareLook(files: Files, pages: PrintPage[]): { checked: number
           if (t.length >= 12 && at !== undefined) {
             // the paragraph starts on this printed page (or the next, when the marker sits inside it)
             for (const pi of [at, at + 1]) {
-              const pl = pages[pi]?.lines ?? []
+              const pl = (pages[pi]?.lines ?? []).filter((l): l is PrintLine => !!l && typeof l.text === 'string')
               const i = pl.findIndex((l) => {
                 const n = norm(l.text)
                 return n.length >= 5 && t.startsWith(n.slice(0, Math.min(20, n.length)))
@@ -217,10 +217,12 @@ export function compareLook(files: Files, pages: PrintPage[]): { checked: number
               // the paragraph continues in its own column (on a two-column page the next line in the
               // list may belong to the other column)
               const col = columnOf(cols[pi % 2], pl[i])
-              const inCol = pl.filter((l) => columnOf(cols[pi % 2], l) === col)
+              let inCol = pl.filter((l) => columnOf(cols[pi % 2], l) === col)
+              // a column test that cannot place the line (NaN) must not lose it
+              if (!inCol.includes(pl[i])) inCol = pl
               const mine: PrintLine[] = []
               let got = 0
-              for (let k = inCol.indexOf(pl[i]); k < inCol.length && got < t.length - 2; k++) {
+              for (let k = Math.max(0, inCol.indexOf(pl[i])); k < inCol.length && inCol[k] && got < t.length - 2; k++) {
                 const n = norm(inCol[k].text)
                 if (mine.length && !t.includes(n.slice(0, 15))) break
                 mine.push(inCol[k])

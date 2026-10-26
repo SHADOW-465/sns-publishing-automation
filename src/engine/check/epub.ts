@@ -474,7 +474,10 @@ export function checkEpub(files: Files, src: CheckSource = {}): CheckReport {
   if (src.printLayout?.length) {
     const look: Finding[] = []
     const name: Record<string, string> = { left: 'flush left', justify: 'justified', center: 'centred', right: 'right-aligned' }
-    const { checked, findings, indents } = compareLook(files, src.printLayout)
+    // an advisory check: a fault in it must never stop the build
+    let cmp: ReturnType<typeof compareLook> = { checked: 0, findings: [], indents: [] } as unknown as ReturnType<typeof compareLook>
+    try { cmp = compareLook(files, src.printLayout) } catch (e) { look.push({ level: 'warn', msg: `The print-layout comparison could not run: ${(e as Error).message}`  }) }
+    const { checked, findings, indents } = cmp
     // a real fault repeats (a whole style set wrong); a lone difference may be a quirk of the print layout
     const level = findings.length >= 3 ? 'error' : 'warn'
     for (const f of findings) look.push({ level, msg: `Page ${f.page}: “${f.text}” is ${name[f.ebook]} in the e-book but ${name[f.print]} in print.`, where: f.file })

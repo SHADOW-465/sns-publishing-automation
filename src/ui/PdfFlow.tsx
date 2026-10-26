@@ -91,7 +91,8 @@ export function PdfFlow() {
     try {
       return await fn()
     } catch (e) {
-      setError((e as Error).message)
+      console.error(label, e)
+      setError(` stopped: ${(e as Error).message}. You can choose Continue anyway to go on with what was built, or try again.`)
       return undefined
     } finally {
       setBusy(undefined)
@@ -282,7 +283,7 @@ export function PdfFlow() {
   /** Fix with AI before the build: title from the file name, a standard value for a setting that does not fit, a placeholder cover. */
   const fixBuild = async (): Promise<{ notes: DecisionNote[]; over: Over }> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lines: string[] = book ? book.pages.slice(0, 10).flatMap((p) => p.lines.map((l) => l.text)) : (wordBook?.blocks ?? []).slice(0, 300).map((x) => String((x as any).text ?? ''))
+    const lines: string[] = book ? book.pages.slice(0, 10).flatMap((p) => (p.lines ?? []).map((l) => l?.text ?? '')) : (wordBook?.blocks ?? []).slice(0, 300).map((x) => String((x as any).text ?? ''))
     const ai = await aiDetails(meta!, frontMatterText(lines))
     const d = decideDetails(ai.meta, (docx ?? pdf)?.name)
     const notes = [...ai.notes, ...d.notes]
