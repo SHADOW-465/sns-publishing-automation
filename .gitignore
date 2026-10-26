@@ -13,3 +13,4 @@ scratch/
 
 # generated from the client rulebook workbook (scripts/seed-rulebook.ts)
 data/
+EPUB_output/
