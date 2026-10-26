@@ -157,14 +157,14 @@ function imageChoices(ex: Export, publisher: string, pictures: SpecPicture[]): I
 
 /** The package lacks pictures the export refers to: take them from the print PDF (IMG-009). Returns what could not be paired. */
 export function usePdfPictures(a: Analysis, pics: PdfPicture[], pictures: SpecPicture[] = []): string[] {
-  a.printPictures = pics.length
-  const { paired, unmatched } = pairPictures(a.ex, pics)
+  a.printPictures = pics.filter((p) => !p.full).length
+  const { paired, unmatched, all } = pairPictures(a.ex, pics)
   for (const [src, data] of paired) a.ex.images.set(src, data)
   if (paired.size) {
     a.images = imageChoices(a.ex, a.meta.publisher, pictures)
-    a.review.push({ level: 'info', msg: `${paired.size} picture(s) were not in the InDesign package; taken from the print PDF.` })
+    a.review.push({ level: 'info', msg: all ? `All ${paired.size} pictures taken from the print PDF at its own resolution (the client asks for pictures from the PDF, not from InDesign).` : `${paired.size} picture(s) were missing from the InDesign package or were InDesign's grey placeholder; taken from the print PDF.` })
   }
-  if (unmatched.length) a.review.push({ level: 'error', msg: `${unmatched.length} picture(s) are not in the InDesign package and could not be matched to the print PDF (${unmatched.slice(0, 3).map((s) => s.split('/').pop()).join(', ')}).` })
+  if (unmatched.length) a.review.push({ level: 'error', msg: `${unmatched.length} picture(s) are missing or only InDesign's grey placeholder, and could not be matched to the print PDF. Where InDesign gave a grey placeholder, that placeholder is still in the EPUB: replace it by hand (${unmatched.slice(0, 3).map((s) => s.split('/').pop()).join(', ')}).` })
   return unmatched
 }
 

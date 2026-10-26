@@ -19,7 +19,7 @@ import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, applyBookD
 import { readRequirements } from '../engine/spec/requirements.ts'
 import { collectGate, uiStages, type ExportGate, type GateOverride } from '../engine/check/exportgate.ts'
 import { CheckFirst } from './CheckFirst.tsx'
-import { missingPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
+import { exportPictures, readPdfPictures } from '../engine/indesign/pdfpictures.ts'
 import { browserRaster } from './raster-browser.ts'
 import { reviewList, blockingItems, acceptable, acceptAllIds } from '../engine/review/confidence.ts'
 import { structureNeeds, detailNeeds, targetId, keepStylePatch, type Need } from './needs.ts'
@@ -130,8 +130,8 @@ export function IndesignFlow() {
           setProgress({ done, total })
         })
         setPrintPages(pp)
-        // the package lacks pictures the export refers to: take them from the print PDF (IMG-009)
-        if (missingPictures(a.ex).length) {
+        // pictures come from the print PDF, not from InDesign (client image spec); missing or grey-placeholder ones too (IMG-009)
+        if (exportPictures(a.ex).length) {
           const { pdfjs } = await import('./pdf.ts')
           const pics = await readPdfPictures(pdfjs, pdf.data, browserRaster, pp, (done, total) => {
             setBusy(`Taking the pictures from the print PDF, page ${done} of ${total}…`)

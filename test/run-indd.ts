@@ -11,7 +11,7 @@ import { checkEpubBytes } from '../src/engine/check/epub.ts'
 import { altTally } from '../src/engine/epub/alt.ts'
 import { printReport } from './check-epub.ts'
 import { read } from './samples.ts'
-import { readPdfPictures, missingPictures } from '../src/engine/indesign/pdfpictures.ts'
+import { readPdfPictures, exportPictures } from '../src/engine/indesign/pdfpictures.ts'
 import { nodeRaster } from './raster-node.ts'
 import { openSpec, applySpec, applyBookDetailsToSpec } from '../src/engine/spec/session.ts'
 import { readRequirements } from '../src/engine/spec/requirements.ts'
@@ -26,7 +26,7 @@ console.log('META', a.meta)
 for (const s of a.styles) console.log(String(s.count).padStart(5), s.role.padEnd(14), s.key.padEnd(34), '|', s.samples[0]?.slice(0, 60))
 const printPages = pdf ? await readPrintPages(pdfjs as never, read(resolve(pdf))) : undefined
 // the package may lack pictures: take them from the print PDF (and count them there for the quality check)
-if (pdf && (missingPictures(a.ex).length || process.env.COUNT_PICTURES)) {
+if (pdf && (exportPictures(a.ex).length || process.env.COUNT_PICTURES)) {
   const t0 = Date.now()
   const pics = await readPdfPictures(pdfjs, read(resolve(pdf)), nodeRaster, printPages)
   const left = usePdfPictures(a, pics)
