@@ -154,7 +154,7 @@ export function readContents(pages: { index: number; width: number; lines: PLine
   for (let k = 0; k < entries0.length; k++) {
     const e = entries0[k]
     const n = entries0[k + 1]
-    if (e.kind === 'label' && n?.kind === 'entry' && n.on === e.on && (e.lines.length >= 2 || /^\d{1,2}\.\s/.test(e.text)) && !sectionTypeOf(n.text) && Math.abs(n.lines[0].x0 - e.lines[0].x0) < 3) {
+    if (e.kind === 'label' && n?.kind === 'entry' && n.on === e.on && (e.lines.length >= 2 || /^\d{1,3}\.\s/.test(e.text)) && !sectionTypeOf(n.text) && Math.abs(n.lines[0].x0 - e.lines[0].x0) < 3) {
       entries.push({ ...n, text: e.text, lines: e.lines })
       k++
     } else entries.push(e)

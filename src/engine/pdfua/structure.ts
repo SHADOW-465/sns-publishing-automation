@@ -124,7 +124,8 @@ const isFigListHeading = (t: string) => sectionTypeOf(titleCase(t)) === 'list' &
 const CHAPTER_LABEL = /^(chapter|part|book|kapitel|teil|chapitre|partie|cap[ií]tulo|capitolo|parte)\s+([\divxlc]+|\p{L}+)$/iu
 /** An end note whose number is set in the same piece of text as its words: "101. Suetonius, …" */
 const NOTE_LEAD = /^(\d{1,3})([.)])\s+\S/
-const BULLET = /^([•●◦▪■–—-]|\(?\d{1,2}[.)]|[a-z][.)])\s/
+// the list mark of the layout (numbers up to 999) followed by the item text
+const BULLET = new RegExp(LIST_MARK.source.replace(/\$$/, '\\s'))
 
 /**
  * The line ends a contents entry. A digit at the end is a page number ("Title 12", or "64" on its own).
