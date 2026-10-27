@@ -1,6 +1,6 @@
 // Reference diff for accessible PDFs: our tagged PDF against the client's finished one, as scores and plain sentences.
 // The numbers come from pdfstats.ts; nothing here reads a PDF.
-import type { PdfStats } from './pdfstats.ts'
+import { SCORED_ROLES, type PdfStats } from './pdfstats.ts'
 import type { Dimension, RefScore } from './refscore.ts'
 
 const pct = (x: number) => Math.round(Math.max(0, Math.min(1, x)) * 1000) / 10
@@ -10,7 +10,69 @@ const ratio = (a: number, b: number) => (a === b ? 1 : Math.min(a, b) / Math.max
 const more = (xs: string[], n = 6) => (xs.length > n ? [...xs.slice(0, n), `…and ${xs.length - n} more`] : xs)
 const clip = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
-export function comparePdfs(mine: PdfStats, ref: PdfStats): RefScore {
+/** longest common subsequence of two word lists (two rows, so a long page stays cheap) */
+function lcs(a: string[], b: string[]): number {
+  let prev = new Uint32Array(b.length + 1)
+  let cur = new Uint32Array(b.length + 1)
+  for (const x of a) {
+    for (let j = 1; j <= b.length; j++) cur[j] = x === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1])
+    ;[prev, cur] = [cur, prev]
+  }
+  return prev[b.length]
+}
+
+/** Reading order (the tagged text of each page in tag-tree order, as an LCS ratio against the reference's) and role F1
+ *  (captions and headings found by their text). Only when both stats were read with pdfjs; `pages` limits both to those
+ *  pages (the eval set). Pages are paired by number. */
+export function readingDims(mine: PdfStats, ref: PdfStats, pages?: number[]): Dimension[] {
+  if (!mine.order || !ref.order) return []
+  const keep = (p: number) => !pages || pages.includes(p)
+  const out: Dimension[] = []
+  {
+    let same = 0
+    let total = 0
+    const worst: [number, number][] = []
+    // a page the reference does not tag (or tags only as artifacts) cannot judge the build's order
+    const unjudged = Object.keys(mine.order.pages).map(Number).filter((p) => keep(p) && !ref.order!.pages[p]).length
+    const all = Object.keys(ref.order.pages).map(Number).filter(keep)
+    for (const p of all.sort((x, y) => x - y)) {
+      const a = mine.order.pages[p] ?? []
+      const b = ref.order.pages[p] ?? []
+      const l = lcs(a, b)
+      const n = Math.max(a.length, b.length)
+      same += l
+      total += n
+      if (l < n) worst.push([p, l / n])
+    }
+    worst.sort((x, y) => x[1] - y[1])
+    const diffs = worst.slice(0, 6).map(([p, r]) => `Page ${p} reads ${pct(r)}% in the reference’s order.`)
+    if (worst.length > 6) diffs.push(`…and ${worst.length - 6} more pages read differently.`)
+    if (unjudged) diffs.push(`${unjudged} page${unjudged === 1 ? '' : 's'} with tagged text in the build have none in the reference and are not scored.`)
+    out.push({ id: 'order', label: 'Reading order (tagged text page by page)', weight: 20, score: total ? pct(same / total) : null, diffs })
+  }
+  {
+    const f1s: number[] = []
+    const diffs: string[] = []
+    for (const role of SCORED_ROLES) {
+      const texts = (s: PdfStats) => s.order!.roles.filter((r) => r.role === role && keep(r.page)).map((r) => r.text)
+      const a = texts(mine)
+      const b = texts(ref)
+      if (!a.length && !b.length) continue
+      const left = new Map<string, number>()
+      for (const t of b) left.set(t, (left.get(t) ?? 0) + 1)
+      let agree = 0
+      for (const t of a) if (left.get(t)) left.set(t, left.get(t)! - 1), agree++
+      const f1 = (2 * agree) / (a.length + b.length)
+      f1s.push(f1)
+      diffs.push(`${role}: F1 ${Math.round(f1 * 100) / 100} (${a.length} in the build, ${b.length} in the reference, ${agree} with the same text).`)
+    }
+    // a report: the headings dimension already weighs the counts
+    out.push({ id: 'roles', label: 'Captions and headings with the reference’s text (F1, report only)', weight: 0, score: f1s.length ? pct(f1s.reduce((x, y) => x + y, 0) / f1s.length) : null, diffs })
+  }
+  return out
+}
+
+export function comparePdfs(mine: PdfStats, ref: PdfStats, opts: { pages?: number[] } = {}): RefScore {
   const dims: Dimension[] = []
   const dim = (id: string, label: string, weight: number, score: number | null, diffs: string[]) => dims.push({ id, label, weight, score: score === null ? null : pct(score), diffs })
   const T = (s: PdfStats, k: string) => s.types[k] ?? 0
@@ -118,6 +180,8 @@ export function comparePdfs(mine: PdfStats, ref: PdfStats): RefScore {
     if (mine.content.unmarkedPaintOps) diffs.push(`${mine.content.unmarkedPaintOps} drawing operations are outside any tag or artifact mark in the build.`)
     dim('untagged', 'Everything on the page is tagged or marked as decoration', 2, mine.content.unmarkedPaintOps ? Math.max(0, 1 - mine.content.unmarkedPaintOps / 100) : 1, diffs)
   }
+
+  dims.push(...readingDims(mine, ref, opts.pages))
 
   const live = dims.filter((d) => d.score !== null)
   const overall = live.length ? Math.round((live.reduce((s, d) => s + d.score! * d.weight, 0) / live.reduce((s, d) => s + d.weight, 0)) * 10) / 10 : 0

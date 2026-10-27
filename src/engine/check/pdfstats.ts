@@ -1,7 +1,7 @@
 // What a tagged PDF contains, as plain numbers: document settings, bookmarks, the tag tree (headings, lists, tables,
 // figures, notes, contents), links, and how much painted content is outside any marked content. Used by the reference
 // diff (refscore-pdf.ts) to compare our accessible PDF with the client's finished file. pdf-lib only, so it runs in the
-// browser as well as in Node.
+// browser as well as in Node; given pdfjs it also reads the text in tag-tree order (the reading-order dimension).
 import { PDFDocument, PDFName, PDFDict, PDFArray, PDFRef, PDFNumber, PDFString, PDFHexString, PDFRawStream, PDFStream, PDFBool, decodePDFRawStream, type PDFObject } from 'pdf-lib'
 
 export interface PdfStats {
@@ -19,7 +19,15 @@ export interface PdfStats {
   notes: { notes: number; references: number }
   toc: { toc: number; items: number }
   content: { artifactBlocks: number; markedBlocks: number; unmarkedPaintOps: number }
+  /** only when pdfjs was given: per page, the words of the tagged text in the order the tag tree reads them; and the text of
+   *  every caption and heading element (on the page where it starts) */
+  order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[] }
 }
+
+/** the roles the role-F1 report scores */
+export const SCORED_ROLES = ['Caption', 'H', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']
+/** the same normalisation as the reference diff: case and punctuation do not count */
+export const words = (s: string) => s.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean)
 
 const N = PDFName.of
 const text = (o: PDFObject | undefined): string | undefined => (o instanceof PDFString || o instanceof PDFHexString ? o.decodeText() : o instanceof PDFName ? o.decodeText() : undefined)
@@ -28,7 +36,8 @@ const inc = (m: Record<string, number>, k: string, by = 1) => void (m[k] = (m[k]
 
 interface Elem { type: string; mapped: string; parent: number | null; kids: number[]; page: number | null; mcids: number; objr: (string | null)[]; alt?: string; hasAlt: boolean }
 
-export async function pdfStats(data: Uint8Array): Promise<PdfStats> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function pdfStats(data: Uint8Array, pdfjs?: any): Promise<PdfStats> {
   const doc = await PDFDocument.load(data, { updateMetadata: false, ignoreEncryption: true, throwOnInvalidObject: false })
   const ctx = doc.context
   const cat = doc.catalog
@@ -110,16 +119,22 @@ export async function pdfStats(data: Uint8Array): Promise<PdfStats> {
   const elems: Elem[] = []
   const byRef = new Map<string, number>()
   const kidList = (k: PDFObject | undefined): PDFObject[] => (k === undefined ? [] : k instanceof PDFArray ? k.asArray() : [k])
-  const walk = (node: PDFObject, parent: number | null, inheritedPage: number | null) => {
+  /** marked content in tag-tree order, with the caption or heading element it belongs to */
+  const marks: { page: number | null; mcid: number; owner: number | null }[] = []
+  const walk = (node: PDFObject, parent: number | null, inheritedPage: number | null, owner: number | null) => {
     const o = node instanceof PDFRef ? ctx.lookup(node) : node
     if (o instanceof PDFNumber) {
       if (parent !== null) elems[parent].mcids++
+      marks.push({ page: inheritedPage, mcid: o.asNumber(), owner })
       return
     }
     if (!(o instanceof PDFDict)) return
     const t = text(o.get(N('Type')))
     if (t === 'MCR') {
       if (parent !== null) elems[parent].mcids++
+      const pg = o.get(N('Pg'))
+      const mcid = num(o.get(N('MCID')))
+      if (mcid !== undefined) marks.push({ page: pg instanceof PDFRef ? (pageIdx.get(pg.toString()) ?? inheritedPage) : inheritedPage, mcid, owner })
       return
     }
     if (t === 'OBJR') {
@@ -135,9 +150,10 @@ export async function pdfStats(data: Uint8Array): Promise<PdfStats> {
     elems.push({ type, mapped: roleMap[type] ?? type, parent, kids: [], page, mcids: 0, objr: [], hasAlt: o.has(N('Alt')), alt: text(o.get(N('Alt'))) })
     if (parent !== null) elems[parent].kids.push(id)
     if (node instanceof PDFRef) byRef.set(node.toString(), id)
-    for (const k of kidList(o.get(N('K')))) walk(k, id, page)
+    const own = SCORED_ROLES.includes(elems[id].mapped) ? id : owner
+    for (const k of kidList(o.get(N('K')))) walk(k, id, page, own)
   }
-  if (root) for (const k of kidList(root.get(N('K')))) walk(k, null, null)
+  if (root) for (const k of kidList(root.get(N('K')))) walk(k, null, null, null)
   const types: Record<string, number> = {}
   for (const e of elems) inc(types, e.mapped)
   const items = (e: Elem): number => e.mcids + e.kids.reduce((s, i) => s + items(elems[i]), 0)
@@ -212,5 +228,49 @@ export async function pdfStats(data: Uint8Array): Promise<PdfStats> {
     notes: { notes: types.Note ?? 0, references: types.Reference ?? 0 },
     toc: { toc: types.TOC ?? 0, items: types.TOCI ?? 0 },
     content,
+    order: pdfjs ? await readingOrder(pdfjs, data, marks, elems) : undefined,
   }
+}
+
+/** the text of every marked-content sequence (keyed `page:mcid`), artifacts inside it left out */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function markedText(pdfjs: any, data: Uint8Array): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n)
+    const items = (await page.getTextContent({ includeMarkedContent: true })).items
+    page.cleanup()
+    const stack: { mcid: number | null; artifact: boolean }[] = []
+    for (const it of items) {
+      if (it.type === 'beginMarkedContent' || it.type === 'beginMarkedContentProps') {
+        const m = typeof it.id === 'string' ? /_mc(\d+)$/.exec(it.id) : null
+        stack.push({ mcid: m ? Number(m[1]) : null, artifact: it.tag === 'Artifact' })
+      } else if (it.type === 'endMarkedContent') stack.pop()
+      else if (typeof it.str === 'string' && !stack.some((s) => s.artifact)) {
+        const mcid = stack.findLast((s) => s.mcid !== null)?.mcid
+        if (mcid === undefined || mcid === null) continue
+        const k = `${n}:${mcid}`
+        out.set(k, (out.get(k) ?? '') + it.str + (it.hasEOL ? ' ' : ''))
+      }
+    }
+  }
+  return out
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number | null; mcid: number; owner: number | null }[], elems: Elem[]): Promise<NonNullable<PdfStats['order']>> {
+  const txt = await markedText(pdfjs, data)
+  const pages: Record<number, string[]> = {}
+  const roles = new Map<number, { role: string; page: number; text: string }>()
+  for (const m of marks) {
+    if (m.page === null) continue
+    const w = words(txt.get(`${m.page}:${m.mcid}`) ?? '')
+    if (!w.length) continue
+    ;(pages[m.page] ??= []).push(...w)
+    if (m.owner === null) continue
+    const r = roles.get(m.owner) ?? roles.set(m.owner, { role: elems[m.owner].mapped, page: m.page, text: '' }).get(m.owner)!
+    r.text = r.text ? `${r.text} ${w.join(' ')}` : w.join(' ')
+  }
+  return { pages, roles: [...roles.values()] }
 }
