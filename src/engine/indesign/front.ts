@@ -238,6 +238,11 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
     author = holders[0] ?? ''
     if (author) source.author = 'copyright line — check'
   }
+  // a title page that prints the author above the title on one line ('Joshua Zukas Vietnam'): the title is the rest
+  for (const a of author.split(/,\s*/)) {
+    const rest = title.slice(a.length).replace(/^[\s:,.\u2013\u2014-]+/, '')
+    if (a && rest && norm(title.slice(0, a.length)) === norm(a)) title = rest
+  }
 
   // ---- subtitle: the title-page line after the title that is neither the author nor a credit ----
   const tp = pages
