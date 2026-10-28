@@ -103,6 +103,8 @@ ul.bull { font-family: serif; text-align: left; margin: 1em 0; }
 table.tbl { border-collapse: collapse; width: 100%; margin: 1em 0; font-family: sans-serif; font-size: 90%; }
 table.tbl th, table.tbl td { border: 1px solid #000000; padding: 4px; vertical-align: top; text-align: left; }
 table.tbl th, table.tbl td.tbl-h { background-color: #e2e3e4; font-weight: bold; }
+table.tbl .tbl-r { text-align: right; }
+table.tbl .tbl-c { text-align: center; }
 
 /* footnotes */
 div.footnotes { margin-top: 2em; border-top: 1px solid #000000; }

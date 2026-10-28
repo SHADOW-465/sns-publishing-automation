@@ -1,8 +1,10 @@
 // How the printed page aligns its text, read from the lines' positions: justified text ends flush on the right, a centred
-// title sits on the middle of the text area, anything else is left. Used when a setting says "as the printed page".
+// title sits on the middle of the text area, a line that ends on the right edge and starts well inside it is right, anything
+// else is left. Used when a setting says "as the printed page", and for each column of a table.
 import type { PLine } from './analyze.ts'
+import type { PdfTable } from '../pdf/tables.ts'
 
-export type Align = 'left' | 'center' | 'justify'
+export type Align = 'left' | 'center' | 'right' | 'justify'
 
 interface PageLines {
   lines: PLine[]
@@ -40,10 +42,14 @@ export function bodyAlignment(pages: PageLines[], isBody: (l: PLine) => boolean)
   return full >= 20 && flush / full >= 0.5 ? 'justify' : 'left'
 }
 
-/** Headings and other single lines: centred when most sit on the middle of the text area and do not share a left edge. */
+/**
+ * Headings and other single lines: centred when most sit on the middle of the text area and do not share a left edge,
+ * right when most end on the right edge instead.
+ */
 export function lineAlignment(pages: PageLines[], pick: (l: PLine) => boolean): Align {
   let n = 0
   let centred = 0
+  let right = 0
   for (const p of pages) {
     const mine = p.lines.filter(pick)
     if (!mine.length || p.lines.length < 3) continue
@@ -52,11 +58,43 @@ export function lineAlignment(pages: PageLines[], pick: (l: PLine) => boolean): 
     for (const l of mine) {
       n++
       const mid = (l.x0 + l.x1) / 2
-      if (Math.abs(mid - a.mid) < a.width * 0.03 && l.x0 - a.x0 > a.width * 0.05) centred++
+      if (l.x0 - a.x0 <= a.width * 0.05) continue
+      if (Math.abs(mid - a.mid) < a.width * 0.03) centred++
+      else if (a.x1 - l.x1 < a.width * 0.01) right++
     }
   }
   // one line is enough: the heading of a contents page is alone on its page
-  return n >= 1 && centred / n >= 0.6 ? 'center' : 'left'
+  if (n >= 1 && centred / n >= 0.6) return 'center'
+  return n >= 1 && right / n >= 0.6 ? 'right' : 'left'
+}
+
+const NUMBER = /^[-+−–(]?\s*[$€£¥]?\s*\d[\d.,\s]*%?\)?$/
+
+/**
+ * Each column of a table, by majority of its cells (the header row and cells spanning columns do not vote): a column
+ * that is mostly numbers is right-aligned; otherwise cells that share the column's right edge but not its left vote
+ * right, cells on its middle vote centre, the rest left.
+ */
+export function columnAlignment(t: PdfTable<PLine>): Align[] {
+  return Array.from({ length: t.cols.length - 1 }, (_, c) => {
+    const cells = t.cells
+      .filter((k) => k.c === c && k.colspan === 1 && !(t.head && k.r === 0) && k.lines.some((l) => l.text.trim()))
+      .map((k) => ({ x0: Math.min(...k.lines.map((l) => l.x0)), x1: Math.max(...k.lines.map((l) => l.x1)), text: k.lines.map((l) => l.text).join(' ').trim() }))
+    if (!cells.length) return 'left'
+    if (cells.filter((k) => NUMBER.test(k.text)).length * 2 > cells.length) return 'right'
+    const L = Math.min(...cells.map((k) => k.x0))
+    const R = Math.max(...cells.map((k) => k.x1))
+    const tol = 2
+    const votes = { left: 0, center: 0, right: 0 }
+    for (const k of cells) {
+      if (k.x0 - L < tol) votes.left++
+      else if (R - k.x1 < tol) votes.right++
+      else if (Math.abs((k.x0 + k.x1) / 2 - (L + R) / 2) < tol) votes.center++
+      else votes.left++
+    }
+    if (votes.right > votes.left && votes.right >= votes.center) return 'right'
+    return votes.center > votes.left ? 'center' : 'left'
+  })
 }
 
 const SANS = /sans|arial|helvetica|gothic|grotesk|myriad|frutiger|futura|calibri|verdana|univers|gill|avenir|segoe|tahoma|trebuchet|optima|din\b|roboto|open ?sans/i

@@ -11,7 +11,7 @@ import { transformImprint, PRINT_RIGHTS, type CopyrightRules, type ImprintPara }
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { withRealExt } from '../epub/image.ts'
 import { pdfBookCss, type PdfTypography } from './css.ts'
-import { bodyAlignment, fontFamilyOf, lineAlignment } from './align.ts'
+import { bodyAlignment, columnAlignment, fontFamilyOf, lineAlignment } from './align.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
@@ -1026,13 +1026,15 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     }
     const nR = t.rows.length - 1
     const asTh = settings().tableHeaders === 'th'
+    const align = columnAlignment(t) // R4b: each column as the printed cells sit, numbers right
     const row = (r: number, head: boolean) =>
       `<tr>\n${t.cells
         .filter((k) => k.r === r)
         .sort((a, b) => a.c - b.c)
         .map((k) => {
           const tag = head && asTh ? 'th' : 'td'
-          const attrs = `${tag === 'th' ? ' scope="col"' : ''}${head && !asTh ? ' class="tbl-h"' : ''}${k.colspan > 1 ? ` colspan="${k.colspan}"` : ''}${k.rowspan > 1 ? ` rowspan="${k.rowspan}"` : ''}`
+          const cls = [head && !asTh ? 'tbl-h' : '', k.colspan === 1 ? ({ right: 'tbl-r', center: 'tbl-c' } as Record<string, string>)[align[k.c]] ?? '' : ''].filter(Boolean).join(' ')
+          const attrs = `${tag === 'th' ? ' scope="col"' : ''}${cls ? ` class="${cls}"` : ''}${k.colspan > 1 ? ` colspan="${k.colspan}"` : ''}${k.rowspan > 1 ? ` rowspan="${k.rowspan}"` : ''}`
           const inner = text(k.lines)
           return inner ? `<${tag}${attrs}>${inner}</${tag}>` : `<${tag}${attrs}/>`
         })
