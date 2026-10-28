@@ -2,7 +2,7 @@ import { type PdfBook, type PLine, columnStarts, columnOf, titleCase } from '../
 import { sectionTypeOf } from '../epub/locale.ts'
 import { isDecorative } from '../epub/alt.ts'
 import { detectTables } from '../pdf/tables.ts'
-import { LIST_MARK, rowOrder } from '../pdf/layout.ts'
+import { LIST_MARK, rowOrder, isItalicFont } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
 import { splitBulletEntries, type TocSplit } from './tocsplit.ts'
 
@@ -185,6 +185,8 @@ export interface UaOptions {
   headingLevels?: 'contiguous' | 'consistent'
   /** link rectangles stacked on the same picture (the hidden layouts of a button): 'topmost' keeps the last one (default), 'all' keeps every one */
   stackedLinks?: 'topmost' | 'all'
+  /** what marks a caption in this book (a caption_style directive: "the captions are the italic lines"). Unset, a body-style line within 3 em of a figure is its caption when it is italic or smaller than the body; set, only that signal counts. A figure label always does. */
+  captionStyle?: { signal: 'italic' | 'smaller' | 'label'; near: 'figure' }
 }
 
 /** The accessible-PDF options a resolved settings object carries (UA-01 … UA-07). */
@@ -216,7 +218,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   const owner = new Map<PLine, SNode>()
   const headings: SNode[] = []
   const figures: Figure[] = []
-  const roleOf = (l: PLine): UaRole => roles.get(l.key) ?? 'P'
+  // a role decided for one block of lines, over the role of its style (T10)
+  const blockRole = new Map<PLine, UaRole>()
+  const roleOf = (l: PLine): UaRole => blockRole.get(l) ?? roles.get(l.key) ?? 'P'
   const front = new Set(book.front)
   // the book title is the heading on the front page with the biggest display type; half titles repeat it as text
   const headSize = (i: number) => Math.max(0, ...book.pages[i].lines.filter((l) => /^H\d$/.test(roles.get(l.key) ?? '')).map((l) => l.size))
@@ -243,6 +247,17 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       if (body && !labelOf.has(body)) labelOf.set(body, m)
     }
   const labels = new Set(labelOf.values())
+  // a heading-style block over 25 words is a paragraph in display type, not a heading. Contents rows (a page number at the end) are not prose.
+  for (const p of book.pages) {
+    const heads: PLine[][] = []
+    for (const l of [...p.lines].sort((a, b) => a.y - b.y || a.x0 - b.x0)) {
+      if (!/^H\d$/.test(roleOf(l)) || endsTocEntry(l)) continue
+      const b = heads.find((k) => k[k.length - 1].key === l.key && l.y - k[k.length - 1].y < l.size * 2.2 && l.x0 < k[k.length - 1].x1 && l.x1 > k[k.length - 1].x0)
+      if (b) b.push(l)
+      else heads.push([l])
+    }
+    for (const b of heads) if (b.map((l) => l.text).join(' ').trim().split(/\s+/).length > 25) for (const l of b) blockRole.set(l, 'P')
+  }
 
   let sect: SNode = root
   let container: SNode = root // where paragraphs go (Sect, or TOC)
@@ -442,15 +457,34 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const LABEL = /^(abb\.|abbildung|fig\.|figure|figura|ilustraci[oó]n|gr[aá]fic[oa]|tab\.|tabelle|table|tabla|cuadro|plate|map|mapa|lámina|imagen)\s*[\divxlc]/i
     // a page of pictures (plates) has no other text than captions, whatever their font
     const pictured = figs.length > 1 && lines.length <= 30 && figs.every((f) => !f.vector) && figs.reduce((t, f) => t + (f.box.x1 - f.box.x0) * (f.box.y1 - f.box.y0), 0) > page.width * page.height * 0.25
-    const seeds = lines.filter((l) => roleOf(l) === 'Caption' || LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    const box = (f: Figure) => ({ x0: f.box.x0, x1: f.box.x1, top: page.height - f.box.y1, bottom: page.height - f.box.y0 })
+    // a body-style line within 3 em of a figure, set in italic or smaller than the body, is a caption whatever its style says (T10);
+    // a caption_style instruction keeps only the signal it names
+    const sig = options.captionStyle?.signal
+    const nearFig = (l: PLine) => figs.some((f) => {
+      const fb = box(f)
+      return Math.max(0, fb.x0 - l.x1, l.x0 - fb.x1) + Math.max(0, fb.top - (l.y + l.size), l.y - fb.bottom) <= l.size * 3
+    })
+    // ponytail: isItalicFont is case-sensitive and misses "NewBaskervilleStd-Italic"; fixing it there changes the italics of every EPUB route
+    const italic = (l: PLine) => isItalicFont(l.font) || /italic|oblique/i.test(l.font)
+    const signal = (l: PLine) => roleOf(l) === 'P' && /\p{L}/u.test(l.text) && ((italic(l) && (!sig || sig === 'italic')) || (l.size < book.bodySize * 0.92 && (!sig || sig === 'smaller'))) && nearFig(l)
+    const strong = (l: PLine) => roleOf(l) === 'Caption' || LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))
+    const seeds = lines.filter((l) => strong(l) || signal(l)).sort((a, b) => a.y - b.y || a.x0 - b.x0)
     type Blk = { lines: PLine[]; x0: number; x1: number; top: number; bottom: number }
     const blocks: Blk[] = []
+    const grow = (b: Blk, l: PLine) => (b.lines.push(l), (b.x0 = Math.min(b.x0, l.x0)), (b.x1 = Math.max(b.x1, l.x1)), (b.bottom = Math.max(b.bottom, l.y + l.size)))
+    const under = (k: Blk, l: PLine) => l.x0 < k.x1 + 12 && l.x1 > k.x0 - 12 && l.y - k.bottom < l.size * 1.8 && l.y >= k.top - 2
     for (const l of seeds) {
-      const b = blocks.find((k) => l.x0 < k.x1 + 12 && l.x1 > k.x0 - 12 && l.y - k.bottom < l.size * 1.8 && l.y >= k.top - 2)
-      if (b) (b.lines.push(l), (b.x0 = Math.min(b.x0, l.x0)), (b.x1 = Math.max(b.x1, l.x1)), (b.bottom = Math.max(b.bottom, l.y + l.size)))
+      const b = blocks.find((k) => under(k, l))
+      if (b) grow(b, l)
       else blocks.push({ lines: [l], x0: l.x0, x1: l.x1, top: l.y, bottom: l.y + l.size })
     }
-    const box = (f: Figure) => ({ x0: f.box.x0, x1: f.box.x1, top: page.height - f.box.y1, bottom: page.height - f.box.y0 })
+    // a caption runs on in its own style (key and slant): the lines of that style right under it are part of it. Upright body text never is.
+    const seeded = new Set(seeds)
+    for (const l of lines.filter((x) => !seeded.has(x) && (x.key !== book.bodyKey || italic(x)) && ['P', 'Caption'].includes(roleOf(x))).sort((a, b) => a.y - b.y || a.x0 - b.x0)) {
+      const b = blocks.find((k) => k.lines.some((x) => x.key === l.key && italic(x) === italic(l)) && under(k, l))
+      if (b) grow(b, l)
+    }
     const gapOf = (f: Figure, k: Blk) => {
       const fb = box(f)
       return Math.max(0, fb.x0 - k.x1, k.x0 - fb.x1) + Math.max(0, fb.top - k.bottom, k.top - fb.bottom)
@@ -458,7 +492,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const pairs = figs.flatMap((f) => blocks.map((k) => ({ f, k, d: gapOf(f, k) }))).filter((x) => x.d < 50).sort((a, b) => a.d - b.d)
     const capOf = new Map<Figure, Blk>()
     const usedBlk = new Set<Blk>()
-    for (const { f, k } of pairs) if (!capOf.has(f) && !usedBlk.has(k)) (capOf.set(f, k), usedBlk.add(k))
+    // a caption by its role or label is paired first; a block only the signals found (a source line, a chart's small labels) takes a figure left without one
+    const weak = (k: Blk) => !k.lines.some(strong)
+    for (const { f, k } of pairs) if (!weak(k) && !capOf.has(f) && !usedBlk.has(k)) (capOf.set(f, k), usedBlk.add(k))
     // a "Figure 3" label line may stand to the side of a chart: match it by height alone
     for (const f of figs) {
       if (capOf.has(f)) continue
@@ -466,6 +502,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const k = blocks.filter((x) => !usedBlk.has(x) && LABEL.test(x.lines[0].text.trim()) && Math.max(0, fb.top - x.bottom, x.top - fb.bottom) < 40).sort((p, q) => gapOf(f, p) - gapOf(f, q))[0]
       if (k) (capOf.set(f, k), usedBlk.add(k))
     }
+    for (const { f, k } of pairs) if (weak(k) && !capOf.has(f) && !usedBlk.has(k)) (capOf.set(f, k), usedBlk.add(k))
     const figNodes: { f: Figure; nodes: SNode[] }[] = []
     for (const f of figs) {
       const n = mk('Figure')
