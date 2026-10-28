@@ -128,6 +128,21 @@ const NOTE_LEAD = /^(\d{1,3})([.)])\s+\S/
 const BULLET = new RegExp(LIST_MARK.source.replace(/\$$/, '\\s'))
 
 /**
+ * Rows top to bottom, each row left to right. Lines are grouped into rows first (a baseline within 2 pt of the row's first line),
+ * then sorted: a pairwise "same row" test is not transitive, so sorting on it made the order depend on the input order (R2.2).
+ */
+export function rowOrder(lines: PLine[]): PLine[] {
+  const byX = (a: PLine, b: PLine) => a.x0 - b.x0 || a.base - b.base || a.x1 - b.x1 || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0)
+  const rows: PLine[][] = []
+  for (const l of [...lines].sort((a, b) => a.base - b.base || byX(a, b))) {
+    const row = rows[rows.length - 1]
+    if (row && l.base - row[0].base < 2) row.push(l)
+    else rows.push([l])
+  }
+  return rows.flatMap((r) => r.sort(byX))
+}
+
+/**
  * The line ends a contents entry. A digit at the end is a page number ("Title 12", or "64" on its own).
  * A roman token is one only when it stands apart from the words: "la" at the end of "El dosel de luz de la" is Spanish.
  */
@@ -529,7 +544,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const figNo = (l: PLine) => FIG_NO.test(l.text.trim()) && l.x0 < page.width * 0.4
     const listPage = (inFigList || lines.some((l) => /^H\d$/.test(roleOf(l)) && isFigListHeading(l.text.trim()))) && lines.filter(figNo).length >= 3
     const tocPage = inToc || listPage || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
-    if (tocPage) ordered.push(...[...lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base)))
+    if (tocPage) ordered.push(...rowOrder(lines))
     // pictures with their captions are read where they stand: a picture across the columns splits them like a full-width line,
     // any other picture goes before the first line below its top that sits over it
     const wide = (c: Cell) => starts.filter((s) => s > c.x0 - 20 && s < c.x1 - 20).length >= 2
@@ -905,7 +920,7 @@ export function imageList(st: Structure, book: PdfBook): { heading: SNode; items
     let open: ListItem | undefined
     scan: for (let pi = first; pi < Math.min(book.pages.length, first + 4); pi++) {
       // top to bottom, the number before its text on the same line: sorting by column first would put every number before every text line
-      for (const l of [...book.pages[pi].lines].sort((a, b) => (Math.abs(a.base - b.base) < 2 ? a.x0 - b.x0 : a.base - b.base))) {
+      for (const l of rowOrder(book.pages[pi].lines)) {
         const node = st.owner.get(l)
         if (node && /^H\d$/.test(node.tag) && node !== heading) break scan
         if (!node || node === heading) continue
