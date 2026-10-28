@@ -20,8 +20,9 @@ export interface PdfStats {
   toc: { toc: number; items: number }
   content: { artifactBlocks: number; markedBlocks: number; unmarkedPaintOps: number }
   /** only when pdfjs was given: per page, the words of the tagged text in the order the tag tree reads them; and the text of
-   *  every caption and heading element (on the page where it starts) */
-  order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[] }
+   *  every caption and heading element (on the page where it starts); and per page, in content order, the words of text no
+   *  tag claims (marked content outside the tag tree, or text outside any marked content; artifacts are not text) */
+  order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[]; untagged: Record<number, string[]> }
 }
 
 /** the roles the role-F1 report scores */
@@ -232,7 +233,8 @@ export async function pdfStats(data: Uint8Array, pdfjs?: any): Promise<PdfStats>
   }
 }
 
-/** the text of every marked-content sequence (keyed `page:mcid`), artifacts inside it left out */
+/** the text of every marked-content sequence (keyed `page:mcid`; text outside any, `page:-`), artifacts left out; an
+ *  artifact inside a sequence is kept apart under `page:mcid!` (the reference wraps untagged body text that way) */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function markedText(pdfjs: any, data: Uint8Array): Promise<Map<string, string>> {
   const out = new Map<string, string>()
@@ -247,10 +249,11 @@ async function markedText(pdfjs: any, data: Uint8Array): Promise<Map<string, str
         const m = typeof it.id === 'string' ? /_mc(\d+)$/.exec(it.id) : null
         stack.push({ mcid: m ? Number(m[1]) : null, artifact: it.tag === 'Artifact' })
       } else if (it.type === 'endMarkedContent') stack.pop()
-      else if (typeof it.str === 'string' && !stack.some((s) => s.artifact)) {
-        const mcid = stack.findLast((s) => s.mcid !== null)?.mcid
-        if (mcid === undefined || mcid === null) continue
-        const k = `${n}:${mcid}`
+      else if (typeof it.str === 'string') {
+        const at = stack.findLastIndex((s) => s.mcid !== null)
+        const art = stack.findIndex((s) => s.artifact)
+        if (art !== -1 && (at === -1 || art < at)) continue
+        const k = `${n}:${at === -1 ? '-' : stack[at].mcid}${art === -1 ? '' : '!'}`
         out.set(k, (out.get(k) ?? '') + it.str + (it.hasEOL ? ' ' : ''))
       }
     }
@@ -263,8 +266,10 @@ async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number 
   const txt = await markedText(pdfjs, data)
   const pages: Record<number, string[]> = {}
   const roles = new Map<number, { role: string; page: number; text: string }>()
+  const claimed = new Set<string>()
   for (const m of marks) {
     if (m.page === null) continue
+    claimed.add(`${m.page}:${m.mcid}`)
     const w = words(txt.get(`${m.page}:${m.mcid}`) ?? '')
     if (!w.length) continue
     ;(pages[m.page] ??= []).push(...w)
@@ -272,5 +277,10 @@ async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number 
     const r = roles.get(m.owner) ?? roles.set(m.owner, { role: elems[m.owner].mapped, page: m.page, text: '' }).get(m.owner)!
     r.text = r.text ? `${r.text} ${w.join(' ')}` : w.join(' ')
   }
-  return { pages, roles: [...roles.values()] }
+  const untagged: Record<number, string[]> = {}
+  for (const [k, t] of txt) {
+    const w = words(t)
+    if (!claimed.has(k.replace(/!$/, '')) && w.length) (untagged[Number(k.split(':')[0])] ??= []).push(...w)
+  }
+  return { pages, roles: [...roles.values()], untagged }
 }

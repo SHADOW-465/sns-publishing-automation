@@ -15,14 +15,19 @@ async function tagged(paint: string[], tags: [string, number][]) {
   page.node.setFontDictionary(PDFName.of('F1'), font.ref)
   const ctx = doc.context
   // the running head is an artifact: never part of the reading order
-  const body = paint.map((s, i) => `/P <</MCID ${i}>> BDC BT /F1 12 Tf 20 ${350 - 20 * i} Td (${s}) Tj ET EMC`).join('\n')
+  // a line no tag claims is wrapped in an artifact inside its marked content, as in the Gladiators reference
+  const body = paint.map((s, i) => {
+    const t = `BT /F1 12 Tf 20 ${350 - 20 * i} Td (${s}) Tj ET`
+    return `/P <</MCID ${i}>> BDC ${tags.some(([, m]) => m === i) ? t : `/Artifact BMC ${t} EMC`} EMC`
+  }).join('\n')
   page.node.set(PDFName.of('Contents'), ctx.register(ctx.stream(`/Artifact BMC BT /F1 9 Tf 20 380 Td (Running head) Tj ET EMC\n${body}`)))
   page.node.set(PDFName.of('StructParents'), ctx.obj(0))
   const root = ctx.nextRef()
   const docEl = ctx.nextRef()
   const kids = tags.map(([role, mcid]) => ctx.register(ctx.obj({ Type: 'StructElem', S: role, P: docEl, Pg: page.ref, K: mcid })))
   ctx.assign(docEl, ctx.obj({ Type: 'StructElem', S: 'Document', P: root, K: kids }))
-  const byMcid = paint.map((_, i) => kids[tags.findIndex(([, m]) => m === i)])
+  // an MCID no tag claims has a null ParentTree entry (the reference leaves such text untagged)
+  const byMcid = paint.map((_, i) => kids[tags.findIndex(([, m]) => m === i)] ?? ctx.obj(null))
   ctx.assign(root, ctx.obj({ Type: 'StructTreeRoot', K: docEl, ParentTree: ctx.obj({ Nums: [0, byMcid] }) }))
   doc.catalog.set(PDFName.of('StructTreeRoot'), root)
   return doc.save()
@@ -51,6 +56,19 @@ test('reading order: the reference scored against itself is 100, a scrambled pag
   const roles = dims.find((d) => d.id === 'roles')!
   assert.ok(roles.score! < 100, 'a caption tagged P lowers the role F1')
   assert.ok(roles.diffs.some((x) => /^Caption: F1 0\b/.test(x)), roles.diffs.join('\n'))
+})
+
+test('reference text with no tag is left out of reading order, on both sides, and reported', async () => {
+  // the reference tags only the heading (Gladiators p94); the build tags every line in the same order
+  const ref = await pdfStats(await tagged(LINES, [['H1', 0]]), pdfjs)
+  assert.deepEqual(ref.order?.untagged[1], 'the first line of text figure 1 a caption the second line of text'.split(' '))
+  const mine = await pdfStats(await tagged(LINES, [['H1', 0], ['P', 1], ['Caption', 2], ['P', 3]]), pdfjs)
+  const order = comparePdfs(mine, ref).dims.find((d) => d.id === 'order')!
+  assert.equal(order.score, 100, order.diffs.join('\n'))
+  assert.ok(order.diffs.some((x) => /65 chars \(\d+(\.\d)?%\) of untagged reference text/.test(x)), order.diffs.join('\n'))
+  // the heading the reference does tag still counts: a build without it loses
+  const bad = await pdfStats(await tagged(LINES, [['P', 1], ['Caption', 2], ['P', 3]]), pdfjs)
+  assert.ok(comparePdfs(bad, ref).dims.find((d) => d.id === 'order')!.score! < 100)
 })
 
 test('reading order and roles can be scored on chosen pages only (the eval set)', async () => {

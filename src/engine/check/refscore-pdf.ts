@@ -21,6 +21,31 @@ function lcs(a: string[], b: string[]): number {
   return prev[b.length]
 }
 
+/** which words of `a` one longest common subsequence with `b` uses (the full table, so pages only) */
+function aligned(a: string[], b: string[]): boolean[] {
+  const w = b.length + 1
+  const t = new Uint32Array((a.length + 1) * w)
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) t[i * w + j] = a[i - 1] === b[j - 1] ? t[(i - 1) * w + j - 1] + 1 : Math.max(t[(i - 1) * w + j], t[i * w + j - 1])
+  const used = a.map(() => false)
+  for (let i = a.length, j = b.length; i && j; ) {
+    if (a[i - 1] === b[j - 1]) used[--i] = true, j--
+    else if (t[(i - 1) * w + j] >= t[i * w + j - 1]) i--
+    else j--
+  }
+  return used
+}
+
+/** the build's page with the reference's untagged text taken out: words that match the reference's tagged text stay, and of
+ *  the rest those that line up with the untagged text go (so the reference against itself is untouched) */
+function withoutUntagged(a: string[], b: string[], u: string[]): string[] {
+  if (!u.length) return a
+  const keep = aligned(a, b)
+  const rest = a.filter((_, i) => !keep[i])
+  const drop = aligned(rest, u)
+  let k = 0
+  return a.filter((_, i) => keep[i] || !drop[k++])
+}
+
 /** Reading order (the tagged text of each page in tag-tree order, as an LCS ratio against the reference's) and role F1
  *  (captions and headings found by their text). Only when both stats were read with pdfjs; `pages` limits both to those
  *  pages (the eval set). Pages are paired by number. */
@@ -35,9 +60,12 @@ export function readingDims(mine: PdfStats, ref: PdfStats, pages?: number[]): Di
     // a page the reference does not tag (or tags only as artifacts) cannot judge the build's order
     const unjudged = Object.keys(mine.order.pages).map(Number).filter((p) => keep(p) && !ref.order!.pages[p]).length
     const all = Object.keys(ref.order.pages).map(Number).filter(keep)
+    // reference text with no tag says nothing about order: left out of both sides, and reported
+    const chars = (ws: string[]) => (ws.length ? ws.join(' ').length : 0)
     for (const p of all.sort((x, y) => x - y)) {
-      const a = mine.order.pages[p] ?? []
       const b = ref.order.pages[p] ?? []
+      const u = ref.order.untagged?.[p] ?? []
+      const a = withoutUntagged(mine.order.pages[p] ?? [], b, u)
       const l = lcs(a, b)
       const n = Math.max(a.length, b.length)
       same += l
@@ -47,6 +75,18 @@ export function readingDims(mine: PdfStats, ref: PdfStats, pages?: number[]): Di
     worst.sort((x, y) => x[1] - y[1])
     const diffs = worst.slice(0, 6).map(([p, r]) => `Page ${p} reads ${pct(r)}% in the reference’s order.`)
     if (worst.length > 6) diffs.push(`…and ${worst.length - 6} more pages read differently.`)
+    let leftOut = 0
+    let refChars = 0
+    const leftPages: string[] = []
+    for (const p of Object.keys({ ...ref.order.pages, ...ref.order.untagged }).map(Number).filter(keep).sort((x, y) => x - y)) {
+      const c = chars(ref.order.untagged?.[p] ?? [])
+      const t = chars(ref.order.pages[p] ?? [])
+      leftOut += c
+      refChars += c + t
+      if (c) leftPages.push(`p${p} ${c} (${pct(c / (c + t))}%)`)
+    }
+    // first, so the cap on differences never hides it
+    if (leftOut) diffs.unshift(`${leftOut} chars (${pct(leftOut / refChars)}%) of untagged reference text left out of the order on ${leftPages.length} page${leftPages.length === 1 ? '' : 's'}: ${leftPages.join(', ')}.`)
     if (unjudged) diffs.push(`${unjudged} page${unjudged === 1 ? '' : 's'} with tagged text in the build have none in the reference and are not scored.`)
     out.push({ id: 'order', label: 'Reading order (tagged text page by page)', weight: 20, score: total ? pct(same / total) : null, diffs })
   }
