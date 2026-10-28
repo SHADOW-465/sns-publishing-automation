@@ -5,6 +5,21 @@
 /** A bare list marker: bullet, dash, "12.", "(a)". */
 export const LIST_MARK = /^([•●◦▪■–—-]|\(?\d{1,3}[.)]|\(?[a-z][.)])$/
 
+/**
+ * Rows top to bottom, each row left to right. Lines are grouped into rows first (a baseline within 2 pt of the row's first line),
+ * then sorted: a pairwise "same row" test is not transitive, so sorting on it made the order depend on the input order (R2.2).
+ */
+export function rowOrder<L extends { x0: number; x1: number; base: number; text: string }>(lines: L[]): L[] {
+  const byX = (a: L, b: L) => a.x0 - b.x0 || a.base - b.base || a.x1 - b.x1 || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0)
+  const rows: L[][] = []
+  for (const l of [...lines].sort((a, b) => a.base - b.base || byX(a, b))) {
+    const row = rows[rows.length - 1]
+    if (row && l.base - row[0].base < 2) row.push(l)
+    else rows.push([l])
+  }
+  return rows.flatMap((r) => r.sort(byX))
+}
+
 export interface Run {
   text: string
   x0: number

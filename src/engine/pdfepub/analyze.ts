@@ -15,6 +15,7 @@ import { pdfFeatures } from './features.ts'
 import { pdfNotes } from './notes.ts'
 import type { NoteFinding } from '../structure/notes.ts'
 import { settings } from '../settings.ts'
+import { bookEvidence, type EvidencePage, type PageEvidence } from '../pdf/evidence.ts'
 
 /** Default cap. Call sites read settings().imageMaxPx so a client layer can change it. */
 export const MAX_IMAGE_SIDE = 1900
@@ -95,6 +96,8 @@ export interface PdfBook {
   notes: NoteFinding[]
   /** footnotes turned into real notes by the builder (extractFootnotes), once; the foot lines are then gone from `pages` */
   footnotes?: import('./notes.ts').FootNote[]
+  /** the layout JSON of every PDF page (pdf/evidence.ts), the same whichever pipeline read the book */
+  evidence?: PageEvidence[]
 }
 
 // InDesign slug: file name + print date/time, often doubled ("02-06-202602-06-2026  19:06"): see pdf/slug.ts
@@ -139,9 +142,14 @@ export async function analyzePdf(
 ): Promise<PdfBook> {
   const doc = await pdfjs.getDocument({ data: data.slice(), disableFontFace: true, isEvalSupported: false }).promise
   const raw: PageLayout[] = []
+  const evPages: EvidencePage[] = []
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i)
     const layout = await pageLayout(pdfjs, page, i - 1, { unrotate: opts.structure !== false })
+    // the evidence reads the page before this pipeline changes it, upright as PDF/UA reads it, so both pipelines see the same blocks.
+    // ponytail: a square page drawn sideways is not told apart; read pageLayout's own `turned` if one ever turns up
+    const turned = layout.width !== page.view[2] - page.view[0]
+    evPages.push(turned ? await pageLayout(pdfjs, page, i - 1) : { ...layout, images: [...layout.images] })
     // a chart drawn as vectors has no image XObject: rasterise the drawing and drop the labels that sit inside it.
     // PDF/UA (structure: false) keeps the vectors and the labels; it tags the chart itself.
     for (const box of opts.structure === false ? [] : clusterDrawings(layout)) {
@@ -466,5 +474,7 @@ export async function analyzePdf(
   const brand = [...colours].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '#333333'
 
   const notes = pdfNotes(pages.map((p, i) => ({ height: p.height, lines: p.lines, label: String(numbers[i]) })), bodySize)
-  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, titlePage: fm.titlePage, halfTitle: fm.halfTitle, contents, notes }
+  // a spread read as two pages is printed with the number of its left page
+  const pageEv = bookEvidence(evPages, (i) => String(numbers[raw.findIndex((p) => p.src === i)] ?? i + 1))
+  return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, titlePage: fm.titlePage, halfTitle: fm.halfTitle, contents, notes, evidence: pageEv }
 }

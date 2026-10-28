@@ -1,0 +1,2281 @@
+{
+ "evers p70": {
+  "page": 70,
+  "printed": "42",
+  "w": 595.2,
+  "h": 842,
+  "columns": [
+   [
+    85,
+    496.3
+   ],
+   [
+    159,
+    215.7
+   ],
+   [
+    229,
+    331.8
+   ],
+   [
+    296,
+    354.1
+   ],
+   [
+    363,
+    496
+   ],
+   [
+    433,
+    449.9
+   ]
+  ],
+  "blocks": [
+   {
+    "id": "p70.b01",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     68.5,
+     123.7,
+     79
+    ],
+    "style": "LucidaSans 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "73475cb40a568e8d",
+    "lineIds": [
+     "p70.l01"
+    ]
+   },
+   {
+    "id": "p70.b02",
+    "kind": "text",
+    "bbox": [
+     364.3,
+     68.5,
+     496,
+     79
+    ],
+    "style": "LucidaSans 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "81e2b69c1c89ed9f",
+    "lineIds": [
+     "p70.l02"
+    ]
+   },
+   {
+    "id": "p70.b03",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     116.3,
+     496,
+     127.3
+    ],
+    "style": "LucidaSans 11",
+    "italic": false,
+    "bold": false,
+    "size": 11,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "6f9aa41c092e125b",
+    "lineIds": [
+     "p70.l03"
+    ]
+   },
+   {
+    "id": "p70.b04",
+    "kind": "text",
+    "bbox": [
+     432.8,
+     158.3,
+     449.9,
+     167.3
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "396f804443825586",
+    "lineIds": [
+     "p70.l04"
+    ]
+   },
+   {
+    "id": "p70.b05",
+    "kind": "text",
+    "bbox": [
+     409.2,
+     193.5,
+     426.2,
+     202.5
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "3d3286f7cd19074f",
+    "lineIds": [
+     "p70.l05"
+    ]
+   },
+   {
+    "id": "p70.b06",
+    "kind": "text",
+    "bbox": [
+     363.3,
+     210.5,
+     403.8,
+     219.5
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "3fce878b909f009f",
+    "lineIds": [
+     "p70.l06"
+    ]
+   },
+   {
+    "id": "p70.b07",
+    "kind": "text",
+    "bbox": [
+     342.8,
+     228.9,
+     354.1,
+     237.9
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "98a3ab7c340e8a03",
+    "lineIds": [
+     "p70.l07"
+    ]
+   },
+   {
+    "id": "p70.b08",
+    "kind": "text",
+    "bbox": [
+     319.7,
+     234.7,
+     332.4,
+     243.7
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "108c995b953c8a35",
+    "lineIds": [
+     "p70.l08"
+    ]
+   },
+   {
+    "id": "p70.b09",
+    "kind": "text",
+    "bbox": [
+     296.1,
+     240.1,
+     308.8,
+     249.1
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "41cfc0d1f2d127b0",
+    "lineIds": [
+     "p70.l09"
+    ]
+   },
+   {
+    "id": "p70.b10",
+    "kind": "text",
+    "bbox": [
+     272.9,
+     242.9,
+     285.5,
+     251.9
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "25fc0e7096fc6537",
+    "lineIds": [
+     "p70.l10"
+    ]
+   },
+   {
+    "id": "p70.b11",
+    "kind": "text",
+    "bbox": [
+     249.1,
+     253.6,
+     260.5,
+     262.6
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "f5ca38f748a1d6ea",
+    "lineIds": [
+     "p70.l11"
+    ]
+   },
+   {
+    "id": "p70.b12",
+    "kind": "text",
+    "bbox": [
+     132.5,
+     256.7,
+     145.5,
+     265.7
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "3fdba35f04dc8c46",
+    "lineIds": [
+     "p70.l12"
+    ]
+   },
+   {
+    "id": "p70.b13",
+    "kind": "text",
+    "bbox": [
+     159,
+     257.9,
+     166.6,
+     266.9
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "19581e27de7ced00",
+    "lineIds": [
+     "p70.l13"
+    ]
+   },
+   {
+    "id": "p70.b14",
+    "kind": "text",
+    "bbox": [
+     182.2,
+     258.6,
+     189.5,
+     267.6
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "2c624232cdd22177",
+    "lineIds": [
+     "p70.l14"
+    ]
+   },
+   {
+    "id": "p70.b15",
+    "kind": "text",
+    "bbox": [
+     202.6,
+     257.4,
+     215.7,
+     266.4
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "6b51d431df5d7f14",
+    "lineIds": [
+     "p70.l15"
+    ]
+   },
+   {
+    "id": "p70.b16",
+    "kind": "text",
+    "bbox": [
+     229.1,
+     258.6,
+     236.4,
+     267.6
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "2c624232cdd22177",
+    "lineIds": [
+     "p70.l16"
+    ]
+   },
+   {
+    "id": "p70.b17",
+    "kind": "text",
+    "bbox": [
+     126.3,
+     275,
+     453.3,
+     284
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "2fe32693c44ad72f",
+    "lineIds": [
+     "p70.l17"
+    ]
+   },
+   {
+    "id": "p70.b18",
+    "kind": "text",
+    "bbox": [
+     249.8,
+     288.6,
+     331.8,
+     297.6
+    ],
+    "style": "LucidaSans 9",
+    "italic": false,
+    "bold": false,
+    "size": 9,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "9c66e448a7b350a3",
+    "lineIds": [
+     "p70.l18"
+    ]
+   },
+   {
+    "id": "p70.b19",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     314.9,
+     496.1,
+     337.4
+    ],
+    "style": "LucidaSans 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 13,
+    "lines": 2,
+    "text": "5a7c5d30f876079b",
+    "lineIds": [
+     "p70.l19",
+     "p70.l20"
+    ]
+   },
+   {
+    "id": "p70.b20",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     343.5,
+     266.1,
+     353.5
+    ],
+    "style": "LucidaSans 10",
+    "italic": false,
+    "bold": false,
+    "size": 10,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "add404237ff587bf",
+    "lineIds": [
+     "p70.l21"
+    ]
+   },
+   {
+    "id": "p70.b21",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     370.8,
+     496.3,
+     507.7
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 9,
+    "text": "513bfde156403df2",
+    "lineIds": [
+     "p70.l22",
+     "p70.l23",
+     "p70.l24",
+     "p70.l25",
+     "p70.l26",
+     "p70.l27",
+     "p70.l28",
+     "p70.l29",
+     "p70.l30"
+    ]
+   },
+   {
+    "id": "p70.b22",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     510.3,
+     496.3,
+     740.2
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 15,
+    "text": "cb33102fdafcabcf",
+    "lineIds": [
+     "p70.l31",
+     "p70.l32",
+     "p70.l33",
+     "p70.l34",
+     "p70.l35",
+     "p70.l36",
+     "p70.l37",
+     "p70.l38",
+     "p70.l39",
+     "p70.l40",
+     "p70.l41",
+     "p70.l42",
+     "p70.l43",
+     "p70.l44",
+     "p70.l45"
+    ]
+   },
+   {
+    "id": "p70.f01",
+    "kind": "figure",
+    "bbox": [
+     125.9,
+     144.5,
+     455.6,
+     300.6
+    ],
+    "pieces": [
+     "p70.i01"
+    ],
+    "caption": null
+   }
+  ],
+  "prevPageTail": {
+   "id": "p69.b06",
+   "text": "de1dd143548a2dc4",
+   "endsSentence": true
+  },
+  "nextPageHead": {
+   "id": "p71.b03",
+   "text": "284413393abb284c"
+  }
+ },
+ "evers p132": {
+  "page": 132,
+  "printed": "104",
+  "w": 595.2,
+  "h": 842,
+  "columns": [
+   [
+    85,
+    496.2
+   ],
+   [
+    238,
+    496
+   ],
+   [
+    484,
+    496.2
+   ]
+  ],
+  "blocks": [
+   {
+    "id": "p132.b01",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     68.5,
+     117.7,
+     79
+    ],
+    "style": "LucidaSans 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "5ef6fdf32513aa7c",
+    "lineIds": [
+     "p132.l01"
+    ]
+   },
+   {
+    "id": "p132.b02",
+    "kind": "text",
+    "bbox": [
+     237.8,
+     68.5,
+     496,
+     79
+    ],
+    "style": "LucidaSans 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "6c8126cee6dccf13",
+    "lineIds": [
+     "p132.l02"
+    ]
+   },
+   {
+    "id": "p132.b03",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     117.3,
+     488.3,
+     130.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "cce4cf0ad11bbdd6",
+    "lineIds": [
+     "p132.l03"
+    ]
+   },
+   {
+    "id": "p132.b04",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     132.8,
+     201.5,
+     145.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "ec7f1a642cf94b86",
+    "lineIds": [
+     "p132.l04"
+    ]
+   },
+   {
+    "id": "p132.b05",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     148.3,
+     488.1,
+     161.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "2be3e89afd55eb86",
+    "lineIds": [
+     "p132.l05"
+    ]
+   },
+   {
+    "id": "p132.b06",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     163.8,
+     423.9,
+     176.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "a6ec3a143f99bb4a",
+    "lineIds": [
+     "p132.l06"
+    ]
+   },
+   {
+    "id": "p132.b07",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     179.3,
+     488.3,
+     192.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "000299663f18b23f",
+    "lineIds": [
+     "p132.l07"
+    ]
+   },
+   {
+    "id": "p132.b08",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     194.8,
+     368.1,
+     207.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "a35dc1c30419adff",
+    "lineIds": [
+     "p132.l08"
+    ]
+   },
+   {
+    "id": "p132.b09",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     210.3,
+     488.2,
+     223.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "007758920b4f8128",
+    "lineIds": [
+     "p132.l09"
+    ]
+   },
+   {
+    "id": "p132.b10",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     225.8,
+     300.6,
+     238.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "0bfc2b4a5211602e",
+    "lineIds": [
+     "p132.l10"
+    ]
+   },
+   {
+    "id": "p132.b11",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     241.3,
+     488.1,
+     254.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "a0ede9716f8f1b14",
+    "lineIds": [
+     "p132.l11"
+    ]
+   },
+   {
+    "id": "p132.b12",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     256.8,
+     211.3,
+     269.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "6384b5a5c242e41f",
+    "lineIds": [
+     "p132.l12"
+    ]
+   },
+   {
+    "id": "p132.b13",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     272.3,
+     488.2,
+     285.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "8b531a0b61297f02",
+    "lineIds": [
+     "p132.l13"
+    ]
+   },
+   {
+    "id": "p132.b14",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     287.8,
+     420.1,
+     300.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "b1ee937543a920d1",
+    "lineIds": [
+     "p132.l14"
+    ]
+   },
+   {
+    "id": "p132.b15",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     303.3,
+     488,
+     316.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "4bea709600e8b694",
+    "lineIds": [
+     "p132.l15"
+    ]
+   },
+   {
+    "id": "p132.b16",
+    "kind": "text",
+    "bbox": [
+     113.5,
+     318.8,
+     488.1,
+     347.3
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 2,
+    "text": "f9c48c107112ecaa",
+    "lineIds": [
+     "p132.l16",
+     "p132.l17"
+    ]
+   },
+   {
+    "id": "p132.b17",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     356,
+     269.9,
+     366
+    ],
+    "style": "LucidaSans 10",
+    "italic": false,
+    "bold": false,
+    "size": 10,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "069dfd9e38fd2c72",
+    "lineIds": [
+     "p132.l18"
+    ]
+   },
+   {
+    "id": "p132.b18",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     400.3,
+     208.6,
+     411.8
+    ],
+    "style": "LucidaSans-Demi 11.5",
+    "italic": false,
+    "bold": true,
+    "size": 11.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "1bbe125f7eae2822",
+    "lineIds": [
+     "p132.l19"
+    ]
+   },
+   {
+    "id": "p132.b19",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     430.8,
+     496.2,
+     536.8
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 7,
+    "text": "19f18724da289500",
+    "lineIds": [
+     "p132.l20",
+     "p132.l21",
+     "p132.l22",
+     "p132.l23",
+     "p132.l24",
+     "p132.l25",
+     "p132.l26"
+    ]
+   },
+   {
+    "id": "p132.b20",
+    "kind": "text",
+    "bbox": [
+     85.1,
+     564.8,
+     269.8,
+     578.8
+    ],
+    "style": "LucidaSans-Demi 14",
+    "italic": false,
+    "bold": true,
+    "size": 14,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "134b2b6247b2fc84",
+    "lineIds": [
+     "p132.l27"
+    ]
+   },
+   {
+    "id": "p132.b21",
+    "kind": "text",
+    "bbox": [
+     483.8,
+     564.8,
+     496.2,
+     578.8
+    ],
+    "style": "LucidaSans-Demi 14",
+    "italic": false,
+    "bold": true,
+    "size": 14,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "d80edd7fb074b51d",
+    "lineIds": [
+     "p132.l28"
+    ]
+   },
+   {
+    "id": "p132.b22",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     604.8,
+     304.4,
+     616.3
+    ],
+    "style": "LucidaSans-Demi 11.5",
+    "italic": false,
+    "bold": true,
+    "size": 11.5,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "a43522bc535a51fb",
+    "lineIds": [
+     "p132.l29"
+    ]
+   },
+   {
+    "id": "p132.b23",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     631.3,
+     175.9,
+     644.3
+    ],
+    "style": "MinionPro-It 13",
+    "italic": true,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 1,
+    "text": "5e454cd21dd8ab5d",
+    "lineIds": [
+     "p132.l30"
+    ]
+   },
+   {
+    "id": "p132.b24",
+    "kind": "text",
+    "bbox": [
+     93.1,
+     653.8,
+     488.2,
+     713.4
+    ],
+    "style": "MinionPro-Regular 13",
+    "italic": false,
+    "bold": false,
+    "size": 13,
+    "bodySize": 13,
+    "lines": 4,
+    "text": "c258b56134052cf8",
+    "lineIds": [
+     "p132.l31",
+     "p132.l32",
+     "p132.l33",
+     "p132.l34"
+    ]
+   }
+  ],
+  "prevPageTail": {
+   "id": "p131.b18",
+   "text": "585f075163a14805",
+   "endsSentence": true
+  },
+  "nextPageHead": {
+   "id": "p133.b04",
+   "text": "20565fd996ed9139"
+  }
+ },
+ "ceramics p8": {
+  "page": 8,
+  "printed": "8",
+  "w": 668.5,
+  "h": 796,
+  "columns": [
+   [
+    40,
+    407.7
+   ],
+   [
+    263,
+    600.8
+   ],
+   [
+    332,
+    410.3
+   ],
+   [
+    576,
+    627.4
+   ]
+  ],
+  "blocks": [
+   {
+    "id": "p8.b01",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     79.5,
+     195,
+     91.5
+    ],
+    "style": "MuseoSans-700 12",
+    "italic": false,
+    "bold": true,
+    "size": 12,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "d9d5e2f5438cb45f",
+    "lineIds": [
+     "p8.l01"
+    ]
+   },
+   {
+    "id": "p8.b02",
+    "kind": "text",
+    "bbox": [
+     262.9,
+     109,
+     597.3,
+     259.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 11,
+    "text": "da682772e5d2ec95",
+    "lineIds": [
+     "p8.l02",
+     "p8.l03",
+     "p8.l04",
+     "p8.l05",
+     "p8.l06",
+     "p8.l07",
+     "p8.l08",
+     "p8.l09",
+     "p8.l10",
+     "p8.l11",
+     "p8.l12"
+    ]
+   },
+   {
+    "id": "p8.b03",
+    "kind": "text",
+    "bbox": [
+     272.9,
+     279.5,
+     318.2,
+     287.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "92300b1777f4ea4e",
+    "lineIds": [
+     "p8.l13"
+    ]
+   },
+   {
+    "id": "p8.b04",
+    "kind": "text",
+    "bbox": [
+     332.1,
+     307.5,
+     410.3,
+     315.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "11430891203f7baf",
+    "lineIds": [
+     "p8.l14"
+    ]
+   },
+   {
+    "id": "p8.b05",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     333,
+     407.7,
+     497.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 12,
+    "text": "a809d961db479375",
+    "lineIds": [
+     "p8.l15",
+     "p8.l16",
+     "p8.l17",
+     "p8.l18",
+     "p8.l19",
+     "p8.l20",
+     "p8.l21",
+     "p8.l22",
+     "p8.l23",
+     "p8.l24",
+     "p8.l25",
+     "p8.l26"
+    ]
+   },
+   {
+    "id": "p8.b06",
+    "kind": "text",
+    "bbox": [
+     321.5,
+     529,
+     600.8,
+     707.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 13,
+    "text": "6457e312b0651a87",
+    "lineIds": [
+     "p8.l27",
+     "p8.l28",
+     "p8.l29",
+     "p8.l30",
+     "p8.l31",
+     "p8.l32",
+     "p8.l33",
+     "p8.l34",
+     "p8.l35",
+     "p8.l36",
+     "p8.l37",
+     "p8.l38",
+     "p8.l40"
+    ]
+   },
+   {
+    "id": "p8.b07",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     699.5,
+     120.2,
+     707.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "ab82e566952ced1f",
+    "lineIds": [
+     "p8.l39"
+    ]
+   },
+   {
+    "id": "p8.b08",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     725.1,
+     117.8,
+     733.1
+    ],
+    "style": "MyriadPro-Light 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "577dacdf282b020c",
+    "lineIds": [
+     "p8.l41"
+    ]
+   },
+   {
+    "id": "p8.b09",
+    "kind": "text",
+    "bbox": [
+     39.5,
+     778,
+     204,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "b5c91d2a65686aa8",
+    "lineIds": [
+     "p8.l42"
+    ]
+   },
+   {
+    "id": "p8.b10",
+    "kind": "text",
+    "bbox": [
+     576,
+     778,
+     627.4,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "16ab02ba2248c4a0",
+    "lineIds": [
+     "p8.l43"
+    ]
+   },
+   {
+    "id": "p8.f01",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     112,
+     248.8,
+     315.5
+    ],
+    "pieces": [
+     "p8.i01"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p8.f02",
+    "kind": "figure",
+    "bbox": [
+     421.4,
+     274.1,
+     603,
+     511.5
+    ],
+    "pieces": [
+     "p8.i02"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p8.f03",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     514.3,
+     310.7,
+     693.5
+    ],
+    "pieces": [
+     "p8.i03"
+    ],
+    "caption": null
+   }
+  ],
+  "prevPageTail": {
+   "id": "p7.b06",
+   "text": "626f797bfdc68ba6",
+   "endsSentence": true
+  },
+  "nextPageHead": {
+   "id": "p9.b04",
+   "text": "85adf6e5e5574b32"
+  }
+ },
+ "ceramics p53": {
+  "page": 53,
+  "printed": "53",
+  "w": 668.5,
+  "h": 796,
+  "columns": [
+   [
+    40,
+    314.1
+   ],
+   [
+    259,
+    400.7
+   ],
+   [
+    341,
+    600.5
+   ],
+   [
+    443,
+    603
+   ],
+   [
+    576,
+    627.4
+   ]
+  ],
+  "blocks": [
+   {
+    "id": "p53.b01",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     79.5,
+     119.6,
+     91.5
+    ],
+    "style": "MuseoSans-700 12",
+    "italic": false,
+    "bold": true,
+    "size": 12,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "0047eec103e6d80c",
+    "lineIds": [
+     "p53.l01"
+    ]
+   },
+   {
+    "id": "p53.b02",
+    "kind": "text",
+    "bbox": [
+     341.2,
+     81,
+     600.5,
+     161.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 6,
+    "text": "54015be3e74ca9b7",
+    "lineIds": [
+     "p53.l02",
+     "p53.l03",
+     "p53.l05",
+     "p53.l07",
+     "p53.l09",
+     "p53.l11"
+    ]
+   },
+   {
+    "id": "p53.b03",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     109,
+     314.1,
+     217.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 8,
+    "text": "a134d979cd30a1d7",
+    "lineIds": [
+     "p53.l04",
+     "p53.l06",
+     "p53.l08",
+     "p53.l10",
+     "p53.l12",
+     "p53.l14",
+     "p53.l16",
+     "p53.l18"
+    ]
+   },
+   {
+    "id": "p53.b04",
+    "kind": "text",
+    "bbox": [
+     341.2,
+     165,
+     592.8,
+     217.4
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 4,
+    "text": "b6d911f2a07f7611",
+    "lineIds": [
+     "p53.l13",
+     "p53.l15",
+     "p53.l17",
+     "p53.l19"
+    ]
+   },
+   {
+    "id": "p53.b05",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     419.5,
+     226.2,
+     438.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "b3e5f8304ef8d0d7",
+    "lineIds": [
+     "p53.l20",
+     "p53.l23"
+    ]
+   },
+   {
+    "id": "p53.b06",
+    "kind": "text",
+    "bbox": [
+     259.3,
+     419.5,
+     400.7,
+     438.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "3c0aa6b116c8560e",
+    "lineIds": [
+     "p53.l21",
+     "p53.l24"
+    ]
+   },
+   {
+    "id": "p53.b07",
+    "kind": "text",
+    "bbox": [
+     443.1,
+     419.5,
+     583.4,
+     427.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "79880f2e173d74a9",
+    "lineIds": [
+     "p53.l22"
+    ]
+   },
+   {
+    "id": "p53.b08",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     677.5,
+     208.4,
+     685.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "16ff9ccefb3597cb",
+    "lineIds": [
+     "p53.l25"
+    ]
+   },
+   {
+    "id": "p53.b09",
+    "kind": "text",
+    "bbox": [
+     259.3,
+     677.5,
+     361.9,
+     696.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "71e7fbca58836487",
+    "lineIds": [
+     "p53.l26",
+     "p53.l28"
+    ]
+   },
+   {
+    "id": "p53.b10",
+    "kind": "text",
+    "bbox": [
+     443.1,
+     677.5,
+     588.4,
+     685.5
+    ],
+    "style": "MyriadPro-It 8",
+    "italic": true,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "d67bb283476198b6",
+    "lineIds": [
+     "p53.l27"
+    ]
+   },
+   {
+    "id": "p53.b11",
+    "kind": "text",
+    "bbox": [
+     443.1,
+     688.5,
+     577.2,
+     707.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "5f05d84f9c15ad88",
+    "lineIds": [
+     "p53.l29",
+     "p53.l30"
+    ]
+   },
+   {
+    "id": "p53.b12",
+    "kind": "text",
+    "bbox": [
+     455.1,
+     725.1,
+     603,
+     733.1
+    ],
+    "style": "MyriadPro-Light 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "d5a6e3a2f972f678",
+    "lineIds": [
+     "p53.l31"
+    ]
+   },
+   {
+    "id": "p53.b13",
+    "kind": "text",
+    "bbox": [
+     39.5,
+     778,
+     206.4,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "3e591789cec7e736",
+    "lineIds": [
+     "p53.l32"
+    ]
+   },
+   {
+    "id": "p53.b14",
+    "kind": "text",
+    "bbox": [
+     576,
+     778,
+     627.4,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "e21734c112eb24ee",
+    "lineIds": [
+     "p53.l33"
+    ]
+   },
+   {
+    "id": "p53.f01",
+    "kind": "figure",
+    "bbox": [
+     249.3,
+     231.5,
+     419.1,
+     413.5
+    ],
+    "pieces": [
+     "p53.i01"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p53.f02",
+    "kind": "figure",
+    "bbox": [
+     433.1,
+     231.5,
+     603,
+     413.5
+    ],
+    "pieces": [
+     "p53.i02"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p53.f03",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     231.8,
+     235.3,
+     413.5
+    ],
+    "pieces": [
+     "p53.i03"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p53.f04",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     455.5,
+     235.3,
+     671.6
+    ],
+    "pieces": [
+     "p53.i04"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p53.f05",
+    "kind": "figure",
+    "bbox": [
+     249.3,
+     455.5,
+     419.1,
+     671.6
+    ],
+    "pieces": [
+     "p53.i05"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p53.f06",
+    "kind": "figure",
+    "bbox": [
+     433.1,
+     455.5,
+     603,
+     671.6
+    ],
+    "pieces": [
+     "p53.i06"
+    ],
+    "caption": null
+   }
+  ],
+  "prevPageTail": {
+   "id": "p52.b06",
+   "text": "96be1348efbc81d6",
+   "endsSentence": true
+  },
+  "nextPageHead": {
+   "id": "p54.b01",
+   "text": "cd3335c6976832aa"
+  }
+ },
+ "ceramics p65": {
+  "page": 65,
+  "printed": "65",
+  "w": 668.5,
+  "h": 796,
+  "columns": [
+   [
+    40,
+    326.4
+   ],
+   [
+    259,
+    414.2
+   ],
+   [
+    341,
+    602.1
+   ],
+   [
+    443,
+    603
+   ],
+   [
+    576,
+    627.4
+   ]
+  ],
+  "blocks": [
+   {
+    "id": "p65.b01",
+    "kind": "text",
+    "bbox": [
+     77.5,
+     81,
+     300.3,
+     105.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "c3a14ab350ecd331",
+    "lineIds": [
+     "p65.l01",
+     "p65.l03"
+    ]
+   },
+   {
+    "id": "p65.b02",
+    "kind": "text",
+    "bbox": [
+     341.2,
+     79.5,
+     600.7,
+     91.5
+    ],
+    "style": "MuseoSans-700 12",
+    "italic": false,
+    "bold": true,
+    "size": 12,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "83e17581fbdc7f37",
+    "lineIds": [
+     "p65.l02"
+    ]
+   },
+   {
+    "id": "p65.b03",
+    "kind": "text",
+    "bbox": [
+     341.2,
+     109,
+     602.1,
+     231.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 9,
+    "text": "ca79c71c8b11f6d6",
+    "lineIds": [
+     "p65.l04",
+     "p65.l06",
+     "p65.l08",
+     "p65.l10",
+     "p65.l12",
+     "p65.l14",
+     "p65.l16",
+     "p65.l18",
+     "p65.l20"
+    ]
+   },
+   {
+    "id": "p65.b04",
+    "kind": "text",
+    "bbox": [
+     65.5,
+     123,
+     326.4,
+     273.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 11,
+    "text": "6e86d09df9b4bae0",
+    "lineIds": [
+     "p65.l05",
+     "p65.l07",
+     "p65.l09",
+     "p65.l11",
+     "p65.l13",
+     "p65.l15",
+     "p65.l17",
+     "p65.l19",
+     "p65.l21",
+     "p65.l23",
+     "p65.l25"
+    ]
+   },
+   {
+    "id": "p65.b05",
+    "kind": "text",
+    "bbox": [
+     341.2,
+     235,
+     596,
+     273.5
+    ],
+    "style": "WarnockPro-Regular 10.5",
+    "italic": false,
+    "bold": false,
+    "size": 10.5,
+    "bodySize": 10.5,
+    "lines": 3,
+    "text": "0b286143f3c1abb4",
+    "lineIds": [
+     "p65.l22",
+     "p65.l24",
+     "p65.l26"
+    ]
+   },
+   {
+    "id": "p65.b06",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     405.5,
+     226.8,
+     424.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "6b5db7169987ec17",
+    "lineIds": [
+     "p65.l27",
+     "p65.l30"
+    ]
+   },
+   {
+    "id": "p65.b07",
+    "kind": "text",
+    "bbox": [
+     259.3,
+     405.5,
+     414.2,
+     424.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "97435d05863bebba",
+    "lineIds": [
+     "p65.l28",
+     "p65.l31"
+    ]
+   },
+   {
+    "id": "p65.b08",
+    "kind": "text",
+    "bbox": [
+     443.1,
+     405.5,
+     590.4,
+     424.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "748e686892e88ed1",
+    "lineIds": [
+     "p65.l29",
+     "p65.l32"
+    ]
+   },
+   {
+    "id": "p65.b09",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     559.5,
+     223.9,
+     578.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "efdd4b717cf8991e",
+    "lineIds": [
+     "p65.l33",
+     "p65.l36"
+    ]
+   },
+   {
+    "id": "p65.b10",
+    "kind": "text",
+    "bbox": [
+     259.3,
+     559.5,
+     398.4,
+     578.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "87c850da9e630717",
+    "lineIds": [
+     "p65.l34",
+     "p65.l37"
+    ]
+   },
+   {
+    "id": "p65.b11",
+    "kind": "text",
+    "bbox": [
+     443.1,
+     559.5,
+     602.5,
+     578.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 2,
+    "text": "1557e49d61d89a93",
+    "lineIds": [
+     "p65.l35",
+     "p65.l38"
+    ]
+   },
+   {
+    "id": "p65.b12",
+    "kind": "text",
+    "bbox": [
+     351.2,
+     644.5,
+     415.5,
+     707.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 6,
+    "text": "4e875bde14ea0cda",
+    "lineIds": [
+     "p65.l39",
+     "p65.l40",
+     "p65.l42",
+     "p65.l44",
+     "p65.l46",
+     "p65.l48"
+    ]
+   },
+   {
+    "id": "p65.b13",
+    "kind": "text",
+    "bbox": [
+     75.5,
+     666.5,
+     143.3,
+     707.5
+    ],
+    "style": "MyriadPro-Regular 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 4,
+    "text": "1bd42fb1a8f535c5",
+    "lineIds": [
+     "p65.l41",
+     "p65.l43",
+     "p65.l45",
+     "p65.l47"
+    ]
+   },
+   {
+    "id": "p65.b14",
+    "kind": "text",
+    "bbox": [
+     468.9,
+     725.1,
+     603,
+     733.1
+    ],
+    "style": "MyriadPro-Light 8",
+    "italic": false,
+    "bold": false,
+    "size": 8,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "4b13612570a05ba2",
+    "lineIds": [
+     "p65.l49"
+    ]
+   },
+   {
+    "id": "p65.b15",
+    "kind": "text",
+    "bbox": [
+     39.5,
+     778,
+     206.4,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "680ce977ff0f1718",
+    "lineIds": [
+     "p65.l50"
+    ]
+   },
+   {
+    "id": "p65.b16",
+    "kind": "text",
+    "bbox": [
+     576,
+     778,
+     627.4,
+     784
+    ],
+    "style": "MinionPro-Regular 6",
+    "italic": false,
+    "bold": false,
+    "size": 6,
+    "bodySize": 10.5,
+    "lines": 1,
+    "text": "e531d0ba3a6a5fe5",
+    "lineIds": [
+     "p65.l51"
+    ]
+   },
+   {
+    "id": "p65.f01",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     287.5,
+     235.3,
+     399.5
+    ],
+    "pieces": [
+     "p65.i01"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f02",
+    "kind": "figure",
+    "bbox": [
+     249.3,
+     287.5,
+     419.1,
+     399.5
+    ],
+    "pieces": [
+     "p65.i02"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f03",
+    "kind": "figure",
+    "bbox": [
+     433.1,
+     287.5,
+     603,
+     399.5
+    ],
+    "pieces": [
+     "p65.i03"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f04",
+    "kind": "figure",
+    "bbox": [
+     65.5,
+     449.1,
+     235.3,
+     553.5
+    ],
+    "pieces": [
+     "p65.i04"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f05",
+    "kind": "figure",
+    "bbox": [
+     249.3,
+     449.1,
+     419.1,
+     553.5
+    ],
+    "pieces": [
+     "p65.i05"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f06",
+    "kind": "figure",
+    "bbox": [
+     433.1,
+     449.1,
+     603,
+     553.5
+    ],
+    "pieces": [
+     "p65.i06"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f07",
+    "kind": "figure",
+    "bbox": [
+     157.4,
+     595.5,
+     327.2,
+     708.7
+    ],
+    "pieces": [
+     "p65.i07"
+    ],
+    "caption": null
+   },
+   {
+    "id": "p65.f08",
+    "kind": "figure",
+    "bbox": [
+     433.1,
+     595.5,
+     603,
+     708.7
+    ],
+    "pieces": [
+     "p65.i08"
+    ],
+    "caption": null
+   }
+  ],
+  "prevPageTail": {
+   "id": "p64.b04",
+   "text": "e0aed25303d89be5",
+   "endsSentence": false
+  },
+  "nextPageHead": {
+   "id": "p66.b04",
+   "text": "6d8f6c3fac6c6911"
+  }
+ }
+}

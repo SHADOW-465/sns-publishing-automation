@@ -2,9 +2,11 @@ import { type PdfBook, type PLine, columnStarts, columnOf, titleCase } from '../
 import { sectionTypeOf } from '../epub/locale.ts'
 import { isDecorative } from '../epub/alt.ts'
 import { detectTables } from '../pdf/tables.ts'
-import { LIST_MARK } from '../pdf/layout.ts'
+import { LIST_MARK, rowOrder } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
 import { splitBulletEntries, type TocSplit } from './tocsplit.ts'
+
+export { rowOrder }
 
 // =============================================================================================
 // Accessible PDF: the logical structure (tag tree) rebuilt from the page layout.
@@ -124,21 +126,6 @@ const CHAPTER_LABEL = /^(chapter|part|book|kapitel|teil|chapitre|partie|cap[ií]
 const NOTE_LEAD = /^(\d{1,3})([.)])\s+\S/
 // the list mark of the layout (numbers up to 999) followed by the item text
 const BULLET = new RegExp(LIST_MARK.source.replace(/\$$/, '\\s'))
-
-/**
- * Rows top to bottom, each row left to right. Lines are grouped into rows first (a baseline within 2 pt of the row's first line),
- * then sorted: a pairwise "same row" test is not transitive, so sorting on it made the order depend on the input order (R2.2).
- */
-export function rowOrder(lines: PLine[]): PLine[] {
-  const byX = (a: PLine, b: PLine) => a.x0 - b.x0 || a.base - b.base || a.x1 - b.x1 || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0)
-  const rows: PLine[][] = []
-  for (const l of [...lines].sort((a, b) => a.base - b.base || byX(a, b))) {
-    const row = rows[rows.length - 1]
-    if (row && l.base - row[0].base < 2) row.push(l)
-    else rows.push([l])
-  }
-  return rows.flatMap((r) => r.sort(byX))
-}
 
 /**
  * The line ends a contents entry. A digit at the end is a page number ("Title 12", or "64" on its own).
