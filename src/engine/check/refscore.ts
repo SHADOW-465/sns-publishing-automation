@@ -284,6 +284,9 @@ export interface Dimension {
 export interface RefScore {
   overall: number
   dims: Dimension[]
+  /** where the build and the reference disagree on something the reference is not the judge of (figure counts, drop caps
+   *  tagged as Figure): report only, never a pass/fail gate; pass/fail is PDF/UA, the rulebook and the tests (T6c) */
+  disagreements?: string[]
 }
 
 const pct = (x: number) => Math.round(Math.max(0, Math.min(1, x)) * 1000) / 10
@@ -322,6 +325,7 @@ const wordsF1 = (a: Map<string, number>, b: Map<string, number>) => {
 export function compareBooks(mine: BookModel, ref: BookModel): RefScore {
   const dims: Dimension[] = []
   const dim = (id: string, label: string, weight: number, score: number | null, diffs: string[]) => dims.push({ id, label, weight, score: score === null ? null : pct(score), diffs })
+  const disagreements: string[] = []
   const A = allBlocks(mine)
   const R = allBlocks(ref)
 
@@ -502,7 +506,7 @@ export function compareBooks(mine: BookModel, ref: BookModel): RefScore {
     else {
       const diffs: string[] = []
       const countScore = Math.min(rp.length, ap.length) / Math.max(rp.length, ap.length, 1)
-      if (rp.length !== ap.length) diffs.push(`The build has ${ap.length} picture${ap.length === 1 ? '' : 's'}; the reference has ${rp.length}.`)
+      if (rp.length !== ap.length) disagreements.push(`The build has ${ap.length} picture${ap.length === 1 ? '' : 's'}; the reference has ${rp.length}.`)
       const keys = new Set(ap.map((p) => p.before))
       const placed = rp.filter((p) => keys.has(p.before)).length
       const placeScore = rp.length ? placed / rp.length : 1
@@ -589,7 +593,7 @@ export function compareBooks(mine: BookModel, ref: BookModel): RefScore {
 
   const live = dims.filter((d) => d.score !== null)
   const overall = live.length ? Math.round((live.reduce((s, d) => s + d.score! * d.weight, 0) / live.reduce((s, d) => s + d.weight, 0)) * 10) / 10 : 0
-  return { overall, dims }
+  return { overall, dims, disagreements }
 }
 
 function multisetDistance(a: Map<string, number>, b: Map<string, number>, total: number): number {
@@ -603,8 +607,9 @@ export const scoreEpub = (built: Files, reference: Files): RefScore => compareBo
 
 /** The score as plain text: one line per dimension, then the differences. */
 export function formatScore(name: string, s: RefScore): string {
-  const out = [`${name}: ${s.overall}% like the client’s finished file`]
+  const out = [`${name}: ${s.overall}% like the client’s finished file (report only)`]
   for (const d of s.dims) out.push(`  ${(d.score === null ? 'n/a' : `${d.score}%`).padStart(6)}  ${d.label}`)
   for (const d of s.dims) if (d.score !== null && d.diffs.length) out.push(`  ${d.label}:`, ...d.diffs.map((x) => `    - ${x}`))
+  if (s.disagreements?.length) out.push('  Reference disagreements (report only, not pass/fail):', ...s.disagreements.map((x) => `    - ${x}`))
   return out.join('\n')
 }

@@ -20,7 +20,7 @@ export interface PdfStats {
   toc: { toc: number; items: number }
   content: { artifactBlocks: number; markedBlocks: number; unmarkedPaintOps: number }
   /** only when pdfjs was given: per page, the words of the tagged text in the order the tag tree reads them; and the text of
-   *  every caption and heading element (on the page where it starts); and per page, in content order, the words of text no
+   *  every caption, heading and figure element (on the page where it starts; a figure with text is a letter tagged as a picture); and per page, in content order, the words of text no
    *  tag claims (marked content outside the tag tree, or text outside any marked content; artifacts are not text) */
   order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[]; untagged: Record<number, string[]> }
 }
@@ -151,7 +151,7 @@ export async function pdfStats(data: Uint8Array, pdfjs?: any): Promise<PdfStats>
     elems.push({ type, mapped: roleMap[type] ?? type, parent, kids: [], page, mcids: 0, objr: [], hasAlt: o.has(N('Alt')), alt: text(o.get(N('Alt'))) })
     if (parent !== null) elems[parent].kids.push(id)
     if (node instanceof PDFRef) byRef.set(node.toString(), id)
-    const own = SCORED_ROLES.includes(elems[id].mapped) ? id : owner
+    const own = SCORED_ROLES.includes(elems[id].mapped) || elems[id].mapped === 'Figure' ? id : owner
     for (const k of kidList(o.get(N('K')))) walk(k, id, page, own)
   }
   if (root) for (const k of kidList(root.get(N('K')))) walk(k, null, null, null)

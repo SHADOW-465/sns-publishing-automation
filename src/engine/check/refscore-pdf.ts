@@ -116,6 +116,7 @@ export function comparePdfs(mine: PdfStats, ref: PdfStats, opts: { pages?: numbe
   const dims: Dimension[] = []
   const dim = (id: string, label: string, weight: number, score: number | null, diffs: string[]) => dims.push({ id, label, weight, score: score === null ? null : pct(score), diffs })
   const T = (s: PdfStats, k: string) => s.types[k] ?? 0
+  const disagreements: string[] = []
 
   // ---- document settings ----
   {
@@ -187,7 +188,14 @@ export function comparePdfs(mine: PdfStats, ref: PdfStats, opts: { pages?: numbe
   {
     const diffs: string[] = []
     const noAlt = mine.figures.filter((f) => !f.alt?.trim()).length
-    if (mine.figures.length !== ref.figures.length) diffs.push(`${mine.figures.length} figures in the build, ${ref.figures.length} in the reference.`)
+    // a letter the reference tags as a picture is a drop cap: text, not a Figure (PDF/UA and the rulebook); a disagreement
+    // only where the build does not tag the same letter as Figure on that page
+    const capKey = (r: { page: number; text: string }) => `${r.page}:${r.text}`
+    const dropCaps = (s: PdfStats) => (s.order?.roles ?? []).filter((r) => r.role === 'Figure' && /^\p{L}{1,2}$/u.test(r.text))
+    const mineCaps = new Set(dropCaps(mine).map(capKey))
+    const caps = dropCaps(ref).filter((r) => !mineCaps.has(capKey(r)))
+    if (mine.figures.length !== ref.figures.length) disagreements.push(`${mine.figures.length} figures in the build, ${ref.figures.length} in the reference.`)
+    if (caps.length) disagreements.push(`The reference tags ${caps.length} drop cap${caps.length === 1 ? '' : 's'} as Figure (page${caps.length === 1 ? '' : 's'} ${caps.map((r) => r.page).join(', ')}); the build keeps ${caps.length === 1 ? 'it' : 'them'} as text.`)
     if (noAlt) diffs.push(`${noAlt} figure${noAlt === 1 ? ' has' : 's have'} no description in the build.`)
     const big = (s: PdfStats) => Math.max(0, ...s.figures.map((f) => f.contentItems))
     if (big(mine) > big(ref) * 1.5) diffs.push(`The most fragmented picture is cut into ${big(mine)} pieces in the build and ${big(ref)} in the reference (a logo drawn as many pieces).`)
@@ -226,5 +234,5 @@ export function comparePdfs(mine: PdfStats, ref: PdfStats, opts: { pages?: numbe
   const live = dims.filter((d) => d.score !== null)
   const overall = live.length ? Math.round((live.reduce((s, d) => s + d.score! * d.weight, 0) / live.reduce((s, d) => s + d.weight, 0)) * 10) / 10 : 0
   for (const d of dims) d.diffs = more(d.diffs)
-  return { overall, dims }
+  return { overall, dims, disagreements }
 }
