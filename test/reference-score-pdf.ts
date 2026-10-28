@@ -10,6 +10,7 @@ import { pdfStats } from '../src/engine/check/pdfstats.ts'
 import { comparePdfs, readingDims } from '../src/engine/check/refscore-pdf.ts'
 import { formatScore, type RefScore } from '../src/engine/check/refscore.ts'
 import { nodeRaster } from './raster-node.ts'
+import { PDFDocument, farFromPrint, structPages } from '../src/engine/pdfua/audit.ts'
 import { AUTOMATION, has, read } from './samples.ts'
 
 const D = resolve(AUTOMATION, 'Accessible-PDF-Automation')
@@ -37,6 +38,12 @@ async function score(out: Record<string, RefScore | { skipped: string }>, id: st
   const self = readingDims(ref, ref)
   console.log(formatScore(`${name}, the reference against itself`, { overall: self.find((d) => d.id === 'order')?.score ?? 0, dims: self }) + '\n')
   out[`${id}-self`] = { overall: self.find((d) => d.id === 'order')?.score ?? 0, dims: self }
+  // R2.3: no struct node is read more than 1 page from where it is printed (the ua-audit check), whole book and eval pages
+  const seq = structPages(await PDFDocument.load(pdf, { updateMetadata: false }))
+  const far = farFromPrint(seq).map((i) => seq[i] + 1)
+  const onEval = far.filter((p) => evalPages(id).includes(p))
+  out[`${id}-placement`] = { overall: far.length ? 0 : 100, dims: [{ id: 'placement', label: 'Struct nodes more than 1 page from where printed', score: far.length ? 0 : 100, weight: 1, diffs: [`${far.length} of ${seq.length} in the book (pages ${[...new Set(far)].join(', ') || 'none'}), ${onEval.length} on eval pages`] }] }
+  console.log(formatScore(`${name}, placement (R2.3)`, out[`${id}-placement`] as RefScore) + '\n')
 }
 
 export async function scorePdfUaBooks(want: (n: string) => boolean): Promise<Record<string, RefScore | { skipped: string }>> {

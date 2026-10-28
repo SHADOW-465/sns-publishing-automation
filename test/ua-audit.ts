@@ -2,13 +2,18 @@
 //   node --import ./test/setup.ts test/ua-audit.ts file.pdf [pageList]
 import { readFileSync } from 'node:fs'
 import { PDFDocument } from 'pdf-lib'
-import { auditPictures, auditPage, readTree } from '../src/engine/pdfua/audit.ts'
+import { auditPictures, auditPage, readTree, farFromPrint, structPages } from '../src/engine/pdfua/audit.ts'
 import { trimOf, trimBoxOf, insideBox } from '../src/engine/pdfua/pages.ts'
 
 const [, , file, pageList] = process.argv
 const doc = await PDFDocument.load(new Uint8Array(readFileSync(file)), { updateMetadata: false, ignoreEncryption: true })
 const a = auditPictures(doc)
 console.log(JSON.stringify({ pages: a.pages, picturesInTrim: a.pictures, inTree: a.picturesInTree, artifact: a.picturesArtifact, slugPictures: a.slugPictures, figureElements: a.figureElements }))
+// R2.3: struct nodes read more than 1 page from where they are printed (1-based pages); none is the target
+{
+  const seq = structPages(doc)
+  console.log('FAR FROM PRINT', JSON.stringify(farFromPrint(seq).map((i) => seq[i] + 1)))
+}
 console.log('TAGS', JSON.stringify(Object.fromEntries([...a.counts].sort((x, y) => y[1] - x[1]))))
 console.log('ARTIFACT PICTURES (page, box):', a.artifactPictures.slice(0, 40).map((x) => `${x.page}:${[x.box.x0, x.box.y0, x.box.x1, x.box.y1].map(Math.round)}`).join(' '))
 if (pageList) {

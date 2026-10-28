@@ -134,3 +134,41 @@ export function tagOrder(doc: PDFDocument): string[] {
   if (root) walk(root.get(PDFName.of('K')))
   return out
 }
+
+/** Indices of the nodes read more than 1 page from where they are printed (R2.3). `pages`: the printed page of every tagged node in reading
+ * order. Nodes on the same page in a row are one run; a run is out of place when its page is more than 1 away from both runs around it,
+ * so a jump over blank pages is not (the run after it agrees) but a held picture or a stray line read pages later is. */
+export function farFromPrint(pages: number[]): number[] {
+  const runs: { page: number; at: number[] }[] = []
+  pages.forEach((p, i) => (runs[runs.length - 1]?.page === p ? runs[runs.length - 1].at.push(i) : runs.push({ page: p, at: [i] })))
+  return runs.flatMap((r, k) => ([runs[k - 1], runs[k + 1]].some((n) => n && Math.abs(n.page - r.page) <= 1) || runs.length < 2 ? [] : r.at))
+}
+
+/** The printed page of every structure element that holds content, in reading order (the page of its first marked-content sequence). */
+export function structPages(doc: PDFDocument): number[] {
+  const out: number[] = []
+  const ctx = doc.context
+  const pageIdx = new Map(doc.getPages().map((p, i) => [p.ref.toString(), i]))
+  const walk = (node: unknown, pg: number | undefined, el: { seen: boolean }) => {
+    const obj = node instanceof PDFRef ? ctx.lookup(node) : node
+    if (obj instanceof PDFNumber) {
+      if (pg !== undefined && !el.seen) (out.push(pg), (el.seen = true))
+      return
+    }
+    if (obj instanceof PDFArray) return obj.asArray().forEach((x) => walk(x, pg, el))
+    if (!(obj instanceof PDFDict)) return
+    const own = obj.get(PDFName.of('Pg'))
+    const here = own instanceof PDFRef ? pageIdx.get(own.toString()) ?? pg : pg
+    const type = obj.get(PDFName.of('Type'))?.toString()
+    if (type === '/MCR') {
+      if (here !== undefined && !el.seen) (out.push(here), (el.seen = true))
+      return
+    }
+    if (type === '/OBJR') return
+    const kids = obj.get(PDFName.of('K'))
+    if (kids !== undefined) walk(kids, here, obj.get(PDFName.of('S')) ? { seen: false } : el)
+  }
+  const root = doc.catalog.lookupMaybe(PDFName.of('StructTreeRoot'), PDFDict)
+  if (root) walk(root.get(PDFName.of('K')), undefined, { seen: true })
+  return out
+}

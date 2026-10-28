@@ -315,7 +315,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let notesLevel = 0
   let lastNote = 0 // number of the last end note seen in the notes section
   let figList: SNode | null = null
-  let tocAfter: { sect: SNode; nodes: SNode[] } | null = null
+  let tocAfter: { sect: SNode; nodes: SNode[]; page: number } | null = null
   const flushToc = () => {
     if (tocAfter) tocAfter.sect.kids.push(...tocAfter.nodes)
     tocAfter = null
@@ -575,7 +575,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       closePara()
       closeList()
       // a contents list holds only entries: a picture on its page (an ornament under the last entry) follows the list (PRO-008)
-      if (container.tag === 'TOC') (tocAfter ??= { sect, nodes: [] }).nodes.push(...cs.flatMap((c) => c.item.nodes))
+      if (container.tag === 'TOC') (tocAfter ??= { sect, nodes: [], page: page.index }).nodes.push(...cs.flatMap((c) => c.item.nodes))
       else for (const c of cs) container.kids.push(...c.item.nodes)
     }
 
@@ -875,7 +875,15 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     }
     flushTables(Infinity)
     if (tail.length) emit(tail)
-    if (editionHold.length && headings.some((h) => h.lines[0]?.page === page.index)) flushEdition(sect)
+    // held nodes are read by the next page at the latest (R2.3), not at the next heading or the end of the book
+    if (editionHold.length && (headings.some((h) => h.lines[0]?.page === page.index) || editionHold[0].page < page.index)) flushEdition(sect)
+    if (tocAfter && tocAfter.page < page.index) {
+      closePara()
+      closeList()
+      flushToc()
+      // the contents runs on past the picture: its later rows are a list of their own after it
+      if (container.tag === 'TOC') sect.kids.push((container = mk('TOC')))
+    }
   }
   closePara()
   if (editionHold.length) flushEdition(container)
@@ -891,9 +899,22 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         .sort((a, b) => Math.abs(a.base - l.base) + Math.abs(a.x0 - l.x0) / 10 - (Math.abs(b.base - l.base) + Math.abs(b.x0 - l.x0) / 10))[0]
       if (near) own(l, owner.get(near)!)
       else {
+        // nothing tagged on its page: read next to the nearest tagged line on the pages around it (R2.3), not at the end of the book
         const p = mk('P')
         own(l, p)
-        root.kids.push(p)
+        const parent = new Map<SNode, SNode>()
+        const order = new Map<SNode, number>()
+        const walk = (n: SNode) => (order.set(n, order.size), n.kids.forEach((k) => (parent.set(k, n), walk(k))))
+        walk(root)
+        const by = book.pages.filter((q) => q.lines.some((x) => x !== l && owner.has(x))).sort((a, b) => Math.abs(a.index - page.index) - Math.abs(b.index - page.index) || a.index - b.index)[0]
+        const after = !!by && by.index < page.index
+        const nodesOn = by ? by.lines.flatMap((x) => (owner.has(x) && order.has(owner.get(x)!) ? [owner.get(x)!] : [])).sort((a, b) => order.get(a)! - order.get(b)!) : []
+        // the block that holds the anchor line (a paragraph, a list, a table): the new paragraph goes beside it, not inside it
+        let block = after ? nodesOn[nodesOn.length - 1] : nodesOn[0]
+        while (block && parent.has(block) && !/^(Document|Sect|Div)$/.test(parent.get(block)!.tag)) block = parent.get(block)!
+        const into = block && parent.get(block)
+        if (into) into.kids.splice(into.kids.indexOf(block) + (after ? 1 : 0), 0, p)
+        else root.kids.push(p)
       }
     }
   // empty sections/containers are dropped by the writer
