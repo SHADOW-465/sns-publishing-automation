@@ -177,32 +177,36 @@ export function detectTables<L extends Line>(page: { width: number; height: numb
     else {
       // column starts are left edges. A word's centre falls into the next column when the label is wider than the gap, so keep the starts and assign by x0.
       const starts: number[] = []
-      // right-aligned numbers start a few points after their left-aligned heading; real columns on this grid sit ~40pt apart
-      for (const x of lines.map((l) => l.x0).sort((a, b) => a - b)) if (!starts.length || x - starts[starts.length - 1] > 24) starts.push(x)
+      // right-aligned numbers start a few points after their left-aligned heading; real columns sit more than 2 em apart
+      const sizes = lines.map((l) => l.size).sort((a, b) => a - b)
+      const gap = 2 * sizes[sizes.length >> 1]
+      for (const x of lines.map((l) => l.x0).sort((a, b) => a - b)) if (!starts.length || x - starts[starts.length - 1] > gap) starts.push(x)
       cols = [...starts, x1]
     }
     if (cols.length < 4) continue // two columns is a contents entry and its page number, not this kind of table
-    // group rules with several baselines between them are one data row each, not one stacked cell
-    if (fromEdges) {
-      const split: number[] = []
-      for (let i = 0; i < rows.length - 1; i++) {
-        const top = rows[i]
-        const bot = rows[i + 1]
-        const band = lines.filter((l) => l.y >= top - 2 && l.y < bot - 3).sort((a, b) => a.y - b.y)
-        const groups: L[][] = []
-        for (const l of band) {
-          const g = groups[groups.length - 1]
-          if (g && l.y - g[0].y < 8) g.push(l)
-          else groups.push([l])
-        }
-        split.push(top)
-        if (groups.length > 1 && groups.every((g) => g.length >= 2)) {
-          for (let k = 0; k < groups.length - 1; k++) split.push((groups[k][0].y + groups[k + 1][0].y) / 2)
-        }
+    // a band between two rules with several baselines is one data row per baseline that fills two or more cells, not one stacked
+    // cell; a lone line under such a baseline, or a baseline of lines that mostly start in lower case, is the row's cells wrapping.
+    // One row over a band of rows is a booktabs header.
+    const split: number[] = []
+    const perBand: number[] = []
+    for (let i = 0; i < rows.length - 1; i++) {
+      const top = rows[i]
+      const bot = rows[i + 1]
+      const band = lines.filter((l) => l.y >= top - 2 && l.y < bot - 3).sort((a, b) => a.y - b.y)
+      const groups: L[][] = []
+      for (const l of band) {
+        const g = groups[groups.length - 1]
+        if (g && l.y - g[0].y < 8) g.push(l)
+        else groups.push([l])
       }
-      split.push(rows[rows.length - 1])
-      rows.splice(0, rows.length, ...split)
+      split.push(top)
+      const starts = groups.filter((g, k) => k > 0 && g.length >= 2 && g.filter((l) => /^\p{Ll}/u.test(l.text.trim())).length * 2 <= g.length)
+      for (const g of starts) split.push((band[band.indexOf(g[0]) - 1].y + g[0].y) / 2)
+      perBand.push(groups.length ? starts.length + 1 : 0)
     }
+    split.push(rows[rows.length - 1])
+    rows.splice(0, rows.length, ...split)
+    const ruledHead = perBand[0] === 1 && perBand[1] > 1
     const nR = rows.length - 1
     const nC = cols.length - 1
     const cells: TableCell<L>[] = []
@@ -226,8 +230,13 @@ export function detectTables<L extends Line>(page: { width: number; height: numb
     const prose = Array.from({ length: nC }, (_, c) => textOf(c).some((t) => t.length > 25))
     // a contents page: one column of bare page numbers beside the entry titles
     if (pageCols.length === 1 && prose.some(Boolean)) continue
+    // an index page: most lines end in their page numbers
+    if (lines.filter((l) => /,\s*\d{1,4}(?:\s*[-–]\s*\d{1,4})?\.?$/.test(l.text.trim())).length > lines.length / 2) continue
     const first = cells.filter((k) => k.r === 0)
-    const head = first.length > 1 && first.some((k) => k.lines.length) && first.filter((k) => k.lines.length).every((k) => k.lines.every((l) => l.runs.every((r) => r.bold)))
+    const head = first.length > 1 && first.some((k) => k.lines.length) && (ruledHead || first.filter((k) => k.lines.length).every((k) => k.lines.every((l) => l.runs.every((r) => r.bold))))
+    // a contents page with short titles: no header, and the last column is page numbers that rise down the page
+    const last = textOf(nC - 1).map(Number)
+    if (!head && pageCols.includes(nC - 1) && pageCols.length < nC && last.every((n, i) => !i || n >= last[i - 1])) continue
     out.push({ x0, x1, y0, y1, cols, rows, cells, lines, head })
   }
   return out.sort((a, b) => a.y0 - b.y0)
