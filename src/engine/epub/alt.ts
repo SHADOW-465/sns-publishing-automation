@@ -226,18 +226,35 @@ const ORNAMENT = new Set(['ornament', 'fleuron', 'dingbat', 'flourish', 'vignett
 const BACKGROUND = new Set(['background', 'bg', 'hintergrund', 'watermark', 'wasserzeichen'])
 const RULE = new Set(['rule', 'hline', 'linie', 'trenner', 'line'])
 
-/** Tiny images, ornaments, rules, and backgrounds are suggested as decorative. The reviewer can untick that. */
-export function decorativeReason(img: { name: string; width: number; height: number }): string | undefined {
-  const tokens = img.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+/** An uncaptioned picture is an ornament when its longer side is at most this share of the page width. */
+export const ORNAMENT_MAX = 0.3
+
+/**
+ * The one decorative rule, for PDF/UA and every EPUB route (SPEC-PFG-01). Sizes are in the page's unit (PDF points);
+ * with no page known, only the absolute tests apply. A picture with a caption, with text drawn in it, or a logo is a figure,
+ * and so is one beside a captioned picture of about its size on the page (a set of photos, not an ornament).
+ */
+export function isDecorative(
+  fig: { name?: string; width: number; height: number; caption?: string; text?: boolean; logo?: boolean },
+  page?: { width: number; figures?: { width: number; height: number; caption?: string }[] },
+): string | undefined {
+  if (fig.caption?.trim() || fig.text || fig.logo) return undefined
+  const tokens = (fig.name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
   const has = (set: Set<string>) => tokens.some((t) => set.has(t))
   if (has(ORNAMENT)) return 'The file name looks like an ornament.'
   if (has(BACKGROUND)) return 'The file name looks like a background.'
-  const { width: w, height: h } = img
+  const { width: w, height: h } = fig
   if (w > 0 && h > 0 && ((h <= 12 && w >= h * 8) || (w <= 12 && h >= w * 8))) return 'This image is a thin line or rule.'
   if (has(RULE) && (h <= 24 || w <= 24)) return 'The file name looks like a rule or line.'
   if (w > 0 && h > 0 && w <= 32 && h <= 32) return 'This image is tiny, so it is probably decorative.'
+  const side = Math.max(w, h)
+  const inSet = page?.figures?.some((o) => o.caption?.trim() && Math.max(o.width, o.height) <= side * 2 && Math.max(o.width, o.height) >= side / 2)
+  if (page && !inSet && w > 0 && h > 0 && side <= page.width * ORNAMENT_MAX) return 'This picture is small and has no caption, so it is probably an ornament.'
   return undefined
 }
+
+/** Tiny images, ornaments, rules, and backgrounds are suggested as decorative. The reviewer can untick that. */
+export const decorativeReason = (img: { name: string; width: number; height: number }): string | undefined => isDecorative(img)
 
 function findAscii(bytes: Uint8Array, needle: string): number {
   const n = new TextEncoder().encode(needle)

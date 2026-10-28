@@ -14,7 +14,7 @@ import { pdfBookCss, type PdfTypography } from './css.ts'
 import { bodyAlignment, fontFamilyOf, lineAlignment } from './align.ts'
 import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents.ts'
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
-import { resolveAlt, matchSpecPicture, readImageMetadata, decorativeReason, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
+import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 import { linkIndexLocators } from '../pdfua/indexlinks.ts'
 import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
@@ -128,7 +128,8 @@ const plain = (segs: Seg[]) => segs.filter((s) => !s.raw).map((s) => s.t).join('
  * Picture description for one PDF image, in the same order as the InDesign flow:
  * typed text, then a spec-workbook row, then text stored in the image file, then a decorative rule.
  * A blank typed value is "not typed" (clearing the box restores the layers). A caption is never
- * the description. Width and height are the picture's size on the page, in PDF points.
+ * the description. Width and height are the picture's size on the page, in PDF points. The decorative rule is the one
+ * PDF/UA uses (SPEC-PFG-01), with the same ornaments setting.
  */
 export function pdfPictureAlt(o: {
   name: string
@@ -138,6 +139,10 @@ export function pdfPictureAlt(o: {
   width: number
   height: number
   caption?: string
+  /** the page the picture is printed on and the pictures on it, for the size-relative ornament test */
+  page?: { width: number; figures?: { width: number; height: number; caption?: string }[] }
+  /** text is drawn inside the picture (a label), so it is not decoration */
+  text?: boolean
   /** vision-model draft; `approved` sticks only while this exact draft is the one in use */
   ai?: { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean } | null
 }): AltChoice {
@@ -146,7 +151,7 @@ export function pdfPictureAlt(o: {
     typed: o.typed?.trim() ? { alt: o.typed } : null,
     spec: matchSpecPicture(o.name, o.pictures ?? []) ?? null,
     file: meta?.alt ? { alt: meta.alt, longDesc: meta.longDesc } : null,
-    decorative: !!decorativeReason({ name: o.name, width: Math.abs(Math.round(o.width)), height: Math.abs(Math.round(o.height)) }),
+    decorative: settings().uaOrnaments !== 'figure' && !!isDecorative({ name: o.name, width: Math.abs(o.width), height: Math.abs(o.height), caption: o.caption, text: o.text }, o.page),
     ai: o.ai && (o.ai.alt?.trim() || o.ai.decorative) ? { alt: o.ai.alt ?? '', longDesc: o.ai.longDesc, decorative: o.ai.decorative } : null,
     caption: o.caption,
   })
@@ -513,6 +518,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       else if (cur) cur.blocks.push({ kind: 'raw', html: m })
       else pending = m
     }
+    const onPage = pics.map((im) => ({ width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capOf.get(im)?.lines.map((l) => l.text).join(' ') }))
     pics.forEach((im, k) => {
       const name = `images/pg-${printNo(page.index)}${pics.length > 1 ? `-${k + 1}` : ''}.jpg`
       images.push({ path: name, data: im.jpeg! })
@@ -535,6 +541,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const capText = g ? plain(capSegs) : ''
       const choice = pdfPictureAlt({
         name, typed: input.alt?.[name], pictures: input.pictures, ai: input.ai?.[name], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, caption: capText,
+        page: { width: page.width, figures: onPage }, text: page.lines.some((l) => !capLines.has(l) && Math.min(l.x1, im.x1 + 2) - Math.max(l.x0, im.x0 - 2) >= (l.x1 - l.x0) * 0.5 && l.y >= im.y0 - 2 && l.y + l.size <= im.y1 + 2),
       })
       pictures.push({ path: name, alt: choice.alt, caption: capText, decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(name, choice, '', meta.language)
@@ -783,7 +790,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const path = `images/pg-${printNo(idx)}.jpg`
       images.push({ path, data: im.jpeg! })
       const choice = pdfPictureAlt({
-        name: path, typed: input.alt?.[path], pictures: input.pictures, ai: input.ai?.[path], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0,
+        name: path, typed: input.alt?.[path], pictures: input.pictures, ai: input.ai?.[path], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, page: p,
       })
       pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
       const { img, extra } = pdfImgHtml(path, choice, 'cv', meta.language)

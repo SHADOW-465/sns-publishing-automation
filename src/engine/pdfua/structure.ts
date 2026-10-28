@@ -1,5 +1,6 @@
 import { type PdfBook, type PLine, columnStarts, columnOf, titleCase } from '../pdfepub/analyze.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
+import { isDecorative } from '../epub/alt.ts'
 import { detectTables } from '../pdf/tables.ts'
 import { LIST_MARK } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
@@ -109,9 +110,6 @@ export function inferUaStyles(book: PdfBook): UaStyle[] {
 }
 
 // ---------------------------------------------------------------------------------------------
-
-/** An uncaptioned picture is an ornament when its longer side is at most this share of the page width. */
-export const ORNAMENT_MAX = 0.3
 
 /** The number a caption names ("Figura 1.5. Caption" → "1.5"), the same way a list of illustrations prints it. */
 export const figureLabel = (caption: string): string | undefined =>
@@ -489,8 +487,6 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const k = capOf.get(f)
       f.caption = k ? k.lines.map((l) => l.text.trim()).join(' ') : ''
       const nodes = [n]
-      // a picture with no caption and nothing written in it is an ornament (a chapter break, a divider, a dingbat)
-      f.ornament = !k && !f.logo && !f.lines.length && Math.max(f.box.x1 - f.box.x0, f.box.y1 - f.box.y0) <= page.width * ORNAMENT_MAX
       if (k) {
         const c = mk('Caption') // its own element right after the figure (PFG-003); a client can nest it in the Figure
         for (const l of k.lines) own(l, c)
@@ -500,6 +496,9 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
       figNodes.push({ f, nodes })
     }
+    // a picture with no caption and nothing written in it is an ornament (a chapter break, a divider, a dingbat): the rule the EPUB uses too
+    const onPage = figs.map((f) => ({ width: f.box.x1 - f.box.x0, height: f.box.y1 - f.box.y0, caption: f.caption, text: f.lines.length > 0, logo: f.logo }))
+    figs.forEach((f, i) => (f.ornament = !!isDecorative(onPage[i], { width: page.width, figures: onPage })))
     // reading order of the pairs: XY-cut, columns before rows (a grid of plates is read down its left column first, as the production team does)
     type Cell = { item: (typeof figNodes)[number]; x0: number; x1: number; top: number; bottom: number }
     const cells: Cell[] = figNodes.map((item) => {
