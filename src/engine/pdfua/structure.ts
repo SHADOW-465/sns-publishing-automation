@@ -308,6 +308,18 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let inIndex = false
   let indexLevel = 6
   let tocLevel = 1
+  let tocLast = -1 // the last page of the contents (or list of illustrations): its heading's page and the pages of rows right after it
+  // a page of contents rows: a quarter of its rows (at least two) end in a page number
+  const rowsPage = (lines: PLine[]) => {
+    const rows: PLine[][] = []
+    for (const l of [...lines].sort((a, b) => a.base - b.base)) {
+      const row = rows[rows.length - 1]
+      if (row && l.base - row[0].base < 2) row.push(l)
+      else rows.push([l])
+    }
+    const ends = rows.filter((r) => endsTocEntry(r.reduce((a, b) => (b.x1 > a.x1 ? b : a)))).length
+    return ends >= 2 && ends >= rows.length / 4
+  }
   const tocEntries: SNode[] = []
 
   const own = (l: PLine, n: SNode) => {
@@ -325,6 +337,15 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
 
   for (const page of book.pages) {
     tick?.()
+    // the contents ends on the first page past its own pages, heading or not (R2.1): the body text under it is not contents rows
+    if ((inToc || inFigList) && page.index > tocLast) {
+      closePara()
+      closeList()
+      flushToc()
+      inToc = inFigList = false
+      figList = null
+      container = sect
+    }
     const figs = figuresByPage.get(page.index) ?? []
     const squareBeside = (l: PLine) => page.images.some((im) => {
       const w = im.x1 - im.x0
@@ -603,7 +624,12 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       // inside the notes, a line of capitals that is followed by a numbered note is the name of a chapter: a heading one level down (PHD-006)
       const noteHead = inNotes && r === 'P' && text.length >= 8 && text === text.toUpperCase() && /\p{Lu}{3}/u.test(text) && !/^\d/.test(text) && /\s/.test(text) && l.size >= book.bodySize * 0.95 && ((!!ordered[i + 1] && ordered[i + 1].key === l.key && ordered[i + 1].text.trim() === ordered[i + 1].text.trim().toUpperCase() && ordered[i + 1].y - l.y < l.size * 2.2) || /^\d{1,3}[.)]/.test((ordered[i + 1]?.text ?? '').trim()) || (!!ordered[i + 1] && labelOf.has(ordered[i + 1])))
       const lvl = noteHead ? Math.min(6, notesLevel + 1) : /^H\d$/.test(r) ? Math.min(6, Number(r[1]) + (hasTitle && !front.has(l.page) ? chapterLevel - 1 : 0)) : 0
-      if (lvl && !(inToc && lvl > tocLevel)) {
+      // in the contents, a heading-styled line deeper than the contents heading is an entry, unless it is a chapter heading with no page number on its row
+      // or the row under it (R2.1)
+      const rowEnds = (x: PLine) => lines.some((y) => Math.abs(y.base - x.base) < 2 && endsTocEntry(y))
+      const under = lines.find((y) => y !== l && y.key === l.key && y.y > l.y && y.y - l.y < l.size * 2.2)
+      const tocEntry = inToc && lvl > tocLevel && (lvl > chapterLevel || rowEnds(l) || (!!under && rowEnds(under)))
+      if (lvl && !tocEntry) {
         closePara()
         closeList()
         let level = lvl
@@ -648,6 +674,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         }
         inToc = sectionTypeOf(titleCase(text)) === 'toc'
         inFigList = isFigListHeading(text)
+        if (inToc || inFigList) for (tocLast = l.page; tocLast + 1 < book.pages.length && rowsPage(book.pages[tocLast + 1].lines); ) tocLast++
         figList = null
         if (sectionTypeOf(titleCase(text)) === 'notes') (inNotes = true), (notesLevel = level), (lastNote = 0)
         else if (inNotes && level <= notesLevel) inNotes = false

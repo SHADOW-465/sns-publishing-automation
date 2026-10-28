@@ -1,0 +1,610 @@
+{
+  "label": "t3-after",
+  "at": "2026-10-28T01:59:25.822Z",
+  "results": {
+    "Cambia tu mente (InDesign → Accessible EPUB, Arkano Books)": {
+      "overall": 97.5,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 99.9,
+          "diffs": []
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 99.9,
+          "diffs": [
+            "2 reference paragraphs are missing or reworded in the build, for example “cualquier forma de reproducción distribución comunicación pú…”.",
+            "2 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “cualquier forma de reproducción distribución comunicación pú…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 89.2,
+          "diffs": [
+            "40 paragraphs: the reference class → the build class: extract → extract1.",
+            "38 paragraphs: the reference class → the build class: Ladillo-3 → Ladillo-1_1.",
+            "30 paragraphs: the reference class → the build class: No-Table-Style → No-Table-Style3.",
+            "12 paragraphs: the reference class → the build class: num1 → Ladillo-1_1.",
+            "11 paragraphs: the reference class → the build class: Antetitulo_SUPER → toc_1a.",
+            "10 paragraphs: the reference class → the build class: No-Table-Style1 → No-Table-Style2.",
+            "…and 21 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 98.9,
+          "diffs": [
+            "1 italic run in the build is not italic in the reference, for example “fracaso”.",
+            "5 bold runs of the reference are not bold in the build, for example “qué necesitas”."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 76.9,
+          "diffs": [
+            "Package metadata differs: title “Cambia tu mente. Desprograma tu mente subconscient…” (build: “Cambia tu mente”).",
+            "9 accessibility statements of the reference are missing in the build (for example a11y:certifiedBy=gaia ediciones).",
+            "5 accessibility statements in the build are not in the reference (for example pageBreakSource=urn isbn 9791388228025)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 71.6,
+          "diffs": [
+            ".title: text-indent is 0em in the reference and not set in the build.",
+            ".title-3: font-weight is normal in the reference and not set in the build.",
+            ".title_1: text-indent is 0em in the reference and not set in the build.",
+            ".title-4: font-weight is normal in the reference and not set in the build.",
+            ".title-2: font-weight is normal in the reference and not set in the build.",
+            ".noindent: font-size is 100% in the reference and not set in the build.",
+            ".toc_1: font-size is 100% in the reference and not set in the build.",
+            ".toc_2: font-size is 85% in the reference and not set in the build.",
+            "…and 52 more"
+          ]
+        }
+      ]
+    },
+    "Contemporary Ceramics (print PDF → Standard EPUB, Crowood)": {
+      "overall": 89.4,
+      "dims": [
+        {
+          "id": "sections",
+          "label": "Sections and their text",
+          "weight": 10,
+          "score": 100,
+          "diffs": [
+            "The build has 1 more content file than the reference (34 against 33)."
+          ]
+        },
+        {
+          "id": "headings",
+          "label": "Headings",
+          "weight": 15,
+          "score": 99.1,
+          "diffs": [
+            "“19 SUSTAINABILITY” is a heading in the reference but plain text in the build.",
+            "“20 CERAMICS COMMUNITY” is a heading in the reference but plain text in the build.",
+            "3 headings in the build are not headings in the reference, for example “CONTENTS”."
+          ]
+        },
+        {
+          "id": "paragraphs",
+          "label": "Paragraphs and breaks",
+          "weight": 20,
+          "score": 84,
+          "diffs": [
+            "56 reference paragraphs are joined into a longer paragraph in the build (paragraphs merged).",
+            "52 reference paragraphs are cut into pieces in the build (paragraphs split).",
+            "66 reference paragraphs are missing or reworded in the build, for example “while it s a pleasure to admire a beautifully photographed f…”.",
+            "179 paragraphs of the build are not in the reference (leaked running heads, page numbers or extra text), for example “in high school ceramics was my favourite and we normally got…”."
+          ]
+        },
+        {
+          "id": "classes",
+          "label": "Paragraph classes (roles)",
+          "weight": 5,
+          "score": 92.7,
+          "diffs": [
+            "20 paragraphs: the reference class → the build class: ch-head1 → TOC-2.",
+            "13 paragraphs: the reference class → the build class: noindent → hang.",
+            "8 paragraphs: the reference class → the build class: extractint → indent.",
+            "8 paragraphs: the reference class → the build class: extract1 → extractt.",
+            "5 paragraphs: the reference class → the build class: noindent-t → noindent.",
+            "4 paragraphs: the reference class → the build class: box-subhead1 → subhead.",
+            "…and 22 more"
+          ]
+        },
+        {
+          "id": "emphasis",
+          "label": "Italics and bold",
+          "weight": 10,
+          "score": 93.9,
+          "diffs": [
+            "16 italic runs of the reference are not italic in the build, for example “losíng venus” (italics lost).",
+            "16 italic runs in the build are not italic in the reference, for example “losing venus”.",
+            "7 bold runs of the reference are not bold in the build, for example “community ceramics studio case study urban”.",
+            "13 bold runs in the build are not bold in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes",
+          "weight": 10,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "contents",
+          "label": "Contents (menu and contents page)",
+          "weight": 10,
+          "score": 95.3,
+          "diffs": [
+            "The contents entry “title” of the reference is missing or worded differently in the build."
+          ]
+        },
+        {
+          "id": "index",
+          "label": "Index and its page-number links",
+          "weight": 4,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "pictures",
+          "label": "Pictures, captions and placement",
+          "weight": 8,
+          "score": 66.1,
+          "diffs": [
+            "The build has 288 pictures; the reference has 285.",
+            "173 pictures are not after the same paragraph as in the reference (picture placement).",
+            "Picture descriptions: reference 0 real, 284 generic word, 1 empty; build 3 real, 282 generic word, 3 empty."
+          ]
+        },
+        {
+          "id": "pages",
+          "label": "Printed page numbers",
+          "weight": 5,
+          "score": 90,
+          "diffs": [
+            "The reference has a page list in the menu; the build has none."
+          ]
+        },
+        {
+          "id": "metadata",
+          "label": "Package metadata",
+          "weight": 4,
+          "score": 75,
+          "diffs": [
+            "Package metadata differs: title “Contemporary Ceramics: Twenty Key Themes” (build: “Contemporary Ceramics”).",
+            "Package metadata differs: language en (build: en-GB)."
+          ]
+        },
+        {
+          "id": "css",
+          "label": "Stylesheet roles (alignment, size, face)",
+          "weight": 3,
+          "score": 67.5,
+          "diffs": [
+            ".TOC-5: text-align is left in the reference and not set in the build.",
+            ".TOC-5: font-size is 110% in the reference and not set in the build.",
+            ".TOC-5: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-5: font-family is sans-serif in the reference and not set in the build.",
+            ".TOC-4: text-align is left in the reference and not set in the build.",
+            ".TOC-4: font-size is 110% in the reference and not set in the build.",
+            ".TOC-4: margin-left is 1.5em in the reference and not set in the build.",
+            ".TOC-4: font-family is sans-serif in the reference and not set in the build.",
+            "…and 47 more"
+          ]
+        }
+      ]
+    },
+    "gladiators": {
+      "overall": 74.4,
+      "dims": [
+        {
+          "id": "document",
+          "label": "Document settings (language, title, PDF/UA mark)",
+          "weight": 10,
+          "score": 87.5,
+          "diffs": [
+            "Document title is “Gladiators in the Greek World: How A Roman Blood Sport Took …” in the build and “Gladiators in the Greek World: How A Roman Bloodsport Took A…” in the reference."
+          ]
+        },
+        {
+          "id": "bookmarks",
+          "label": "Bookmarks",
+          "weight": 20,
+          "score": 98.1,
+          "diffs": [
+            "The bookmark “title” of the reference is not in the build.",
+            "1 bookmark in the build are not in the reference, for example “gladiators in the greek world”."
+          ]
+        },
+        {
+          "id": "headings",
+          "label": "Headings by level",
+          "weight": 20,
+          "score": 98.1,
+          "diffs": [
+            "H2: 63 in the build, 60 in the reference.",
+            "H3: 13 in the build, 14 in the reference."
+          ]
+        },
+        {
+          "id": "lists",
+          "label": "Lists",
+          "weight": 10,
+          "score": 36.5,
+          "diffs": [
+            "16 lists in the build, 10 in the reference.",
+            "551 list items in the build, 58 in the reference.",
+            "1 list item parts have no label or body tag."
+          ]
+        },
+        {
+          "id": "tables",
+          "label": "Tables",
+          "weight": 5,
+          "score": 0,
+          "diffs": [
+            "0 tables in the build, 1 in the reference.",
+            "0 header cells in the build, 61 in the reference."
+          ]
+        },
+        {
+          "id": "figures",
+          "label": "Figures and their descriptions",
+          "weight": 15,
+          "score": 65.2,
+          "diffs": [
+            "30 figures in the build, 33 in the reference.",
+            "2 figures have no description in the build."
+          ]
+        },
+        {
+          "id": "links",
+          "label": "Links",
+          "weight": 10,
+          "score": 48.5,
+          "diffs": [
+            "13 web or e-mail links in the build, 19 in the reference.",
+            "1018 links inside the document in the build, 29 in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes and contents entries",
+          "weight": 8,
+          "score": 68.1,
+          "diffs": [
+            "1031 note references in the build, 44 in the reference."
+          ]
+        },
+        {
+          "id": "untagged",
+          "label": "Everything on the page is tagged or marked as decoration",
+          "weight": 2,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 77.8,
+          "diffs": [
+            "Page 1 reads 0% in the reference’s order.",
+            "Page 13 reads 0% in the reference’s order.",
+            "Page 14 reads 0% in the reference’s order.",
+            "Page 15 reads 0% in the reference’s order.",
+            "Page 315 reads 0.3% in the reference’s order.",
+            "Page 94 reads 0.6% in the reference’s order.",
+            "…and 2 more"
+          ]
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 72.7,
+          "diffs": [
+            "Caption: F1 0 (24 in the build, 0 in the reference, 0 with the same text).",
+            "H1: F1 0.97 (32 in the build, 32 in the reference, 31 with the same text).",
+            "H2: F1 0.98 (63 in the build, 60 in the reference, 60 with the same text).",
+            "H3: F1 0.96 (13 in the build, 14 in the reference, 13 with the same text)."
+          ]
+        }
+      ]
+    },
+    "gladiators-eval": {
+      "overall": 75.6,
+      "dims": [
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 75.6,
+          "diffs": [
+            "Page 1 reads 0% in the reference’s order.",
+            "Page 13 reads 0% in the reference’s order.",
+            "Page 15 reads 0% in the reference’s order.",
+            "Page 330 reads 9.7% in the reference’s order.",
+            "Page 138 reads 26.7% in the reference’s order.",
+            "Page 65 reads 57.3% in the reference’s order.",
+            "…and 5 more pages read differently.",
+            "1 page with tagged text in the build have none in the reference and are not scored."
+          ]
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 63.6,
+          "diffs": [
+            "Caption: F1 0 (9 in the build, 0 in the reference, 0 with the same text).",
+            "H1: F1 0.91 (11 in the build, 11 in the reference, 10 with the same text).",
+            "H2: F1 1 (1 in the build, 1 in the reference, 1 with the same text)."
+          ]
+        }
+      ]
+    },
+    "gladiators-self": {
+      "overall": 100,
+      "dims": [
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 100,
+          "diffs": [
+            "H1: F1 1 (32 in the build, 32 in the reference, 32 with the same text).",
+            "H2: F1 1 (60 in the build, 60 in the reference, 60 with the same text).",
+            "H3: F1 1 (14 in the build, 14 in the reference, 14 with the same text)."
+          ]
+        }
+      ]
+    },
+    "evers": {
+      "overall": 78.7,
+      "dims": [
+        {
+          "id": "document",
+          "label": "Document settings (language, title, PDF/UA mark)",
+          "weight": 10,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "bookmarks",
+          "label": "Bookmarks",
+          "weight": 20,
+          "score": 61.2,
+          "diffs": [
+            "The bookmark “viii generative künstliche intelligenz als neue entwicklungs…” of the reference is not in the build.",
+            "The bookmark “i einleitung” of the reference is not in the build.",
+            "The bookmark “ii sucht und gesellschaft” of the reference is not in the build.",
+            "The bookmark “1 perspektiven auf den suchtbegriff” of the reference is not in the build.",
+            "…55 more reference bookmarks are missing.",
+            "51 bookmarks in the build are not in the reference, for example “viii generative künstliche intelligenz als neue entwicklungs…”.",
+            "…and 1 more"
+          ]
+        },
+        {
+          "id": "headings",
+          "label": "Headings by level",
+          "weight": 20,
+          "score": 68.2,
+          "diffs": [
+            "H1: 13 in the build, 1 in the reference.",
+            "H2: 28 in the build, 23 in the reference.",
+            "H3: 36 in the build, 44 in the reference.",
+            "H4: 39 in the build, 30 in the reference.",
+            "H5: 0 in the build, 50 in the reference."
+          ]
+        },
+        {
+          "id": "lists",
+          "label": "Lists",
+          "weight": 10,
+          "score": 54.7,
+          "diffs": [
+            "13 lists in the build, 25 in the reference.",
+            "82 list items in the build, 143 in the reference.",
+            "1 list item parts have no label or body tag."
+          ]
+        },
+        {
+          "id": "tables",
+          "label": "Tables",
+          "weight": 5,
+          "score": null,
+          "diffs": []
+        },
+        {
+          "id": "figures",
+          "label": "Figures and their descriptions",
+          "weight": 15,
+          "score": 82.7,
+          "diffs": []
+        },
+        {
+          "id": "links",
+          "label": "Links",
+          "weight": 10,
+          "score": 80.8,
+          "diffs": [
+            "36 web or e-mail links in the build, 46 in the reference.",
+            "59 links inside the document in the build, 80 in the reference."
+          ]
+        },
+        {
+          "id": "notes",
+          "label": "Notes and contents entries",
+          "weight": 8,
+          "score": 85.3,
+          "diffs": [
+            "95 note references in the build, 125 in the reference.",
+            "52 contents entries in the build, 65 in the reference."
+          ]
+        },
+        {
+          "id": "untagged",
+          "label": "Everything on the page is tagged or marked as decoration",
+          "weight": 2,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 99.2,
+          "diffs": [
+            "Page 189 reads 70.4% in the reference’s order.",
+            "Page 159 reads 71.6% in the reference’s order.",
+            "Page 76 reads 83.6% in the reference’s order.",
+            "Page 75 reads 84.4% in the reference’s order.",
+            "Page 31 reads 88.9% in the reference’s order.",
+            "Page 30 reads 92.2% in the reference’s order.",
+            "…and 1 more"
+          ]
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 6.3,
+          "diffs": [
+            "Caption: F1 0 (13 in the build, 0 in the reference, 0 with the same text).",
+            "H1: F1 0.14 (13 in the build, 1 in the reference, 1 with the same text).",
+            "H2: F1 0.04 (28 in the build, 23 in the reference, 1 with the same text).",
+            "H3: F1 0.05 (36 in the build, 44 in the reference, 2 with the same text).",
+            "H4: F1 0.14 (39 in the build, 30 in the reference, 5 with the same text).",
+            "H5: F1 0 (0 in the build, 50 in the reference, 0 with the same text)."
+          ]
+        }
+      ]
+    },
+    "evers-eval": {
+      "overall": 92.3,
+      "dims": [
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 92.3,
+          "diffs": [
+            "Page 189 reads 70.4% in the reference’s order.",
+            "Page 159 reads 71.6% in the reference’s order.",
+            "Page 76 reads 83.6% in the reference’s order.",
+            "Page 75 reads 84.4% in the reference’s order.",
+            "Page 70 reads 94.5% in the reference’s order.",
+            "Page 158 reads 94.9% in the reference’s order.",
+            "…and 7 more pages read differently."
+          ]
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 0,
+          "diffs": [
+            "Caption: F1 0 (10 in the build, 0 in the reference, 0 with the same text).",
+            "H1: F1 0 (3 in the build, 0 in the reference, 0 with the same text).",
+            "H2: F1 0 (2 in the build, 3 in the reference, 0 with the same text).",
+            "H3: F1 0 (1 in the build, 2 in the reference, 0 with the same text).",
+            "H4: F1 0 (1 in the build, 1 in the reference, 0 with the same text).",
+            "H5: F1 0 (0 in the build, 2 in the reference, 0 with the same text)."
+          ]
+        }
+      ]
+    },
+    "evers-self": {
+      "overall": 100,
+      "dims": [
+        {
+          "id": "order",
+          "label": "Reading order (tagged text page by page)",
+          "weight": 20,
+          "score": 100,
+          "diffs": []
+        },
+        {
+          "id": "roles",
+          "label": "Captions and headings with the reference’s text (F1, report only)",
+          "weight": 0,
+          "score": 100,
+          "diffs": [
+            "H1: F1 1 (1 in the build, 1 in the reference, 1 with the same text).",
+            "H2: F1 1 (23 in the build, 23 in the reference, 23 with the same text).",
+            "H3: F1 1 (44 in the build, 44 in the reference, 44 with the same text).",
+            "H4: F1 1 (30 in the build, 30 in the reference, 30 with the same text).",
+            "H5: F1 1 (50 in the build, 50 in the reference, 50 with the same text)."
+          ]
+        }
+      ]
+    }
+  }
+}
