@@ -46,8 +46,8 @@ const runsOf = <T>(xs: T[], n: (x: T) => number): T[][] => {
   return out
 }
 
-export function endnotePairs(st: Structure, book: PdfBook, skip: Set<PLine> = new Set()): NotePair[] {
-  const order = readOrder(st.root)
+/** The notes sections and their numbered entries, in reading order. */
+function noteSections(st: Structure, order: Map<PLine, number>): { start: number; entries: NoteEntry[] }[] {
   const at = (n: SNode) => Math.min(...n.lines.map((l) => order.get(l) ?? Infinity))
   // notes sections: the entries read after a "Notes" heading, up to the next heading of the same or a higher level
   const sections: { start: number; entries: NoteEntry[] }[] = []
@@ -79,7 +79,12 @@ export function endnotePairs(st: Structure, book: PdfBook, skip: Set<PLine> = ne
     }
     if (entry) open.entries.push(entry)
   }
-  const used = sections.filter((s) => s.entries.length)
+  return sections.filter((s) => s.entries.length)
+}
+
+export function endnotePairs(st: Structure, book: PdfBook, skip: Set<PLine> = new Set()): NotePair[] {
+  const order = readOrder(st.root)
+  const used = noteSections(st, order)
   if (!used.length) return []
 
   // calls: small bare numbers in the text, before the section that lists them
@@ -111,4 +116,13 @@ export function endnotePairs(st: Structure, book: PdfBook, skip: Set<PLine> = ne
     })
   })
   return pairs
+}
+
+/** End notes no call in the text points to, by page (0-based): a failed PNT-001 check, which the checker page flag reads (pdf/flags.ts). */
+export function unlinkedNotes(st: Structure, book: PdfBook): Map<number, string[]> {
+  const paired = new Set(endnotePairs(st, book).map((p) => p.entry.line))
+  const out = new Map<number, string[]>()
+  for (const e of noteSections(st, readOrder(st.root)).flatMap((s) => s.entries))
+    if (!paired.has(e.line)) out.set(e.line.page, [...(out.get(e.line.page) ?? []), `PNT-001: note ${e.n} has no call in the text to link from`])
+  return out
 }

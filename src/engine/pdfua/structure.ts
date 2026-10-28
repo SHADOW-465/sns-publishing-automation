@@ -159,6 +159,8 @@ export interface Structure {
   hidden: Figure[]
   /** contents runs "A • B • C" cut into one TOCI per topic */
   splits: TocSplit[]
+  /** why the order of a page (0-based) may be wrong: it was read row by row, held lines were released, a stray was placed (order-risk, pdf/flags.ts) */
+  risk: Map<number, string[]>
 }
 
 export interface UaOptions {
@@ -218,6 +220,10 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   const owner = new Map<PLine, SNode>()
   const headings: SNode[] = []
   const figures: Figure[] = []
+  const risk = new Map<number, string[]>()
+  const risky = (page: number, why: string) => {
+    if (!risk.get(page)?.includes(why)) risk.set(page, [...(risk.get(page) ?? []), why])
+  }
   // a role decided for one block of lines, over the role of its style (T10)
   const blockRole = new Map<PLine, UaRole>()
   const roleOf = (l: PLine): UaRole => blockRole.get(l) ?? roles.get(l.key) ?? 'P'
@@ -302,6 +308,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   }
   const flushEdition = (into: SNode) => {
     for (const e of editionHold) {
+      risky(e.page, 'title-page lines held and read after the title')
       const p = mk('P')
       own(e, p)
       into.kids.push(p)
@@ -317,7 +324,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
   let figList: SNode | null = null
   let tocAfter: { sect: SNode; nodes: SNode[]; page: number } | null = null
   const flushToc = () => {
-    if (tocAfter) tocAfter.sect.kids.push(...tocAfter.nodes)
+    if (tocAfter) (tocAfter.sect.kids.push(...tocAfter.nodes), risky(tocAfter.page, 'a picture on a contents page held and read after the contents'))
     tocAfter = null
   }
   let inIndex = false
@@ -567,7 +574,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const figNo = (l: PLine) => FIG_NO.test(l.text.trim()) && l.x0 < page.width * 0.4
     const listPage = (inFigList || lines.some((l) => /^H\d$/.test(roleOf(l)) && isFigListHeading(l.text.trim()))) && lines.filter(figNo).length >= 3
     const tocPage = inToc || listPage || lines.some((l) => /^H\d$/.test(roleOf(l)) && sectionTypeOf(titleCase(l.text.trim())) === 'toc')
-    if (tocPage) ordered.push(...rowOrder(lines))
+    if (tocPage) (ordered.push(...rowOrder(lines)), risky(page.index, listPage ? 'list of illustrations read row by row' : 'contents read row by row'))
     // pictures with their captions are read where they stand: a picture across the columns splits them like a full-width line,
     // any other picture goes before the first line below its top that sits over it
     const wide = (c: Cell) => starts.filter((s) => s > c.x0 - 20 && s < c.x1 - 20).length >= 2
@@ -688,6 +695,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         lastLevel = level
         let opened = false
         if (kicker) {
+          risky(l.page, 'a kicker moved into the section of the title under it')
           last!.tag = `H${level}`
           const at = sect.kids.indexOf(last!)
           if (at >= 0) sect.kids.splice(at, 1)
@@ -701,7 +709,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         }
         const h = mk(`H${level}`)
         levelBefore.set(h, before)
-        for (const p of pendingPrefix) own(p, h)
+        for (const p of pendingPrefix) own(p, h), risky(p.page, 'a chapter number held and read with its title')
         own(l, h)
         h.text = [...pendingPrefix.map((p) => p.text.trim()), text].join(' ')
         pendingPrefix = []
@@ -925,6 +933,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
         // nothing tagged on its page: read next to the nearest tagged line on the pages around it (R2.3), not at the end of the book
         const p = mk('P')
         own(l, p)
+        risky(page.index, 'a stray line read beside a line on another page')
         const parent = new Map<SNode, SNode>()
         const order = new Map<SNode, number>()
         const walk = (n: SNode) => (order.set(n, order.size), n.kids.forEach((k) => (parent.set(k, n), walk(k))))
@@ -941,7 +950,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
     }
   // empty sections/containers are dropped by the writer
-  const st: Structure = { root, owner, figures, headings, nodes, tocEntries, hidden: [], splits: [] }
+  const st: Structure = { root, owner, figures, headings, nodes, tocEntries, hidden: [], splits: [], risk }
   st.splits = splitBulletEntries(st)
   return st
 }

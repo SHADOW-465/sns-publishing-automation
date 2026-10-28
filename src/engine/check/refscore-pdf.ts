@@ -11,7 +11,7 @@ const more = (xs: string[], n = 6) => (xs.length > n ? [...xs.slice(0, n), `…a
 const clip = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
 /** longest common subsequence of two word lists (two rows, so a long page stays cheap) */
-function lcs(a: string[], b: string[]): number {
+export function lcs(a: string[], b: string[]): number {
   let prev = new Uint32Array(b.length + 1)
   let cur = new Uint32Array(b.length + 1)
   for (const x of a) {

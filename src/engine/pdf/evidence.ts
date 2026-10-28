@@ -5,6 +5,7 @@
 import { rowOrder, isBoldFont, isItalicFont, type Line } from './layout.ts'
 import { clusterDrawings, type DrawBox } from './drawings.ts'
 import { columnStarts, columnOf } from '../pdfepub/analyze.ts'
+import { lcs } from '../check/refscore-pdf.ts'
 
 export type BBox = [number, number, number, number]
 
@@ -24,6 +25,9 @@ export interface EvidenceBlock {
   /** a figure's pieces, top then left */
   pieces?: string[]
   caption?: null
+  /** the role the engine gave the first of the block's lines it read, and the role of that line's style (withEngine) */
+  role?: string
+  styleRole?: string
 }
 
 export interface PageEvidence {
@@ -36,6 +40,8 @@ export interface PageEvidence {
   blocks: EvidenceBlock[]
   /** the blocks in the order an engine read them, when it says */
   engineOrder?: string[]
+  /** how far engineOrder agrees with the page's own order, 0-1 (orderConfidence) */
+  engineConfidence?: number
   prevPageTail?: { id: string; text: string; endsSentence: boolean }
   nextPageHead?: { id: string; text: string }
 }
@@ -50,8 +56,8 @@ export interface EvidencePage {
   sideways?: DrawBox[]
 }
 
-/** Something an engine read: a line, or a picture's box (top-down points). */
-export type Ordered = { x0: number; x1: number; y: number; size: number; text: string } | DrawBox
+/** Something an engine read: a line, or a picture's box (top-down points), with the role it gave it and the role of its style. */
+export type Ordered = ({ x0: number; x1: number; y: number; size: number; text: string } | DrawBox) & { role?: string; styleRole?: string }
 
 const r1 = (n: number) => Math.round(n * 10) / 10
 const wordsOf = (s: string) => s.trim().split(/\s+/).filter(Boolean)
@@ -121,21 +127,68 @@ export function pageEvidence(p: EvidencePage, o: { page: number; printed?: strin
   const starts = columnStarts(p.lines)
   const columns = starts.map((s): [number, number] => [r1(s), r1(Math.max(s, ...p.lines.filter((l) => columnOf(starts, l.x0) === s).map((l) => l.x1)))])
   const ev: PageEvidence = { page: o.page, printed: o.printed ?? String(o.page), w: r1(p.width), h: r1(p.height), columns, blocks }
-  if (o.order) {
-    // a line is found by where it starts (engines copy lines); a picture by the figure its centre falls in
-    const inside = (b: EvidenceBlock, x: number, y: number) => x >= b.bbox[0] && x <= b.bbox[2] && y >= b.bbox[1] && y <= b.bbox[3]
-    const order: string[] = []
-    for (const it of o.order) {
-      let at: string | undefined
-      if ('text' in it) {
-        const hit = lines.find((l) => Math.abs(l.x0 - it.x0) < 0.5 && Math.abs(l.y - it.y) < 0.5 && l.text === it.text)
-        at = hit ? text.find((b) => b.lineIds!.includes(lineId.get(hit)!))!.id : text.find((b) => inside(b, (it.x0 + it.x1) / 2, it.y + it.size / 2))?.id
-      } else at = figures.find((b) => inside(b, (it.x0 + it.x1) / 2, (it.y0 + it.y1) / 2))?.id
-      if (at && !order.includes(at)) order.push(at)
-    }
-    ev.engineOrder = order
+  return o.order ? withEngine(ev, o.order) : ev
+}
+
+/** An engine's reading laid on a page's blocks: the blocks in the order it read them (engineOrder), the role it gave each and the
+ *  role of its style (those of the first of its lines it read) and how far that order agrees with the page's own (engineConfidence).
+ *  A line is found by its middle, a picture by its centre; where boxes overlap, the smallest holds it. The blocks and their IDs do
+ *  not change. A picture the engine read that the layout does not show (pdf.js drops images it cannot decode, JBIG2 in Node) is
+ *  added after the layout's figures, top then left. */
+export function withEngine(ev: PageEvidence, order: Ordered[]): PageEvidence {
+  const blocks = ev.blocks.map((b) => ({ ...b }))
+  const area = (b: EvidenceBlock) => (b.bbox[2] - b.bbox[0]) * (b.bbox[3] - b.bbox[1])
+  const at = (kind: EvidenceBlock['kind'], x: number, y: number) =>
+    blocks.filter((b) => b.kind === kind && x >= b.bbox[0] - 0.5 && x <= b.bbox[2] + 0.5 && y >= b.bbox[1] - 0.5 && y <= b.bbox[3] + 0.5).sort((a, b) => area(a) - area(b))[0]
+  const centre = (it: Ordered) => ('text' in it ? [(it.x0 + it.x1) / 2, it.y + it.size / 2] : [(it.x0 + it.x1) / 2, (it.y0 + it.y1) / 2]) as [number, number]
+  const unseen = order.filter((it): it is DrawBox => !('text' in it) && !at('figure', ...centre(it))).sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
+  let n = blocks.filter((b) => b.kind === 'figure').length
+  for (const p of unseen) blocks.push({ id: `p${ev.page}.f${String(++n).padStart(2, '0')}`, kind: 'figure', bbox: [r1(p.x0), r1(p.y0), r1(p.x1), r1(p.y1)], pieces: [], caption: null })
+  const engineOrder: string[] = []
+  for (const it of order) {
+    const b = at('text' in it ? 'text' : 'figure', ...centre(it))
+    if (!b) continue
+    if (it.role && !b.role) b.role = it.role
+    if (it.styleRole && !b.styleRole) b.styleRole = it.styleRole
+    if (!engineOrder.includes(b.id)) engineOrder.push(b.id)
   }
-  return ev
+  const v = { ...ev, blocks, engineOrder }
+  return { ...v, engineConfidence: orderConfidence(v) }
+}
+
+/** Where the columns of running text start, after the first: the left of a block of 2+ lines, 6 em wide or more, with another such
+ *  block wholly to its left. A folio, a note number, a list indent or a centred line starts none (ev.columns counts those). */
+export function textColumns(ev: PageEvidence): number[] {
+  const tall = ev.blocks.filter((b) => b.kind === 'text' && (b.lines ?? 1) >= 2 && b.bbox[2] - b.bbox[0] >= (b.bodySize ?? 10) * 6)
+  const starts: number[] = []
+  for (const x of tall.filter((b) => tall.some((a) => a.bbox[2] < b.bbox[0])).map((b) => b.bbox[0]).sort((a, b) => a - b)) if (!starts.length || x - starts[starts.length - 1] > 12) starts.push(x)
+  return starts
+}
+
+/** The blocks as the page alone reads: blocks across the columns cut it into bands, each band read column by column, top down. */
+export function pageOrder(ev: PageEvidence): string[] {
+  const starts = textColumns(ev)
+  const col = (b: EvidenceBlock) => starts.filter((s) => s <= b.bbox[0] + 3).length
+  const across = (b: EvidenceBlock) => starts.some((s) => s > b.bbox[0] + 20 && b.bbox[2] > s + 10)
+  const wide = ev.blocks.filter(across).sort((a, b) => a.bbox[1] - b.bbox[1] || a.bbox[0] - b.bbox[0])
+  const out: string[] = []
+  let top = -Infinity
+  for (const w of [...wide, null]) {
+    const bottom = w ? w.bbox[1] : Infinity
+    out.push(...ev.blocks.filter((b) => !across(b) && b.bbox[1] >= top && b.bbox[1] < bottom).sort((a, b) => col(a) - col(b) || a.bbox[1] - b.bbox[1] || a.bbox[0] - b.bbox[0]).map((b) => b.id))
+    if (w) out.push(w.id)
+    top = bottom
+  }
+  return out
+}
+
+/** The engine's page order confidence: the longest run of blocks it reads in the page's own order (pageOrder), over the blocks
+ *  it read. 1 when no engine has read the page. */
+export function orderConfidence(ev: PageEvidence): number {
+  const eng = ev.engineOrder ?? []
+  if (!eng.length) return 1
+  const own = pageOrder(ev).filter((id) => eng.includes(id))
+  return Math.round((lcs(eng, own) / eng.length) * 100) / 100
 }
 
 /** Every page of a book, with the size of its body text and the words either side of each page break. */
