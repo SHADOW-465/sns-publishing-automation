@@ -19,7 +19,7 @@ export const LOW_CONFIDENCE = 0.85
 
 const words = (b: EvidenceBlock) => (b.text ?? '').trim().split(/\s+/).filter(Boolean).length
 /** the gap between two boxes, 0 when they meet */
-const gap = (a: EvidenceBlock, b: EvidenceBlock) => Math.max(0, b.bbox[0] - a.bbox[2], a.bbox[0] - b.bbox[2], b.bbox[1] - a.bbox[3], a.bbox[1] - b.bbox[3])
+export const gap = (a: EvidenceBlock, b: EvidenceBlock) => Math.max(0, b.bbox[0] - a.bbox[2], a.bbox[0] - b.bbox[2], b.bbox[1] - a.bbox[3], a.bbox[1] - b.bbox[3])
 const clip = (s = '', n = 40) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
 export function pageFlags(ev: PageEvidence, s: PageSignals = {}): FlagHit[] {

@@ -211,3 +211,6 @@ export function bookEvidence(pages: EvidencePage[], printed: (i: number) => stri
   })
   return evs
 }
+
+/** The full text of each line of a page by its evidence ID (blocks over 40 words keep only their ends): what the validator checks text conservation against. */
+export const lineTexts = (p: EvidencePage, page: number): Map<string, string> => new Map(rowOrder(p.lines).map((l, i) => [`p${page}.l${String(i + 1).padStart(2, '0')}`, l.text]))
