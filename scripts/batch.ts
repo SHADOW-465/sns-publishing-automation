@@ -4,7 +4,7 @@
 // 1 build every book with no model · 2 the model loads once and answers every flagged page of every book · 3 the model is unloaded, then each
 // book is rebuilt with the answers · 4 validate · 5 score, and write <outDir>/QUEUE.md (worst book first).
 // Each stage of each book is a child process with its own timeout; a book that fails is listed in QUEUE.md and the run goes on.
-// The model: SNS_MODEL_BASE_URL (default http://127.0.0.1:8000/v1), SNS_MODEL, SNS_MODEL_KEY (if the server wants one; never printed).
+// The model: config/page-model.json (the bake-off's pick, T20) or SNS_MODEL_BASE_URL (default http://127.0.0.1:8000/v1), SNS_MODEL, SNS_MODEL_KEY (if the server wants one; never printed).
 // SNS_MODEL_CMD starts the server (and is killed after phase 2, so its memory is free for the validators); without it a server that is
 // already running is used and stays up. No server: the books are built and validated as they are, and every flagged page is "left".
 // ponytail: Accessible PDF only (EPUB books need the JVM EPUBCheck stage, the same shape); no resume of finished books.
@@ -23,6 +23,7 @@ import { uaPageFlags } from '../src/engine/pdf/flags.ts'
 import { lineTexts, type EvidencePage } from '../src/engine/pdf/evidence.ts'
 import { validate } from '../src/engine/pdf/validate.ts'
 import { askPage, renderPage, type PageReply, type PageRequest } from '../src/engine/pdf/page-model.ts'
+import { readChoice } from '../src/engine/pdf/bakeoff.ts'
 import { PageCache, ReplayMiss, pageKey, type ModelId } from '../src/engine/pdf/page-cache.ts'
 import { runRounds, type Check } from '../src/engine/pdf/page-rounds.ts'
 import { decisionsJsonl, reviewNotes, type DecisionNote } from '../src/engine/review/decisions.ts'
@@ -36,9 +37,11 @@ import { read } from '../test/samples.ts'
 const argv = process.argv.slice(2)
 const opt = (n: string) => argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3)
 const replay = argv.includes('--replay')
-const cfg = (): VisionConfig => ({ apiKey: process.env.SNS_MODEL_KEY ?? '', baseUrl: (process.env.SNS_MODEL_BASE_URL ?? 'http://127.0.0.1:8000/v1').replace(/\/$/, ''), model: process.env.SNS_MODEL ?? '' })
+// the model the bake-off chose (scripts/bakeoff.ts, T20); the environment overrides it
+const chosen = () => readChoice(resolve('config/page-model.json'))
+const cfg = (): VisionConfig => ({ apiKey: process.env.SNS_MODEL_KEY ?? '', baseUrl: (process.env.SNS_MODEL_BASE_URL ?? 'http://127.0.0.1:8000/v1').replace(/\/$/, ''), model: process.env.SNS_MODEL ?? chosen()?.model ?? '' })
 // the prompt and schema are fixed by page-model.ts; bump these with it, they are part of every cache key (OPUS_DESIGN2 b.6)
-const modelId = (): ModelId => ({ modelId: cfg().model, weightsSha256: process.env.SNS_MODEL_SHA256, promptVersion: 'T14-1', schemaVersion: 'T14-1' })
+const modelId = (): ModelId => ({ modelId: cfg().model, weightsSha256: process.env.SNS_MODEL_SHA256 ?? chosen()?.weightsSha256, quant: chosen()?.quant, serverVersion: chosen()?.serverVersion, promptVersion: 'T14-1', schemaVersion: 'T14-1' })
 const sha = (x: string | Uint8Array) => createHash('sha256').update(x).digest('hex')
 const json = (file: string, v: unknown) => writeFileSync(file, JSON.stringify(v, null, 2))
 const loadText = (file: string) => (existsSync(file) ? readFileSync(file, 'utf8') : undefined)
