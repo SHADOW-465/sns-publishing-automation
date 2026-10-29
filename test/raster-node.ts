@@ -19,7 +19,7 @@ export const nodeRaster: Raster = {
     out.getContext('2d').drawImage(full, sx, sy, sw, sh, 0, 0, out.width, out.height)
     return new Uint8Array(await out.encode('jpeg', settings().imageJpegQuality))
   },
-  async page(page, height, rect) {
+  async page(page, height, rect, format) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = page as any
     const vp1 = p.getViewport({ scale: 1 })
@@ -34,6 +34,6 @@ export const nodeRaster: Raster = {
     await p.render({ canvasContext: ctx, viewport: vp, canvas, intent: 'print' }).promise
     const out = createCanvas(Math.round((box.x1 - box.x0) * scale), Math.round(height))
     out.getContext('2d').drawImage(canvas, box.x0 * scale, box.y0 * scale, out.width, out.height, 0, 0, out.width, out.height)
-    return new Uint8Array(await out.encode('jpeg', settings().imageJpegQuality))
+    return new Uint8Array(format === 'png' ? await out.encode('png') : await out.encode('jpeg', settings().imageJpegQuality))
   },
 }

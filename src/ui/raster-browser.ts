@@ -32,7 +32,7 @@ export const browserRaster: Raster = {
     ctx.drawImage(src, sx, sy, sw, sh, 0, 0, out.width, out.height)
     return jpeg(out, quality())
   },
-  async page(page, height, rect) {
+  async page(page, height, rect, format) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = page as any
     const vp1 = p.getViewport({ scale: 1 })
@@ -47,6 +47,6 @@ export const browserRaster: Raster = {
     await p.render({ canvasContext: ctx, viewport: vp, canvas, intent: 'print' }).promise
     const out = new OffscreenCanvas(Math.round((box.x1 - box.x0) * scale), Math.round(height))
     out.getContext('2d')!.drawImage(canvas, box.x0 * scale, box.y0 * scale, out.width, out.height, 0, 0, out.width, out.height)
-    return jpeg(out, quality())
+    return format === 'png' ? new Uint8Array(await (await out.convertToBlob({ type: 'image/png' })).arrayBuffer()) : jpeg(out, quality())
   },
 }

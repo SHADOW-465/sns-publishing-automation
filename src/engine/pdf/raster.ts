@@ -26,8 +26,8 @@ export interface Crop {
 export interface Raster {
   /** JPEG of a decoded pdf.js image object, cropped (fractions) and scaled so the long side ≤ maxSide */
   image(obj: unknown, crop: Crop, maxSide: number): Promise<Uint8Array | null>
-  /** JPEG of a rendered PDF page, `height` px tall; `rect` (page points, top-down) crops a region */
-  page(page: unknown, height: number, rect?: { x0: number; y0: number; x1: number; y1: number }): Promise<Uint8Array>
+  /** JPEG (or PNG, lossless, so the bytes are stable) of a rendered PDF page, `height` px tall; `rect` (page points, top-down) crops a region */
+  page(page: unknown, height: number, rect?: { x0: number; y0: number; x1: number; y1: number }, format?: 'png'): Promise<Uint8Array>
 }
 
 /** Normalise a pdf.js image object (raw pixel data) to RGBA. ImageBitmap objects are handled by the caller. */
