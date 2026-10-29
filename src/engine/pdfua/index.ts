@@ -210,7 +210,7 @@ export function frontPages(a: UaAnalysis, options: UaOptions = a.options ?? {}):
 }
 
 const figKey = (f: Figure) => `${f.page}:${Math.round(f.box.x0)}:${Math.round(f.box.y0)}`
-const cloneFigs = (m: Map<number, Figure[]>) => new Map([...m].map(([k, fs]) => [k, fs.map((f) => ({ ...f, lines: [], caption: '', node: undefined }))]))
+export const cloneFigs = (m: Map<number, Figure[]>) => new Map([...m].map(([k, fs]) => [k, fs.map((f) => ({ ...f, lines: [], caption: '', node: undefined }))]))
 
 const normName = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z0-9]+/g, '')
 
