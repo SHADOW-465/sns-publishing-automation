@@ -141,6 +141,7 @@ export async function analyzeUa(
   const alt = inp.altDocx ? readAltDocx(inp.altDocx) : []
   begin('Working out the reading order', 0, book.pages.length)
   const st = buildStructure(book, new Map(styles.map((s) => [s.key, s.role])), cloneFigs(detected), inp.options, () => check('Working out the reading order'))
+  for (const r of st.refused) review.push({ level: 'warn', msg: `A page decision was left out: ${r}.` })
   const pageArea = book.pages[1] ? book.pages[1].width * book.pages[1].height : 1
   // the Word file lists descriptions in the order of the image list: put the figures in that order first
   const il = imageList(st, book)

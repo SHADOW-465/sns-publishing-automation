@@ -5,6 +5,7 @@ import { detectTables } from '../pdf/tables.ts'
 import { LIST_MARK, rowOrder, isItalicFont } from '../pdf/layout.ts'
 import type { Box } from './content.ts'
 import { splitBulletEntries, type TocSplit } from './tocsplit.ts'
+import { centreIn, decideBook, uaRoleOf, type PageDecision } from '../pdf/decision.ts'
 
 export { rowOrder }
 
@@ -159,6 +160,8 @@ export interface Structure {
   hidden: Figure[]
   /** contents runs "A • B • C" cut into one TOCI per topic */
   splits: TocSplit[]
+  /** decisions left out because they name something this build does not have */
+  refused: string[]
   /** why the order of a page (0-based) may be wrong: it was read row by row, held lines were released, a stray was placed (order-risk, pdf/flags.ts) */
   risk: Map<number, string[]>
 }
@@ -189,6 +192,8 @@ export interface UaOptions {
   stackedLinks?: 'topmost' | 'all'
   /** what marks a caption in this book (a caption_style directive: "the captions are the italic lines"). Unset, a body-style line within 3 em of a figure is its caption when it is italic or smaller than the body; set, only that signal counts. A figure label always does. */
   captionStyle?: { signal: 'italic' | 'smaller' | 'label'; near: 'figure' }
+  /** the typed decisions of the page reader or a person (pdf/decision.ts), laid on what this reads */
+  decisions?: PageDecision[]
 }
 
 /** The accessible-PDF options a resolved settings object carries (UA-01 … UA-07). */
@@ -209,6 +214,8 @@ export const uaOptionsFrom = (s: { uaChapterLevel: number; uaLogos: 'artifact' |
 
 export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figuresByPage: Map<number, Figure[]>, options: UaOptions = {}, tick?: () => void): Structure {
   const chapterLevel = options.chapterLevel ?? 2
+  // before anything changes the lines: the decisions are read against the page evidence's blocks
+  const dec = decideBook(book, options.decisions)
   let nextId = 0
   const nodes: SNode[] = []
   const mk = (tag: string, lines: PLine[] = []): SNode => {
@@ -264,6 +271,8 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     }
     for (const b of heads) if (b.map((l) => l.text).join(' ').trim().split(/\s+/).length > 25) for (const l of b) blockRole.set(l, 'P')
   }
+  // a decision beats the style's role and the rules above
+  for (const [l, r] of dec.role) blockRole.set(l, uaRoleOf(r))
 
   let sect: SNode = root
   let container: SNode = root // where paragraphs go (Sect, or TOC)
@@ -368,7 +377,19 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       figList = null
       container = sect
     }
-    const figs = figuresByPage.get(page.index) ?? []
+    // pictures a decision says are one Figure: the pieces become one figure over their union
+    const figs = [...(figuresByPage.get(page.index) ?? [])]
+    for (const g of dec.groups.get(page.index + 1) ?? []) {
+      const mine = figs.filter((f) => g.some((b) => centreIn((f.box.x0 + f.box.x1) / 2, page.height - (f.box.y0 + f.box.y1) / 2, b)))
+      if (mine.length < 2) continue
+      const merged: Figure = {
+        ...mine[0], lines: [], caption: '', node: undefined, image: undefined, ornament: undefined,
+        box: { x0: Math.min(...mine.map((f) => f.box.x0)), y0: Math.min(...mine.map((f) => f.box.y0)), x1: Math.max(...mine.map((f) => f.box.x1)), y1: Math.max(...mine.map((f) => f.box.y1)) },
+        vector: mine.some((f) => f.vector), logo: false, textOver: mine.some((f) => f.textOver),
+      }
+      figs.splice(figs.indexOf(mine[0]), 1, merged)
+      for (const f of mine.slice(1)) figs.splice(figs.indexOf(f), 1)
+    }
     const squareBeside = (l: PLine) => page.images.some((im) => {
       const w = im.x1 - im.x0
       const h = im.y1 - im.y0
@@ -474,9 +495,11 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     })
     // ponytail: isItalicFont is case-sensitive and misses "NewBaskervilleStd-Italic"; fixing it there changes the italics of every EPUB route
     const italic = (l: PLine) => isItalicFont(l.font) || /italic|oblique/i.test(l.font)
-    const signal = (l: PLine) => roleOf(l) === 'P' && /\p{L}/u.test(l.text) && ((italic(l) && (!sig || sig === 'italic')) || (l.size < book.bodySize * 0.92 && (!sig || sig === 'smaller'))) && nearFig(l)
-    const strong = (l: PLine) => roleOf(l) === 'Caption' || LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))
-    const seeds = lines.filter((l) => strong(l) || signal(l)).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    // a line a decision has given a role is what it says: a P is no caption by its look, and a block the decision links to a figure is that figure's caption
+    const forcedLines = new Set((dec.captions.get(page.index + 1) ?? []).flatMap((c) => c.lines.filter((l) => lines.includes(l))))
+    const signal = (l: PLine) => roleOf(l) === 'P' && !dec.role.has(l) && /\p{L}/u.test(l.text) && ((italic(l) && (!sig || sig === 'italic')) || (l.size < book.bodySize * 0.92 && (!sig || sig === 'smaller'))) && nearFig(l)
+    const strong = (l: PLine) => roleOf(l) === 'Caption' || (!dec.role.has(l) && (LABEL.test(l.text.trim()) || (pictured && ['P', 'Caption'].includes(roleOf(l)))))
+    const seeds = lines.filter((l) => !forcedLines.has(l) && (strong(l) || signal(l))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
     type Blk = { lines: PLine[]; x0: number; x1: number; top: number; bottom: number }
     const blocks: Blk[] = []
     const grow = (b: Blk, l: PLine) => (b.lines.push(l), (b.x0 = Math.min(b.x0, l.x0)), (b.x1 = Math.max(b.x1, l.x1)), (b.bottom = Math.max(b.bottom, l.y + l.size)))
@@ -488,7 +511,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     }
     // a caption runs on in its own style (key and slant): the lines of that style right under it are part of it. Upright body text never is.
     const seeded = new Set(seeds)
-    for (const l of lines.filter((x) => !seeded.has(x) && (x.key !== book.bodyKey || italic(x)) && ['P', 'Caption'].includes(roleOf(x))).sort((a, b) => a.y - b.y || a.x0 - b.x0)) {
+    for (const l of lines.filter((x) => !seeded.has(x) && !dec.role.has(x) && !forcedLines.has(x) && (x.key !== book.bodyKey || italic(x)) && ['P', 'Caption'].includes(roleOf(x))).sort((a, b) => a.y - b.y || a.x0 - b.x0)) {
       const b = blocks.find((k) => k.lines.some((x) => x.key === l.key && italic(x) === italic(l)) && under(k, l))
       if (b) grow(b, l)
     }
@@ -499,6 +522,15 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
     const pairs = figs.flatMap((f) => blocks.map((k) => ({ f, k, d: gapOf(f, k) }))).filter((x) => x.d < 50).sort((a, b) => a.d - b.d)
     const capOf = new Map<Figure, Blk>()
     const usedBlk = new Set<Blk>()
+    // a caption a decision links to a figure: that figure's, whatever the look says
+    for (const c of dec.captions.get(page.index + 1) ?? []) {
+      const f = figs.find((f) => !capOf.has(f) && centreIn((f.box.x0 + f.box.x1) / 2, page.height - (f.box.y0 + f.box.y1) / 2, c.box))
+      const ls = c.lines.filter((l) => lines.includes(l))
+      if (!f || !ls.length) continue
+      const k: Blk = { lines: ls, x0: Math.min(...ls.map((l) => l.x0)), x1: Math.max(...ls.map((l) => l.x1)), top: Math.min(...ls.map((l) => l.y)), bottom: Math.max(...ls.map((l) => l.y + l.size)) }
+      capOf.set(f, k)
+      usedBlk.add(k)
+    }
     // a caption by its role or label is paired first; a block only the signals found (a source line, a chart's small labels) takes a figure left without one
     const weak = (k: Blk) => !k.lines.some(strong)
     for (const { f, k } of pairs) if (!weak(k) && !capOf.has(f) && !usedBlk.has(k)) (capOf.set(f, k), usedBlk.add(k))
@@ -600,6 +632,28 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       const at = ordered.find((l) => l.y >= c.top - 2 && l.x0 < c.x1 && l.x1 > c.x0)
       if (at) before.set(at, [...(before.get(at) ?? []), c])
       else tail.push(c)
+    }
+    // the order a decision gives: its blocks and pictures in turn, a picture before the first line read after it. What it leaves out follows.
+    const decided = dec.order.get(page.index + 1)
+    if (decided) {
+      const seq: PLine[] = []
+      const placed = new Set<Cell>()
+      before.clear()
+      let wait: Cell[] = []
+      for (const e of decided) {
+        if ('box' in e) {
+          const c = cellOrder.find((c) => !placed.has(c) && centreIn((box(c.item.f).x0 + box(c.item.f).x1) / 2, (box(c.item.f).top + box(c.item.f).bottom) / 2, e.box))
+          if (c) (placed.add(c), wait.push(c))
+          continue
+        }
+        const ls = e.lines.filter((l) => ordered.includes(l) && !seq.includes(l))
+        if (!ls.length) continue
+        if (wait.length) (before.set(ls[0], wait), (wait = []))
+        seq.push(...ls)
+      }
+      seq.push(...ordered.filter((l) => !seq.includes(l)))
+      ordered.splice(0, ordered.length, ...seq)
+      tail.splice(0, tail.length, ...wait, ...cellOrder.filter((c) => !placed.has(c)))
     }
     const emit = (cs: Cell[]) => {
       closePara()
@@ -863,6 +917,18 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       // a sentence beside a QR stays its own paragraph; a hanging indent must not pull it into the line above
       if (hereSq && hereSq !== prevSq) start = true
       if (prevSq && hereSq !== prevSq) start = true
+      // a decision: a block that goes on with one before it joins that paragraph; the second part of a split starts its own, a merged part goes on
+      const goesOn = dec.from.get(l)
+      const into = goesOn && owner.get(goesOn[goesOn.length - 1])
+      if (goesOn && into?.tag === 'P') {
+        closeList()
+        own(l, into)
+        para = { node: into, last: l, kind: 'P' }
+        continue
+      }
+      if (goesOn) dec.refused.push(`page ${l.page + 1}: continues: the block it goes on from is not a paragraph`)
+      if (dec.start.has(l)) start = true
+      else if (dec.join.has(l) && para && para.kind !== 'Note') start = false
       if (!start) {
         own(l, para!.node)
         para!.last = l
@@ -950,7 +1016,7 @@ export function buildStructure(book: PdfBook, roles: Map<string, UaRole>, figure
       }
     }
   // empty sections/containers are dropped by the writer
-  const st: Structure = { root, owner, figures, headings, nodes, tocEntries, hidden: [], splits: [], risk }
+  const st: Structure = { root, owner, figures, headings, nodes, tocEntries, hidden: [], splits: [], risk, refused: dec.refused }
   st.splits = splitBulletEntries(st)
   return st
 }

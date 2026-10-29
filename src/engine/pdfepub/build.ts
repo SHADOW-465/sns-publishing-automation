@@ -17,6 +17,7 @@ import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
 import { linkIndexLocators } from '../pdfua/indexlinks.ts'
+import { centreIn, decideBook, pdfRoleOf, type PageDecision } from '../pdf/decision.ts'
 import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
 
 // =============================================================================================
@@ -37,6 +38,8 @@ export interface PdfBuildInput {
   ai?: Record<string, { alt: string; longDesc?: string; approved?: boolean; decorative?: boolean }>
   /** reviewer titles for parts that had none, same index as the outline */
   sectionNav?: Record<number, string>
+  /** the typed decisions of the page reader or a person (pdf/decision.ts), laid on what this reads */
+  decisions?: PageDecision[]
 }
 
 export interface PdfBuildResult {
@@ -80,6 +83,10 @@ interface Float {
   armed?: boolean
   armedPara?: unknown
   armedLines?: number
+  /** a decision put the picture before this line (null: after the last line of the page); undefined: by its height */
+  anchor?: PLine | null
+  /** the picture's box and the pieces it was made of, for matching it to a decision */
+  pic?: { box: ImgBox; parts: ImgBox[] }
 }
 
 const segHtml = (segs: Seg[]) => {
@@ -185,9 +192,10 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   let smallCapsRuns = 0
   for (const p of book.pages) for (const l of p.lines) for (const r of l.runs) if (r.sc && r.text.trim()) smallCapsRuns += 1
   const footnotes = (book.footnotes ??= extractFootnotes(book.pages, book.bodySize))
+  const dec = decideBook(book, input.decisions)
   const dropped: string[] = [] // text deliberately left out, for the completeness check
   const role = new Map<string, PdfRole>(input.styles.map((s) => [s.key, s.role]))
-  const roleOf = (l: PLine): PdfRole => l.forced ?? role.get(l.key) ?? 'text'
+  const roleOf = (l: PLine): PdfRole => (dec.role.has(l) ? pdfRoleOf(dec.role.get(l)!) : l.forced ?? role.get(l.key) ?? 'text')
   const printNo = (pdfIdx: number) => String(book.numbers[pdfIdx])
   // the look: settings first (TYP-01…07, HD-11…13); "as the printed page" is read from where the printed lines sit
   const typography = (): PdfTypography => {
@@ -322,8 +330,8 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     floats = keep
   }
   /** the picture sits beside this line: it will be placed at the next paragraph break, never inside the sentence being read */
-  function armFloats(page: number, y: number) {
-    for (const f of floats) if (f.page === page && f.anchorY !== undefined && !f.armed && f.anchorY <= y) Object.assign(f, { armed: true, armedPara: para, armedLines: para?.n ?? 0 })
+  function armFloats(page: number, y: number, at?: PLine) {
+    for (const f of floats) if (f.page === page && f.anchorY !== undefined && !f.armed && (f.anchor === undefined ? f.anchorY <= y : f.anchor === (at ?? null))) Object.assign(f, { armed: true, armedPara: para, armedLines: para?.n ?? 0 })
     // no paragraph is open: this is a break already
     if (!para && cur && !tocLike(cur)) {
       const keep: Float[] = []
@@ -436,7 +444,9 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     // The lines above and under it (same style, same left edge, set one under the other) belong to it: a caption beside a picture may reach it with its last line only.
     const hugging = new Set<PLine>()
     const shotsOf = page.images.filter((im) => im.jpeg)
-    const capable = (l: PLine) => !inBox.has(l) && l.key !== book.bodyKey && l.size <= book.bodySize * 0.97 && ['text', 'caption'].includes(roleOf(l))
+    const forcedLines = new Set((dec.captions.get((page.src ?? page.index) + 1) ?? []).flatMap((c) => c.lines.filter((l) => lines.includes(l))))
+    const notCap = (l: PLine) => dec.role.has(l) && dec.role.get(l) !== 'Caption'
+    const capable = (l: PLine) => !inBox.has(l) && !notCap(l) && l.key !== book.bodyKey && l.size <= book.bodySize * 0.97 && ['text', 'caption'].includes(roleOf(l))
     for (const l of lines) {
       if (!capable(l)) continue
       if (shotsOf.some((im) => (l.y >= im.y1 - 4 && l.y - im.y1 < 24 && l.x0 < im.x1 && l.x1 > im.x0) || (l.y + l.size > im.y0 && l.y < im.y1 + 24 && ((l.x1 <= im.x0 + 4 && im.x0 - l.x1 < 60) || (l.x0 >= im.x1 - 4 && l.x0 - im.x1 < 60))))) hugging.add(l)
@@ -448,12 +458,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         if ([...hugging].some((c) => c.key === l.key && l.y !== c.y && Math.abs(l.y - c.y) <= c.size * 1.8 && Math.abs(l.x0 - c.x0) < 4)) (hugging.add(l), (grew = true))
       }
     }
-    const caps = lines.filter((l) => !inBox.has(l) && (roleOf(l) === 'caption' || CHART_CAP.test(l.text.trim()) || hugging.has(l))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+    const caps = lines.filter((l) => !inBox.has(l) && !forcedLines.has(l) && (roleOf(l) === 'caption' || (!notCap(l) && CHART_CAP.test(l.text.trim())) || hugging.has(l))).sort((a, b) => a.y - b.y || a.x0 - b.x0)
     // the rest of a chart caption ("Grafica 1.4" / "en porcentaje…") is the next short line, not a new paragraph
     for (const c of [...caps]) {
       if (!CHART_CAP.test(c.text.trim()) && roleOf(c) !== 'caption') continue
       for (const l of lines) {
-        if (l === c || caps.includes(l) || inBox.has(l)) continue
+        if (l === c || caps.includes(l) || inBox.has(l) || notCap(l) || forcedLines.has(l)) continue
         const t = l.text.trim()
         const wrapped = /^\p{Ll}/u.test(t)
         if (l.y < c.y - 2 || l.y - (c.y + c.size) > c.size * (wrapped ? 3 : 1.35)) continue
@@ -475,7 +485,30 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       } else groups.push({ lines: [c], x0: c.x0, x1: c.x1, y0: c.y, y1: c.y + c.size })
     }
     const pics = page.images.filter((im) => im.jpeg).sort((a, b) => (Math.abs(a.y0 - b.y0) < 25 ? a.x0 - b.x0 : a.y0 - b.y0))
+    const src = (page.src ?? page.index) + 1
+    const partsOf = new Map<ImgBox, ImgBox[]>()
+    for (const g of page.half === undefined ? dec.groups.get(src) ?? [] : []) {
+      const mine = pics.filter((im) => g.some((b) => centreIn((im.x0 + im.x1) / 2, (im.y0 + im.y1) / 2, b)))
+      if (mine.length < 2) continue
+      const rect = { x0: Math.min(...mine.map((im) => im.x0)), y0: Math.min(...mine.map((im) => im.y0)), x1: Math.max(...mine.map((im) => im.x1)), y1: Math.max(...mine.map((im) => im.y1)) }
+      const px = Math.min(settings().imageMaxPx, Math.max(80, Math.round((rect.y1 - rect.y0) * settings().imageDpi / 72)))
+      const jpeg = await raster.page(await book.doc.getPage(src), px, rect).catch(() => null)
+      if (!jpeg) {
+        dec.refused.push(`page ${src}: figure: the pieces could not be drawn as one picture`)
+        continue
+      }
+      const one: ImgBox = { id: `group-${src}-${partsOf.size + 1}`, ...rect, crop: { l: 0, t: 0, r: 1, b: 1 }, jpeg }
+      partsOf.set(one, mine)
+      pics.splice(pics.indexOf(mine[0]), 1, one)
+      for (const im of mine.slice(1)) pics.splice(pics.indexOf(im), 1)
+    }
     const capOf = new Map<ImgBox, (typeof groups)[number]>()
+    // a block a decision links to a picture is that picture's caption
+    for (const c of dec.captions.get(src) ?? []) {
+      const im = pics.find((im) => !capOf.has(im) && (partsOf.get(im) ?? [im]).some((q) => centreIn((q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, c.box)))
+      const ls = c.lines.filter((l) => lines.includes(l)).sort((a, b) => a.y - b.y || a.x0 - b.x0)
+      if (im && ls.length) capOf.set(im, { lines: ls, x0: Math.min(...ls.map((l) => l.x0)), x1: Math.max(...ls.map((l) => l.x1)), y0: Math.min(...ls.map((l) => l.y)), y1: Math.max(...ls.map((l) => l.y + l.size)) })
+    }
     for (const g of groups) {
       // gap between the caption block and each picture; captions sit below, beside or (last) above
       const scored = pics
@@ -551,6 +584,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         page: page.index,
         opener,
         anchorY: opener ? undefined : chartCap && g ? g.y0 : im.y0,
+        pic: { box: im, parts: partsOf.get(im) ?? [im] },
         html: `${f.open}\n<p class="image_Container">${k === 0 ? pageMarker : ''}${img}</p>${caption ? `\n${f.caption('caption1', caption)}` : ''}${extra}\n${f.close}`,
       })
     })
@@ -584,6 +618,25 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const l = ordered[i]
       if (ordered.slice(0, i).some((p) => p.text.trim() === l.text.trim() && Math.abs(p.y - l.y) < 2 && Math.abs(p.x0 - l.x0) < 2)) ordered.splice(i, 1)
     }
+    // the order a decision gives: its blocks in turn; what it leaves out follows. A picture is read before the first line after it.
+    const decided = dec.order.get(src)
+    if (decided) {
+      const seq: PLine[] = []
+      const wait: Float[] = []
+      for (const e of decided) {
+        if ('box' in e) {
+          wait.push(...floats.filter((f) => f.page === page.index && f.pic && f.anchor === undefined && !wait.includes(f) && f.pic.parts.some((q) => centreIn((q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, e.box))))
+          continue
+        }
+        const ls = e.lines.filter((l) => ordered.includes(l) && !seq.includes(l))
+        if (!ls.length) continue
+        for (const f of wait.splice(0)) f.anchor = ls[0]
+        seq.push(...ls)
+      }
+      for (const f of wait) f.anchor = null
+      seq.push(...ordered.filter((l) => !seq.includes(l)))
+      ordered.splice(0, ordered.length, ...seq)
+    }
     // verse: three or more short lines of one style, set one under the other with no paragraph gap, are a poem; its lines keep their breaks
     const verse = new Map<PLine, 'line' | 'stanza'>()
     {
@@ -606,7 +659,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     // ---- feed the lines ----
     for (let i = 0; i < ordered.length; i++) {
       const l = ordered[i]
-      armFloats(page.index, l.y)
+      armFloats(page.index, l.y, l)
       const r = roleOf(l)
       // a stray symbol glyph before a title ("=Epilogue") is not part of it
       if ((r === 'title' || r === 'subhead') && /^\s*[=~#*]+(?=\p{L})/u.test(l.text) && l.runs.length) {
@@ -742,6 +795,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
           else if (k === 'step2') (start = true), (asExtract = true), (cont = true)
         } else if (para.kind === 'text' && k === 'step') start = true
       } else if (start && kind === 'body') asExtract = k === 'step' && nk === 'step'
+      // a decision: the second part of a split starts a block of its own, a merged part goes on with the paragraph, a continued block with the one it continues
+      const goesOn = dec.from.get(l)
+      if (dec.start.has(l)) start = true
+      else if (para && dec.join.has(l)) start = false
+      else if (goesOn && para?.ls?.some((x) => goesOn.includes(x))) start = false
+      else if (goesOn) dec.refused.push(`page ${src}: continues: the paragraph it goes on from is not open`)
       if (start) {
         closePara()
         para = { kind: asExtract ? 'extract' : kind, first: k, segs: [], lastPage: l.page, cont }
@@ -978,6 +1037,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
   }
+  for (const r of dec.refused) review.push({ level: 'warn', msg: `A page decision was left out: ${r}.` })
   const printPictures = book.pages.reduce((n, p) => n + p.images.length, 0)
   const { epub, files, sections: planned, renames } = packageEpub({
     meta: ship, sections: navSections, cover, images, review,
