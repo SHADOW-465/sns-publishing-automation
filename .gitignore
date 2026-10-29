@@ -14,3 +14,6 @@ scratch/
 # generated from the client rulebook workbook (scripts/seed-rulebook.ts)
 data/
 EPUB_output/
+
+# page reader answers (OPUS_DESIGN2 b.6): per book, rebuilt by --replay
+cache/
