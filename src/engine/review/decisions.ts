@@ -4,8 +4,11 @@
 import type { CheckItem } from './confidence.ts'
 import type { ExportGate, GateOverride } from '../check/exportgate.ts'
 import { isbn13Valid } from '../epub/package.ts'
+import type { Op } from '../pdf/decision.ts'
 
-export type How = 'ai' | 'guess' | 'left'
+export type How = 'ai' | 'guess' | 'left' | 'person'
+/** what became of one op of the page reader (OPUS_DESIGN2 §b.9) */
+export type Status = 'applied' | 'pending' | 'refused' | 'reverted'
 
 export interface DecisionNote {
   /** the step it happened on: "Structure", "Pictures" … */
@@ -17,12 +20,20 @@ export interface DecisionNote {
   how: How
   /** page, part or chapter, picture file */
   where?: string
+  /** the page reader's ops (§b.9): the block as it was and as it is now, the rule and the reason, the page key, what became of it */
+  before?: string
+  after?: string
+  rule?: string
+  reason?: string
+  key?: string
+  status?: Status
 }
 
 export const HOW_LABEL: Record<How, string> = {
-  ai: 'Decided by AI (Groq llama-3.3-70b, or the picture AI)',
+  ai: 'Decided by the page reader / picture describer',
   guess: 'Decided with the tool’s best guess',
   left: 'Left as guessed (still unsure)',
+  person: 'Decided by a person',
 }
 
 const key = (n: DecisionNote) => `${n.step}\u0000${n.item}`
@@ -118,10 +129,46 @@ export function missingDetails(m: { title?: string; authors?: string; publisher?
 
 /** For each step: how many were decided by the AI, by best guess, and left. */
 export function tally(notes: DecisionNote[]): Record<How, number> {
-  const t: Record<How, number> = { ai: 0, guess: 0, left: 0 }
-  for (const n of notes) t[n.how]++
+  const t: Record<How, number> = { ai: 0, guess: 0, left: 0, person: 0 }
+  for (const n of notes) if (!n.status) t[n.how]++ // the page reader's ops are counted in their own section
   return t
 }
+
+/** One op of the page reader and what became of it: one line of DECISIONS.jsonl, one entry of REVIEW_NOTES. Staff only. */
+export interface DecisionLine {
+  page: number
+  /** the page key (page-cache.ts) and the model that answered */
+  key?: string
+  model?: string
+  op: Op
+  /** the page and what the op did, in words */
+  item: string
+  status: 'applied' | 'refused' | 'reverted'
+  before?: string
+  after?: string
+  /** 'passed', or the validator stage that refused it (reference, guard, geometry, conservation) */
+  validator: string
+  rule?: string
+  reason?: string
+}
+
+/** `<epub-basename>_DECISIONS.jsonl`, beside the REVIEW_NOTES */
+export const decisionsName = (file: string) => file.replace(/\.[^./\\]+$/, '') + '_DECISIONS.jsonl'
+export const decisionsJsonl = (lines: DecisionLine[]) => lines.map((l) => JSON.stringify(l) + '\n').join('')
+
+export const noteOf = (l: DecisionLine): DecisionNote => ({
+  step: 'Page reader',
+  item: l.item,
+  chosen: l.status === 'applied' ? (l.after ?? l.item) : l.status === 'refused' ? `Refused: ${l.reason}; kept as the engine read it.` : `Reverted: ${l.reason} The page keeps the reading it had before.`,
+  how: l.status === 'applied' ? 'ai' : 'left',
+  where: `page ${l.page}`,
+  before: l.before,
+  after: l.after,
+  rule: l.rule,
+  reason: l.reason,
+  key: l.key,
+  status: l.status,
+})
 
 export interface NotesInput {
   /** the file the notes go with, e.g. "My Book.epub" */
@@ -138,10 +185,26 @@ export interface NotesInput {
 
 const entry = (n: DecisionNote) => [`- [${n.step}] ${n.item.replace(/\s+/g, ' ')}`, `    Chosen: ${n.chosen.replace(/\s+/g, ' ')}`, ...(n.where ? [`    Where: ${n.where}`] : [])]
 
+const shortKey = (k: string) => (k.length > 12 ? `${k.slice(0, 4)}…${k.slice(-2)}` : k)
+const edit = (n: DecisionNote) => {
+  const why = n.status === 'applied' ? [n.reason, n.rule && !n.reason?.includes(n.rule) ? `(${n.rule})` : ''].filter(Boolean).join(' ') : n.chosen
+  return [
+    `- [${n.step}] ${n.item.replace(/\s+/g, ' ')}`,
+    ...(n.before ? [`    Before: ${n.before}`] : []),
+    ...(n.after ? [`    After:  ${n.after}`] : []),
+    ...(why ? [`    Why: ${why.replace(/\s+/g, ' ')}`] : []),
+    `    Status: ${n.status}${n.key ? ` · Key: ${shortKey(n.key)}` : ''}`,
+  ]
+}
+
 /** The readable list that goes with the file. Plain text, so any computer opens it. */
 export function reviewNotes(p: NotesInput): string {
   const t = tally(p.notes)
-  const ofHow = (h: How) => p.notes.filter((n) => n.how === h)
+  const ofHow = (h: How) => p.notes.filter((n) => n.how === h && !n.status)
+  const edits = p.notes.filter((n) => n.status)
+  const of = (s: DecisionNote['status']) => edits.filter((e) => e.status === s)
+  const pages = new Set(of('applied').map((e) => e.where)).size
+  const plural = (c: number, w: string) => `${c} ${w}${c === 1 ? '' : 's'}`
   const section = (title: string, list: DecisionNote[], none: string) => [`${title} (${list.length})`, '-'.repeat(40), ...(list.length ? list.flatMap(entry) : [none]), '']
   const g = p.gate
   return [
@@ -152,7 +215,9 @@ export function reviewNotes(p: NotesInput): string {
     `${t.ai} decided by the picture AI · ${t.guess} decided with the tool’s best guess · ${t.left} left as guessed (still unsure)${g ? ` · ${g.fixes.length} problem${g.fixes.length === 1 ? '' : 's'} still open in the file` : ''}`,
     '',
     ...section('Decided by the picture AI', ofHow('ai'), 'Nothing.'),
+    ...(edits.length ? [`Structure corrected by the page reader (${plural(of('applied').length, 'edit')} on ${plural(pages, 'page')}; ${of('refused').length} refused; ${of('reverted').length} reverted)`, '-'.repeat(40), ...edits.flatMap(edit), ''] : []),
     ...section('Decided with the tool’s best guess', ofHow('guess'), 'Nothing.'),
+    ...(ofHow('person').length ? section('Decided by a person', ofHow('person'), '') : []),
     ...section('Left as guessed (still unsure): please look at these', ofHow('left'), 'Nothing.'),
     `Missing book details (${p.missing?.length ?? 0})`,
     '-'.repeat(40),
