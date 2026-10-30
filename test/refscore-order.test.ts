@@ -1,13 +1,13 @@
 // Reading order and role F1 in the accessible-PDF reference diff: the tag tree's text, page by page, against the reference's.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib'
 import { pdfStats } from '../src/engine/check/pdfstats.ts'
 import { comparePdfs } from '../src/engine/check/refscore-pdf.ts'
 import { formatScore, scoreEpub } from '../src/engine/check/refscore.ts'
 import type { Files } from '../src/engine/zip.ts'
+import { loadEvalSet } from './eval-set.ts'
 
 /** a one-page tagged PDF: the lines are painted in `paint` order, and the tag tree reads them in `tags` order as [role, line] */
 async function tagged(paint: string[], tags: [string, number][]) {
@@ -87,7 +87,7 @@ test('without pdfjs the order dimensions are left out (the score is unchanged)',
 })
 
 test('the eval set lists the Day 0 books and every 24 Oct screenshot', () => {
-  const e = JSON.parse(readFileSync('test/eval-pages.json', 'utf8')) as { books: { id: string; pages: { page: number | null; shot?: string }[] }[] }
+  const e = loadEvalSet()
   const ids = e.books.map((b) => b.id)
   for (const id of ['gladiators', 'evers', 'cambia', 'ceramics', 'sacgeo', 'synthetic']) assert.ok(ids.includes(id), id)
   const shots = e.books.flatMap((b) => b.pages.map((p) => p.shot)).filter(Boolean)

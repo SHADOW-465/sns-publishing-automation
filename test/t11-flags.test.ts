@@ -4,7 +4,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
-import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { pageFlags, uaPageFlags, type PageFlag } from '../src/engine/pdf/flags.ts'
 import { orderConfidence, pageEvidence, withEngine, type EvidenceBlock, type PageEvidence } from '../src/engine/pdf/evidence.ts'
@@ -18,6 +17,7 @@ import type { PdfBook, PLine } from '../src/engine/pdfepub/analyze.ts'
 import { nodeRaster } from './raster-node.ts'
 import { AUTOMATION, has, read } from './samples.ts'
 
+import { loadEvalSet } from './eval-set.ts'
 const T = (id: string, bbox: [number, number, number, number], o: Partial<EvidenceBlock> = {}): EvidenceBlock => ({
   id, kind: 'text', bbox, style: 'Serif 10', italic: false, bold: false, size: 10, bodySize: 10, lines: 3, text: 'The river crosses the plain and the old road follows it down to the sea.', lineIds: [], ...o,
 })
@@ -180,8 +180,7 @@ const GONE: Record<string, (st: Structure, i: number, o: UaOptions) => boolean> 
   'sacgeo p40': (st, i, o) => o.ornaments === 'figure' && st.figures.some((f) => f.page === i && f.ornament && !!f.node),
   'sacgeo p43': (st, i, o) => o.ornaments === 'figure' && st.figures.some((f) => f.page === i && f.ornament && !!f.node),
 }
-type EvalPage = { page: number | null; wrong?: string }
-const evalSet = JSON.parse(readFileSync(resolve(import.meta.dirname, 'eval-pages.json'), 'utf8')) as { books: { id: string; pages: EvalPage[] }[] }
+const evalSet = loadEvalSet()
 
 test('T11: on the eval set every known-bad page is flagged and under 40% of the clean pages are', { skip: !EVAL.every((b) => has(b.need)) && 'client books missing', timeout: 1_800_000 }, async () => {
   setStore(new MemoryStore())

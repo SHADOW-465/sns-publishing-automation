@@ -1,7 +1,6 @@
 // Accessible-PDF half of the reference score: builds Gladiators and the German report from the client's inputs and compares
 // the result with the client's finished PDFs (fixtures/reference/Automation/Accessible-PDF-Automation).
 import { resolve } from 'node:path'
-import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { analyzeUa, buildUa } from '../src/engine/pdfua/index.ts'
 import { openSpec } from '../src/engine/spec/session.ts'
@@ -12,16 +11,16 @@ import { formatScore, type RefScore } from '../src/engine/check/refscore.ts'
 import { nodeRaster } from './raster-node.ts'
 import { PDFDocument, farFromPrint, structPages } from '../src/engine/pdfua/audit.ts'
 import { AUTOMATION, has, read } from './samples.ts'
+import { loadEvalSet } from './eval-set.ts'
 
 const D = resolve(AUTOMATION, 'Accessible-PDF-Automation')
 
 /** the options a job would run with: the client's layers, then the Accessible PDF defaults */
 const optionsFor = async (client: string, book: string) => uaOptionsFrom((await openSpec({ client, series: '', book, kind: 'accessible-pdf' })).resolved.settings)
 
-/** the eval-set pages of a book (test/eval-pages.json) */
+/** the eval-set pages of a book (test/eval-pages.json and the screenshots sheet) */
 const evalPages = (id: string): number[] =>
-  (JSON.parse(readFileSync(resolve(import.meta.dirname, 'eval-pages.json'), 'utf8')) as { books: { id: string; pages: { page: number | null }[] }[] }).books
-    .find((b) => b.id === id)?.pages.flatMap((p) => (p.page === null ? [] : [p.page])) ?? []
+  loadEvalSet().books.find((b) => b.id === id)?.pages.flatMap((p) => (p.page === null ? [] : [p.page])) ?? []
 
 /** the whole-book score, then reading order and caption/heading F1 on the book's eval pages alone */
 async function score(out: Record<string, RefScore | { skipped: string }>, id: string, name: string, pdf: Uint8Array, refPdf: Uint8Array) {

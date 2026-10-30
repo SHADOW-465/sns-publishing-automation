@@ -1,0 +1,31 @@
+book,shot,page,kind,tag,wrong,expected
+sacgeo,image1,8,artifact,Artifact,strip at the foot of the page tagged as a second Figure,running head as Artifact
+sacgeo,image2,5,artifact,Artifact,strip at the foot of the page tagged as Figure,running head as Artifact
+sacgeo,image3,5,artifact,Artifact,strip at the foot of the page tagged as Figure (second of the pair),"running head as Artifact, not Figure"
+sacgeo,image4,4,figure,Figure,nine-point star ornament on the title page has no Figure,Figure with alt
+sacgeo,image5,4,figure,Figure,publisher logo not tagged,Figure with alt
+sacgeo,image6,5,reading-order,Artifact,the strip Figure is read between the imprint P elements; the logo has no Figure,strip as Artifact; logo Figure with alt in reading order
+sacgeo,image7,5,figure,Figure,QR code not tagged,Figure with alt
+sacgeo,image8,8,artifact,Artifact,two Figure tags (the strip) at the start of the TOC,"running head as Artifact, not in TOC"
+sacgeo,image9,8,toc,TOCI,six bullet-separated contents entries in one TOCI,one TOCI with Reference/Link per entry
+sacgeo,image10,10,figure,Figure,star ornament at the end of the contents not tagged,Figure with alt
+sacgeo,image11,14,heading,P,line at the end of the foreword bio tagged H3,P not H3
+sacgeo,image12,16,reading-order,H2,"kicker ""Introducción de Barbara"" tagged H4 at the end of the previous Sect, read before the new chapter",kicker read with the chapter H2 inside its Sect
+sacgeo,image13,24,figure,Figure,Figura I.1 diagram not tagged,Figure with alt
+sacgeo,image14,27,figure,Figure,Figura I.3 diagram not tagged,Figure with alt
+sacgeo,image15,34,artifact,Artifact,running head tagged (as Figure pairs) on every page,running head as Artifact
+sacgeo,image16,37,heading,H2,"kicker ""Introducción de Gerry"" H4 in the previous section, title H2","kicker and title the same tag, together"
+sacgeo,image17,40,figure,Figure,"star ornament above ""Primera parte"" not tagged",Figure with alt
+sacgeo,image18,41,reading-order,H2,"chapter number ""Uno"" H4 read before the Sect, then H2 and H3",headings in visual order inside the chapter
+sacgeo,image19,43,figure,Figure,small star ornament between sections not tagged,Figure with alt
+sacgeo,image20,139,caption,Caption,"""Figura 7.2. Octavas en un piano"" tagged P",Caption
+sacgeo,image21,,caption,Caption,figure captions are not tagged as captions (global; the screenshot shows no page),Caption
+sacgeo,image22,190,figure,Figure,labels inside the pyramid diagram tagged H5/H6,the whole diagram one Figure with alt
+sacgeo,image23,230,figure,Figure,"diagram label ""8D"" tagged H6",the whole diagram one Figure with alt
+sacgeo,image24,274,heading,H3,chapter subheading in the notes tagged P,H3 not P
+sacgeo,image25,283,note,Link,end notes have no links to their references in the chapter,each note linked to and from its reference
+sacgeo,image26,285,heading,H3,chapter subheading in the notes tagged LI inside the note list,H3 not LI
+sacgeo,image27,305,list,L,list of illustrations entries tagged as separate P,L with an LI per entry
+sacgeo,image28,305,link,Link,list of illustrations entries have no links to the figures,figure numbers link to the figures
+sacgeo,image29,308,link,Link,index page numbers are plain text,each page number a Link to its page
+sacgeo,image30,322,link,Link,many extra Reference tags on the back advertisement page (the appended PDF),"only 3 Reference/Link, one per book cover"
