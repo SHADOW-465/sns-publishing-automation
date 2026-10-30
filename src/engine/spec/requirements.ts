@@ -117,7 +117,10 @@ const HEAD = ['Rule ID', 'Group', 'What it controls', 'Kind', 'Allowed values', 
 
 const PICTURE_HEAD = ['Image file name', 'Alt text', 'Decorative', 'Long description']
 
-export function specWorkbook(p: { client: string; book: string; resolved: Resolved; decisions?: Decision[]; questions?: Requirement[]; pictures?: SpecPicture[] }): Uint8Array {
+/** A drafted spec (drafter.ts) adds two columns at the end, so the columns route 1 reads keep their place. */
+export type DraftNote = { status: string; evidence: string }
+
+export function specWorkbook(p: { client: string; book: string; resolved: Resolved; decisions?: Decision[]; questions?: Requirement[]; pictures?: SpecPicture[]; draft?: Record<string, DraftNote> }): Uint8Array {
   const { resolved } = p
   const rows = RULES.map((r) => {
     const v = r.key ? (resolved.settings[r.key] as RuleValue) : undefined
@@ -128,12 +131,13 @@ export function specWorkbook(p: { client: string; book: string; resolved: Resolv
       f ? `${f.level === 'default' ? 'Default' : LEVEL_LABEL[f.level]}${f.name ? ` (${f.name})` : ''}${f.source ? ` — ${f.source.file}, ${f.source.where}` : ''}` : '',
       f?.waiver ? `Yes — ${f.waiver.by}, ${f.waiver.at.slice(0, 10)}` : r.kind === 'advisory' ? `Needed for any value other than ${show(r, r.safe)}` : '',
       r.example && r.key ? r.example(v ?? '') : r.origin,
+      ...(p.draft ? [p.draft[r.id]?.status ?? '', p.draft[r.id]?.evidence ?? ''] : []),
     ]
   })
   const lists = RULES.map((r, i) => ({ r, row: i + 2 })).filter(({ r }) => r.type === 'choice' || r.type === 'bool').map(({ r, row }) => ({ ref: `G${row}`, values: r.type === 'bool' ? ['Yes', 'No'] : r.choices!.map(([v]) => v) }))
   const pictureRows = (p.pictures ?? []).map((pic) => [pic.file, pic.alt, pic.decorative ? 'Yes' : 'No', pic.longDesc])
   const sheets: Sheet[] = [
-    { name: 'Spec', rows: [HEAD, ...rows], widths: [10, 18, 60, 10, 28, 16, 22, 30, 28, 50], lists },
+    { name: 'Spec', rows: [p.draft ? [...HEAD, 'Status', 'Evidence'] : HEAD, ...rows], widths: [10, 18, 60, 10, 28, 16, 22, 30, 28, 50, ...(p.draft ? [16, 70] : [])], lists },
     {
       name: 'Picture descriptions',
       rows: [PICTURE_HEAD, ...pictureRows],
