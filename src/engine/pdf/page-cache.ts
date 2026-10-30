@@ -44,6 +44,7 @@ export function pageKey({ pdfPageHash, req, model }: KeyParts): string {
     layout: req.ev,
     images: req.images.map((i) => [i.dpi, sha(i.png)]),
     model,
+    system: req.system, // the generated prompt (T27): a card edit changes it only on the pages the card applies to
     rules: req.rules ?? [],
     hints: req.hints ?? [],
   }))

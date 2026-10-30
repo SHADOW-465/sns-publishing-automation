@@ -94,6 +94,8 @@ export interface PageRequest {
   /** the rule cards that apply to this page type (c.4) and the hints from the instruction (a.4) */
   rules?: string[]
   hints?: string[]
+  /** the generated system prompt (prompt.ts, T27); PAGE_MODEL_SYSTEM when absent */
+  system?: string
 }
 
 export type PageReply =
@@ -121,7 +123,7 @@ export async function askPage(cfg: VisionConfig, r: PageRequest, o: AskOptions =
     ...PINNED,
     response_format: { type: 'json_schema', json_schema: { name: 'page_answer', strict: true, schema: pageAnswerSchema() } },
     messages: [
-      { role: 'system', content: PAGE_MODEL_SYSTEM },
+      { role: 'system', content: r.system ?? PAGE_MODEL_SYSTEM },
       { role: 'user', content: [{ type: 'text', text }, ...r.images.map((i) => ({ type: 'image_url', image_url: { url: dataUrl(i.png, 'image/png') } }))] },
     ],
   }

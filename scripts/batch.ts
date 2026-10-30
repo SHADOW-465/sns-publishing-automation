@@ -25,6 +25,7 @@ import { validate } from '../src/engine/pdf/validate.ts'
 import { askPage, renderPage, type PageReply, type PageRequest } from '../src/engine/pdf/page-model.ts'
 import { readChoice } from '../src/engine/pdf/bakeoff.ts'
 import { PageCache, ReplayMiss, pageKey, type ModelId } from '../src/engine/pdf/page-cache.ts'
+import { buildPrompt, promptVersion } from '../src/engine/pdf/prompt.ts'
 import { runRounds, type Check } from '../src/engine/pdf/page-rounds.ts'
 import { decisionsJsonl, reviewNotes, type DecisionNote } from '../src/engine/review/decisions.ts'
 import type { PageDecision } from '../src/engine/pdf/decision.ts'
@@ -42,7 +43,7 @@ const replay = argv.includes('--replay')
 // the model the bake-off chose (scripts/bakeoff.ts, T20); the environment overrides it
 const chosen = () => readChoice(resolve('config/page-model.json'))
 const cfg = (): VisionConfig => ({ apiKey: process.env.SNS_MODEL_KEY ?? '', baseUrl: (process.env.SNS_MODEL_BASE_URL ?? 'http://127.0.0.1:8000/v1').replace(/\/$/, ''), model: process.env.SNS_MODEL ?? chosen()?.model ?? '' })
-// the prompt and schema are fixed by page-model.ts; bump these with it, they are part of every cache key (OPUS_DESIGN2 b.6)
+// the schema is fixed by page-model.ts (bump with it); the prompt is generated per page (prompt.ts, T27) and its version goes in the key (OPUS_DESIGN2 b.6)
 const modelId = (): ModelId => ({ modelId: cfg().model, weightsSha256: process.env.SNS_MODEL_SHA256 ?? chosen()?.weightsSha256, quant: chosen()?.quant, serverVersion: chosen()?.serverVersion, promptVersion: 'T14-1', schemaVersion: 'T14-1' })
 const sha = (x: string | Uint8Array) => createHash('sha256').update(x).digest('hex')
 const json = (file: string, v: unknown) => writeFileSync(file, JSON.stringify(v, null, 2))
@@ -106,7 +107,7 @@ const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
       const page = await doc.getPage(ev.page)
       const images = [{ dpi: 150, png: await renderPage(nodeRaster, page, 150) }]
       if (flags.some((f) => f.flag === 'figure-pieces')) for (const b of ev.blocks.filter((x) => x.kind === 'figure')) images.push({ dpi: 300, png: await renderPage(nodeRaster, page, 300, { x0: b.bbox[0], y0: b.bbox[1], x1: b.bbox[2], y1: b.bbox[3] }) })
-      pages.push({ ev, images, hints: [...flags.map((f) => f.reason), ...(unattended?.asHints ?? []), ...(knobs?.hintsFor(ev.page) ?? [])] })
+      pages.push({ ev, images, system: buildPrompt(flags.map((f) => f.flag)).system, hints: [...flags.map((f) => f.reason), ...(unattended?.asHints ?? []), ...(knobs?.hintsFor(ev.page) ?? [])] })
       hashes.set(ev.page, sha(JSON.stringify(a.book.pages[ev.page - 1]?.lines.map((l) => [l.text, l.x0, l.y, l.size, l.key]) ?? [])))
     }
     const repeats = new Map<string, number>()
@@ -114,7 +115,7 @@ const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
     const cache = new PageCache(resolve('cache'), sha(read(pdf)))
     const keys = new Map<number, string>()
     const ask = async (r: PageRequest): Promise<PageReply> => {
-      const key = pageKey({ pdfPageHash: hashes.get(r.ev.page) ?? '', req: r, model: modelId() })
+      const key = pageKey({ pdfPageHash: hashes.get(r.ev.page) ?? '', req: r, model: { ...modelId(), promptVersion: promptVersion(r.system ?? '') } })
       keys.set(r.ev.page, key)
       const e = cache.get(key)
       if (e?.override) return { status: 'ok', answer: { page: r.ev.page, ops: e.override.ops, confidence: 1, reasons: [] }, raw: '' }
