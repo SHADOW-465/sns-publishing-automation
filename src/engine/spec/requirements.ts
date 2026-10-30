@@ -9,6 +9,7 @@
 // =============================================================================================
 import { RULES, ruleById, coerce, show, houseDefault, needsWaiver, WAIVER_TEXT, type Rule, type RuleValue } from './rules.ts'
 import { LEVEL_LABEL, type Resolved } from './layers.ts'
+import { conflictQuestions } from './precedence.ts'
 import { readDocx, readXlsx, writeXlsx, type Sheet } from './office.ts'
 import { text } from '../zip.ts'
 import type { Decision } from './store.ts'
@@ -142,7 +143,8 @@ export function specWorkbook(p: { client: string; book: string; resolved: Resolv
     { name: 'About', rows: [['Field', 'Value'], ['Client', p.client], ['Book', p.book], ['Exported', new Date().toISOString()], ['How to use', 'Change the Value column only (drop-downs show the allowed values), then load the file in the Spec step. Accessibility waivers are given in the app, not in this file. Picture descriptions are filled on the Picture descriptions sheet: image file name, alt text, decorative yes/no, and an optional long description for a chart or map.'], ['Kinds', 'locked = required for a valid EPUB, cannot change; advisory = accessibility, needs a waiver in the app; free = your choice'], ['Decorative', 'Yes means the picture carries no information. The e-book gets an empty alt so a screen reader skips it.']], widths: [16, 90] },
   ]
   if (p.decisions?.length) sheets.push({ name: 'Log', rows: [['When', 'Who', 'What', 'Rule', 'Detail', 'Spec'], ...p.decisions.map((d) => [d.at, d.actor, d.action, d.ruleId ?? '', d.detail, d.specHash])], widths: [22, 18, 12, 10, 70, 10] })
-  if (p.questions?.length) sheets.push({ name: 'Open questions', rows: [['Requirement', 'Where', 'Answer (which rule, which value)'], ...p.questions.map((q) => [q.text, q.where, ''])], widths: [80, 20, 50] })
+  const questions = [...(p.questions ?? []), ...conflictQuestions(resolved.conflicts)]
+  if (questions.length) sheets.push({ name: 'Open questions', rows: [['Requirement', 'Where', 'Answer (which rule, which value)'], ...questions.map((q) => [q.text, q.where, ''])], widths: [80, 20, 50] })
   sheets.push(...markupSheets({ markup: resolved.settings.markup ?? {}, styleMap: resolved.settings.styleMap ?? {} }))
   return writeXlsx(sheets)
 }

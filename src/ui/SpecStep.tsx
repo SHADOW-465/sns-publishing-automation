@@ -5,6 +5,7 @@ import { Help } from './wizard.tsx'
 import { download } from './shared.tsx'
 import { openSpec, setRule, giveWaiver, decide, applyLabels, applyLayerData, applyInstruction, type Spec, type SpecContext } from '../engine/spec/session.ts'
 import { InstructionCard, loadApplied } from './InstructionCard.tsx'
+import { conflictNotes } from '../engine/spec/precedence.ts'
 import { instructionNotes } from '../engine/spec/instruction.ts'
 import type { DecisionNote } from '../engine/review/decisions.ts'
 import { LEVEL_LABEL, type Level } from '../engine/spec/layers.ts'
@@ -167,6 +168,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
           guard(async () => {
             const next = a ? await applyInstruction(spec, a) : await openSpec({ ...spec.ctx, instruction: undefined })
             onSpec(next)
+            onNotes?.(conflictNotes(next.resolved))
             if (a) onNotes?.(instructionNotes({ compiled: a.compiled, refused: a.refused, resolved: next.resolved }))
           })
         }

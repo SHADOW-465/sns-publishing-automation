@@ -16,6 +16,7 @@ import { readRequirements } from '../engine/spec/requirements.ts'
 import { jobChoice } from './job-choice.ts'
 import { InstructionCard, loadApplied } from './InstructionCard.tsx'
 import { actorName } from './SpecStep.tsx'
+import { conflictNotes } from '../engine/spec/precedence.ts'
 import { instructionNotes, knobsOf, type AppliedInstruction } from '../engine/spec/instruction.ts'
 import type { ReviewItem } from '../engine/epub/package.ts'
 
@@ -109,6 +110,7 @@ export function PdfUaFlow() {
       // the instruction's directives that have a setting here (caption_style); the rest are in REVIEW_NOTES as hints
       const captionStyle = instructionNow && knobsOf(instructionNow.compiled).captionStyle
       const options = { ...uaOptionsFrom(uaSpec.resolved.settings), ...(captionStyle ? { captionStyle } : {}) }
+      rn.add(conflictNotes(uaSpec.resolved))
       if (instructionNow) rn.add(instructionNotes({ compiled: instructionNow.compiled, refused: instructionNow.refused, resolved: uaSpec.resolved }))
       const built = await buildUa(a!, {
         styles, meta: metaNow, alt: altNow, spec, ai: aiNow, decorative: decorativeNow, cropToTrim: crop, sourceName: pdf!.name, options,

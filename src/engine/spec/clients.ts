@@ -17,6 +17,8 @@ export interface ClientFile {
   file: string
   /** rule ID → value */
   values?: Record<string, RuleValue>
+  /** rule ID → date (ISO) of the client correction that gave the value; a correction dated after the spec document beats it */
+  corrections?: Record<string, string>
   labels?: Record<string, Record<string, string>>
   markup?: Partial<Record<MarkupRole, MarkupTemplate>>
   styleMap?: Record<string, StyleRule>
@@ -37,6 +39,6 @@ export function bundledLayer(level: Level, name: string, files: ClientFile[] = C
   layer.markup = c.markup
   layer.styleMap = c.styleMap
   layer.css = c.css
-  for (const id of Object.keys(layer.values)) layer.sources[id] = { file: c.file, where: 'client style', text: `${id} = ${String(layer.values[id])}`, by: 'person' }
+  for (const id of Object.keys(layer.values)) layer.sources[id] = { file: c.file, where: 'client style', text: `${id} = ${String(layer.values[id])}`, by: 'person', ...(c.corrections?.[id] ? { correction: true, date: c.corrections[id] } : {}) }
   return layer
 }

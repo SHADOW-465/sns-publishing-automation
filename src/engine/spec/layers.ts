@@ -11,7 +11,7 @@
 // Every resolved value says which layer (and which file and row, for imported requirements) set it.
 // =============================================================================================
 import { DEFAULT_SETTINGS, type HouseSettings, type MarkupTemplate, type MarkupRole, type StyleRule } from '../settings.ts'
-import { RULES, ruleById, needsWaiver, type RuleValue } from './rules.ts'
+import { RULES, ruleById, needsWaiver, show, type RuleValue } from './rules.ts'
 import { baseSettings, defaultFor, type OutputKind } from '../output/standards.ts'
 import type { BookDetails } from './bookdetails.ts'
 
@@ -24,6 +24,10 @@ export interface Source {
   where: string // "row 14", "paragraph 3"
   text: string // the requirement as written
   by: 'keywords' | 'ai' | 'template' | 'person'
+  /** a client correction (the rulebook); with `date` it beats a spec document dated before it (OPUS_DESIGN2 a.3) */
+  correction?: boolean
+  /** ISO date the document was written; none means older than every correction */
+  date?: string
 }
 export interface Waiver {
   at: string // ISO time
@@ -53,12 +57,24 @@ export interface Layer {
 
 export const emptyLayer = (level: Level, name: string): Layer => ({ level, name, values: {}, sources: {}, waivers: {}, updatedAt: new Date().toISOString() })
 
+/** Two sources that disagree, or a source that asks for a locked change (OPUS_DESIGN2 a.3). `ask` is the question for the client, when one is needed. */
+export interface Conflict {
+  kind: 'locked' | 'correction' | 'same-source'
+  ruleId: string
+  quotes: string[]
+  item: string
+  chosen: string
+  ask?: string
+}
+
 export interface Resolved {
   settings: HouseSettings
   /** rule ID → who set the value in effect */
   from: Record<string, { level: Level | 'default'; name: string; source?: Source; waiver?: Waiver; basis?: { plain: string; standard: string }; overrode?: { level: Level; name: string; source?: Source; value: RuleValue } }>
   /** advisory values that were asked for but have no waiver yet (the accessible value stays in effect) */
   pendingWaivers: { ruleId: string; level: Level; name: string; value: RuleValue }[]
+  /** where sources disagreed and what was kept: REVIEW_NOTES lines and the client's open questions (precedence.ts) */
+  conflicts: Conflict[]
 }
 
 /** The settings in effect for a build: every layer applied in order, with provenance. A value no layer sets is the default of the
@@ -68,6 +84,7 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
   const settings = { ...base } as Record<string, unknown>
   const from: Resolved['from'] = {}
   const pendingWaivers: Resolved['pendingWaivers'] = []
+  const conflicts: Conflict[] = []
   for (const r of RULES) if (r.key) from[r.id] = { level: 'default', name: '', ...(kind ? { basis: (({ plain, standard }) => ({ plain, standard }))(defaultFor(kind, r.id)) } : {}) }
   const ordered = [...layers].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || (a.rank ?? 0) - (b.rank ?? 0))
   const labels: Record<string, Record<string, string>> = {}
@@ -75,6 +92,11 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
   for (const layer of ordered) {
     for (const [id, value] of Object.entries(layer.values)) {
       const r = ruleById.get(id)
+      const src = layer.sources[id]
+      if (r?.kind === 'locked' && src && !(r.key && JSON.stringify(settings[r.key]) === JSON.stringify(value))) {
+        const said = `“${src.text}” (${src.file}, ${src.where})`
+        conflicts.push({ kind: 'locked', ruleId: id, quotes: [src.text], item: `${src.file} asked to change ${r.title} (${id}): “${src.text}”`, chosen: `Not applied: breaks ${r.origin}. The rule stays as it is.`, ask: `${r.title} (${id}): your file says ${said}, but ${r.origin} does not allow it, so it was not applied. Please confirm or change the requirement.` })
+      }
       if (!r || !r.key || r.kind === 'locked') continue
       if (needsWaiver(r, value) && !layer.waivers[id]) {
         pendingWaivers.push({ ruleId: id, level: layer.level, name: layer.name, value })
@@ -82,6 +104,21 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
       }
       // an instruction that replaces a value some layer set says whose it was (REVIEW_NOTES: "spec row 14 said …")
       const was = from[id]
+      const differs = JSON.stringify(settings[r.key]) !== JSON.stringify(value)
+      // spec over rulebook, except a client correction dated after the spec document (an undated spec is older than every correction)
+      if (!layer.rank && src && differs && was.level === 'client' && was.source?.correction && later(was.source.date, src.date)) {
+        const c = was.source, title = `${r.title} (${id})`, said = `“${src.text}” (${src.file}, ${src.where})`, corr = `“${c.text}” (${c.file}, ${c.where}, ${c.date})`
+        conflicts.push({
+          kind: 'correction', ruleId: id, quotes: [src.text, c.text],
+          item: `The spec and a later client correction disagree on ${title}: ${said} and ${corr}`,
+          chosen: `Used ${show(r, settings[r.key] as RuleValue)}, the client's correction of ${c.date}, over the spec.`,
+          ask: `${title}: the spec says ${said}, but a later correction says ${corr}. We used the correction. Is that right?`,
+        })
+        continue
+      }
+      // two rows of one file on different levels: the level nearest the book wins, listed without a question
+      if (!layer.rank && src && differs && was.source && was.source.file === src.file && was.level !== layer.level)
+        conflicts.push({ kind: 'same-source', ruleId: id, quotes: [was.source.text, src.text], item: `Two rows of ${src.file} disagree on ${r.title} (${id}): “${was.source.text}” (${was.source.where}) and “${src.text}” (${src.where})`, chosen: `Used ${show(r, value)} (${src.where}), the row nearest the book.` })
       const overrode = layer.rank && was.level !== 'default' && JSON.stringify(settings[r.key]) !== JSON.stringify(value) ? { level: was.level, name: was.name, source: was.source, value: settings[r.key] as RuleValue } : undefined
       settings[r.key] = value
       from[id] = { level: layer.level, name: layer.name, source: layer.sources[id], waiver: layer.waivers[id], ...(overrode ? { overrode } : {}) }
@@ -102,7 +139,13 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
   settings.markup = markup
   settings.styleMap = styleMap
   settings.extraCss = css.join('\n')
-  return { settings: settings as unknown as HouseSettings, from, pendingWaivers }
+  return { settings: settings as unknown as HouseSettings, from, pendingWaivers, conflicts }
+}
+
+/** Is the correction dated strictly after the spec document? A correction with no valid date never is; a spec with none always is older. */
+const later = (correction?: string, spec?: string) => {
+  const c = Date.parse(correction ?? ''), s = Date.parse(spec ?? '')
+  return !isNaN(c) && (isNaN(s) || c > s)
 }
 
 /** A layer holding the differences between a settings object and the defaults (the house layer from the Settings screen). */
