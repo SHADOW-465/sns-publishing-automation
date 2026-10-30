@@ -5,3 +5,4 @@ export function toolPaths(): { java: string; jar: string; dir: string } | null
 export function runEpubcheck(epub: Uint8Array): Promise<{ errors: string[]; warnings: string[] } | null>
 export function epubcheckHandler(req: IncomingMessage, res: ServerResponse): void
 export function epubcheckPlugin(): Plugin
+export const JVM_ARGS: string[]

@@ -17,3 +17,7 @@ EPUB_output/
 
 # page reader answers (OPUS_DESIGN2 b.6): per book, rebuilt by --replay
 cache/
+
+# JVM crash logs from EPUBCheck (T29)
+hs_err_*
+replay_*

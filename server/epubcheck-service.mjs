@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
+/** The JVM options for EPUBCheck, shared with test/epubcheck.ts: a heap cap with room, and no C2 compiler (its crashes wrote the hs_err_* logs). */
+export const JVM_ARGS = ['-Xmx768m', '-XX:TieredStopAtLevel=1', '-Xss2m', '-XX:+UseSerialGC']
+
 export function toolDirs() {
   return [process.env.EPUBCHECK_HOME, process.resourcesPath && join(process.resourcesPath, 'tools'), resolve(here, '../tools')].filter(Boolean)
 }
@@ -39,7 +42,7 @@ export async function runEpubcheck(epub) {
   writeFileSync(file, epub)
   try {
     const output = await new Promise((done) =>
-      execFile(p.java, ['-Xmx384m', '-Xss2m', '-XX:+UseSerialGC', '-jar', p.jar, file], { encoding: 'utf8', timeout: 240_000, maxBuffer: 32 << 20 }, (_e, out, err) => done(`${out}${err}`)),
+      execFile(p.java, [...JVM_ARGS, '-jar', p.jar, file], { encoding: 'utf8', timeout: 240_000, maxBuffer: 32 << 20 }, (_e, out, err) => done(`${out}${err}`)),
     )
     const lines = output.split(/\r?\n/)
     // EPUBCheck always ends with its "Messages: …" count; without it Java did not start, the jar failed or the time ran out

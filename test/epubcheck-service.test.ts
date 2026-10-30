@@ -41,7 +41,7 @@ test('an EPUBCheck that did not run (no jar, a Java that will not start) is "did
   const home = mkdtempSync(join(tmpdir(), 'epc-home-'))
   const before = process.env.EPUBCHECK_HOME
   try {
-    // a "java" that refuses the JVM options and exits: node itself (it rejects -Xmx384m)
+    // a "java" that refuses the JVM options and exits: node itself (it rejects -Xmx768m)
     const bin = join(home, 'jdk-0-fake', 'bin')
     mkdirSync(bin, { recursive: true })
     const java = join(bin, process.platform === 'win32' ? 'java.exe' : 'java')
