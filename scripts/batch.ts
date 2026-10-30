@@ -31,6 +31,8 @@ import type { PageDecision } from '../src/engine/pdf/decision.ts'
 import type { VisionConfig } from '../src/engine/epub/alt-ai.ts'
 import type { ReviewItem } from '../src/engine/epub/package.ts'
 import { openSpec } from '../src/engine/spec/session.ts'
+import { aiPageSet, compileInstruction, holdStrict, instructionLayer, instructionNotes, knobsOf, skipDecisions, type AppliedInstruction, type Compile } from '../src/engine/spec/instruction.ts'
+import { fileCache, readInstruction } from '../src/engine/spec/instruction-fs.ts'
 import { nodeRaster } from '../test/raster-node.ts'
 import { read } from '../test/samples.ts'
 
@@ -49,18 +51,37 @@ const loadJson = <T>(file: string): T | undefined => (existsSync(file) ? (JSON.p
 
 // ---- the stages, in the child process (--stage=<phase> --book=<pdf> --work=<dir>) --------------------------------------------------------
 
-/** analyse once; the options are the house Accessible PDF settings (a client's layer is not known before the book is read) */
-async function open(pdf: string) {
-  const options = uaOptionsFrom((await openSpec({ client: '', series: '', book: basename(pdf, '.pdf'), kind: 'accessible-pdf' })).resolved.settings)
+/**
+ * The book's typed instruction (T21): `instruction.txt` in the job folder, or `<book>.instruction.txt` beside the PDF. `live` asks the model
+ * (only the page-reader stage has one); the other stages read the compile from the cache, so the same text is the same rules in every stage.
+ * ponytail: unattended, so only confident items that touch no accessibility rule become rules; the rest are hints and are listed.
+ */
+async function instructionFor(pdf: string, work: string, pages: number, live: boolean): Promise<{ text?: string; result?: Compile; applied?: AppliedInstruction }> {
+  const text = readInstruction(work, pdf)
+  if (!text) return {}
+  const result = await compileInstruction(text, cfg(), { pages, cache: fileCache(resolve('cache', 'instruction')), cacheOnly: !live })
+  return { text, result, ...(result.ok ? { applied: { compiled: result.compiled, actor: 'batch', at: new Date().toISOString(), text, unattended: true } } : {}) }
+}
+
+/** analyse once; the options are the Accessible PDF settings (a client's layer is not known before the book is read), then the instruction's */
+async function open(pdf: string, work: string, live = false) {
+  const book = basename(pdf, '.pdf')
+  const task = pdfjs.getDocument({ data: new Uint8Array(read(pdf)) })
+  const pages = (await task.promise).numPages
+  await task.destroy()
+  const ins = await instructionFor(pdf, work, pages, live)
+  const spec = await openSpec({ client: '', series: '', book, kind: 'accessible-pdf', ...(ins.applied ? { instruction: ins.applied } : {}) })
+  const knobs = ins.applied && knobsOf(ins.applied.compiled)
+  const options = { ...uaOptionsFrom(spec.resolved.settings), ...(knobs?.captionStyle ? { captionStyle: knobs.captionStyle } : {}) }
   const a = await analyzeUa(pdfjs, nodeRaster, { main: read(pdf), extras: [], options })
-  return { a, options }
+  return { a, options, spec, ins, knobs }
 }
 const make = async (a: Awaited<ReturnType<typeof open>>['a'], pdf: string, options: Awaited<ReturnType<typeof open>>['options'], decisions?: PageDecision[]) =>
   buildUa(a, { styles: a.styles, meta: { ...a.meta, isbn: '' }, alt: {}, cropToTrim: true, sourceName: basename(pdf), options: { ...options, ...(decisions ? { decisions } : {}) } })
 
 const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
   async build(pdf, work) {
-    const { a, options } = await open(pdf)
+    const { a, options } = await open(pdf, work)
     const r = await make(a, pdf, options)
     writeFileSync(join(work, 'book.pdf'), r.pdf)
     json(join(work, 'review.json'), r.review)
@@ -68,12 +89,16 @@ const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
 
   async ai(pdf, work) {
     const model = cfg()
-    const { a, options } = await open(pdf)
+    const { a, options, spec, ins, knobs } = await open(pdf, work, true)
     const roles = new Map<string, UaRole>(a.styles.map((s) => [s.key, s.role]))
     const evidence = a.book.evidence
     if (!evidence) throw new Error('the book has no page evidence')
     const st = buildStructure(a.book, roles, cloneFigs(a.detected), options)
-    const flagged = uaPageFlags(evidence, st, roles).filter((p) => p.flags.length)
+    const flagMap = new Map(uaPageFlags(evidence, st, roles).filter((p) => p.flags.length).map((p) => [p.evidence.page, p.flags]))
+    // ai_pages (instruction): the flagged pages by default, every page, or the flagged pages and the named ones
+    const asked = aiPageSet(knobs?.aiPages ?? 'flagged', [...flagMap.keys()], evidence.map((e) => e.page))
+    const flagged = evidence.filter((e) => asked.includes(e.page)).map((e) => ({ evidence: e, flags: flagMap.get(e.page) ?? [] }))
+    const unattended = ins.applied ? instructionLayer(spec.ctx.book, ins.applied.compiled, ins.applied) : undefined
     const doc = (a.book as unknown as { doc: { getPage(n: number): Promise<unknown> } }).doc
     const hashes = new Map<number, string>()
     const pages: PageRequest[] = []
@@ -81,7 +106,7 @@ const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
       const page = await doc.getPage(ev.page)
       const images = [{ dpi: 150, png: await renderPage(nodeRaster, page, 150) }]
       if (flags.some((f) => f.flag === 'figure-pieces')) for (const b of ev.blocks.filter((x) => x.kind === 'figure')) images.push({ dpi: 300, png: await renderPage(nodeRaster, page, 300, { x0: b.bbox[0], y0: b.bbox[1], x1: b.bbox[2], y1: b.bbox[3] }) })
-      pages.push({ ev, images, hints: flags.map((f) => f.reason) })
+      pages.push({ ev, images, hints: [...flags.map((f) => f.reason), ...(unattended?.asHints ?? []), ...(knobs?.hintsFor(ev.page) ?? [])] })
       hashes.set(ev.page, sha(JSON.stringify(a.book.pages[ev.page - 1]?.lines.map((l) => [l.text, l.x0, l.y, l.size, l.key]) ?? [])))
     }
     const repeats = new Map<string, number>()
@@ -113,16 +138,20 @@ const stages: Record<Phase, (pdf: string, work: string) => Promise<void>> = {
       pages, ask, rebuild, model: model.model, keyOf: (p) => keys.get(p),
       validate: (ev, ops) => validate(ev, ops, { lineText: lineTexts(a.book.pages[ev.page - 1] as unknown as EvidencePage, ev.page), repeats: (t) => repeats.get(t.trim()) ?? 0, runningHeads: options.runningHeads, captionIn: options.captionIn }),
     })
-    json(join(work, 'decisions.json'), res.decisions)
-    json(join(work, 'notes.json'), res.notes)
+    // strict_review (instruction): the page reader's edits on those pages wait for a person; skip_pages as artifact is a person's decision
+    const done = knobs ? holdStrict(res, knobs) : { ...res, held: [] as PageDecision[] }
+    json(join(work, 'decisions.json'), [...(knobs ? skipDecisions(evidence, knobs) : []), ...done.decisions])
+    json(join(work, 'pending.json'), done.held)
+    const said = ins.result && !ins.result.ok ? { unreadable: { text: ins.text ?? '', why: ins.result.why } } : { compiled: ins.applied?.compiled, refused: ins.result?.ok ? ins.result.refused : [], resolved: spec.resolved, partly: unattended?.partly }
+    json(join(work, 'notes.json'), [...(ins.text ? instructionNotes(said) : []), ...done.notes])
     writeFileSync(join(work, 'DECISIONS.jsonl'), decisionsJsonl(res.log))
   },
 
   /** the rebuild with the answers; book.pdf is replaced only when it is whole, so a failure here leaves the first build to be validated */
   async apply(pdf, work) {
     const decisions = loadJson<PageDecision[]>(join(work, 'decisions.json')) ?? []
-    if (!decisions.length) return
-    const { a, options } = await open(pdf)
+    if (!decisions.length && !readInstruction(work, pdf)) return
+    const { a, options } = await open(pdf, work)
     const r = await make(a, pdf, options, decisions)
     writeFileSync(join(work, 'book.next.pdf'), r.pdf)
     renameSync(join(work, 'book.next.pdf'), join(work, 'book.pdf'))

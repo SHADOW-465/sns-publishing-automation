@@ -278,6 +278,7 @@ test('the only other disabled conditions are jobs that run, helpers that need a 
     '!!busy || !visionOn || needAlt.length === 0', 'busy || !visionOn || todo === 0', 'busy || !visionOn || todo.length === 0', // "Draft the missing descriptions": a helper, not a way on
     'im.decorative', '!!decorative[f.key]', // the description box of a decorative picture
     '!epub || !!busy', // the stand-alone checker has nothing to check without a file
+    'busy || !text.trim()', // "Read my instruction": a helper that has nothing to read without text; the instruction is optional
     "certifyBlocked && (k === 'certifiedBy' || k === 'conformsTo')", // the certification fields stay empty while AI drafts are unapproved
     "!spec?.layers.some((l) => l.level === 'client')", // a choice in a list
     '!s.enabled', 'plan.disabled', 'at <= 0', 'at >= list.length - 1', // the step bar, Next while busy, Previous/Next page in the print compare

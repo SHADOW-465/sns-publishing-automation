@@ -424,6 +424,7 @@ export function IndesignFlow() {
           pictures={images.map((im) => ({ file: im.src.split('/').pop()!, alt: im.decorative ? '' : im.alt, decorative: im.decorative, longDesc: im.longDesc }))}
           onPictures={applyPictures}
           onSpec={(s) => (setSpec(s), setStale(true))}
+          onNotes={rn.add}
           onDecided={(d) => (setDecision(d), rebuild(3))}
           onBack={() => setStep(1)}
         />

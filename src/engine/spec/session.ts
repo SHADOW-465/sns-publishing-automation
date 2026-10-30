@@ -8,6 +8,7 @@ import type { OutputKind } from '../output/standards.ts'
 import type { LayerData } from './markup.ts'
 import type { BookDetails } from './bookdetails.ts'
 import { store, type Decision, type DecisionAction } from './store.ts'
+import { instructionLayer, type AppliedInstruction } from './instruction.ts'
 
 export interface SpecContext {
   client: string // publisher
@@ -15,12 +16,16 @@ export interface SpecContext {
   book: string // e-ISBN or title
   /** the output type: what a value no layer sets falls back to */
   kind?: OutputKind
+  /** the typed instruction for this book, as the operator accepted it (OPUS_DESIGN2 a.4) */
+  instruction?: AppliedInstruction
 }
 
 export interface Spec {
   ctx: SpecContext
   house: HouseSettings // the Settings screen, before any layer
   layers: Layer[] // client, series, book (house is folded into `house`)
+  /** the book's instruction as a layer above `book` (rank 1): not one of the layers a person edits */
+  instruction?: Layer
   resolved: Resolved
 }
 
@@ -28,10 +33,11 @@ export interface Spec {
 export async function openSpec(ctx: SpecContext, house: HouseSettings = houseSettings()): Promise<Spec> {
   const get = async (level: Level, name: string) => (name.trim() ? ((await store().getLayer(level, name)) ?? bundledLayer(level, name) ?? emptyLayer(level, name)) : undefined)
   const layers = [await get('client', ctx.client), await get('series', ctx.series), await get('book', ctx.book)].filter((l): l is Layer => !!l)
-  return { ctx, house, layers, resolved: resolveSpec(house, layers, ctx.kind) }
+  const instruction = ctx.instruction && instructionLayer(ctx.book, ctx.instruction.compiled, ctx.instruction).layer
+  return { ctx, house, layers, ...(instruction ? { instruction } : {}), resolved: resolveSpec(house, layers, ctx.kind, instruction) }
 }
 
-export const resolveSpec = (house: HouseSettings, layers: Layer[], kind?: OutputKind) => resolve([layerFromSettings('house', '', house, DEFAULT_SETTINGS), ...layers], DEFAULT_SETTINGS, kind)
+export const resolveSpec = (house: HouseSettings, layers: Layer[], kind?: OutputKind, instruction?: Layer) => resolve([layerFromSettings('house', '', house, DEFAULT_SETTINGS), ...layers, ...(instruction ? [instruction] : [])], DEFAULT_SETTINGS, kind)
 
 async function log(spec: Spec, actor: string, action: DecisionAction, detail: string, extra: Partial<Decision> = {}) {
   return store().addDecision({ actor: actor || '(no name)', action, client: spec.ctx.client, book: spec.ctx.book, detail, specHash: specHash(spec.resolved.settings), ...extra })
@@ -120,7 +126,7 @@ export async function decide(spec: Spec, actor: string, accepted: boolean): Prom
 
 const withLayer = (spec: Spec, layer: Layer): Spec => {
   const layers = spec.layers.map((l) => (l.level === layer.level ? layer : l))
-  return { ...spec, layers, resolved: resolveSpec(spec.house, layers, spec.ctx.kind) }
+  return { ...spec, layers, resolved: resolveSpec(spec.house, layers, spec.ctx.kind, spec.instruction) }
 }
 
 /** Remember what a source style means on the client's (or this book's) layer: the next book of that client applies it with no review item. */
@@ -148,6 +154,20 @@ export async function migrateProfile(spec: Spec, profile: Record<string, { role:
   await store().saveLayer(next)
   const out = withLayer(spec, next)
   await log(out, actor, 'change', `Client (${layer.name}): ${add.length} saved style meaning${add.length === 1 ? '' : 's'} moved from this browser into the client rules`)
+  return out
+}
+
+/**
+ * "Yes, that is what I meant": the compiled instruction becomes the book's instruction layer, above the spec rows. An accessibility-lowering
+ * value whose words ask for it carries the quote, the actor and the time as its waiver, and the log says so (OPUS_DESIGN2 a.3).
+ */
+export async function applyInstruction(spec: Spec, applied: AppliedInstruction): Promise<Spec> {
+  const { layer } = instructionLayer(spec.ctx.book, applied.compiled, applied)
+  const out: Spec = { ...spec, ctx: { ...spec.ctx, instruction: applied }, instruction: layer, resolved: resolveSpec(spec.house, spec.layers, spec.ctx.kind, layer) }
+  const n = Object.keys(layer.values).length
+  const text = applied.text?.replace(/\s+/g, ' ').trim()
+  await log(out, applied.actor, 'import', `Instruction for this book${applied.unattended ? ' (unattended)' : ''}: ${n} rule(s), ${applied.compiled.directives.length} directive(s), ${applied.compiled.hints.length} hint(s)${text ? ` — “${text.slice(0, 200)}”` : ''}`)
+  for (const [id, w] of Object.entries(layer.waivers)) await log(out, w.by, 'waiver', `${id} = ${show(ruleById.get(id)!, layer.values[id])}: “${w.text}” (typed in the instruction)`, { ruleId: id })
   return out
 }
 

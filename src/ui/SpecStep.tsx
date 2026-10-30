@@ -3,7 +3,10 @@ import { RuleList } from './SpecEditor.tsx'
 import { RequirementsImport } from './RequirementsImport.tsx'
 import { Help } from './wizard.tsx'
 import { download } from './shared.tsx'
-import { openSpec, setRule, giveWaiver, decide, applyLabels, applyLayerData, type Spec, type SpecContext } from '../engine/spec/session.ts'
+import { openSpec, setRule, giveWaiver, decide, applyLabels, applyLayerData, applyInstruction, type Spec, type SpecContext } from '../engine/spec/session.ts'
+import { InstructionCard, loadApplied } from './InstructionCard.tsx'
+import { instructionNotes } from '../engine/spec/instruction.ts'
+import type { DecisionNote } from '../engine/review/decisions.ts'
 import { LEVEL_LABEL, type Level } from '../engine/spec/layers.ts'
 import { specWorkbook } from '../engine/spec/requirements.ts'
 import type { SpecPicture } from '../engine/epub/alt.ts'
@@ -23,7 +26,7 @@ export const actorName = () => {
   }
 }
 
-export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPictures }: {
+export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPictures, onNotes }: {
   ctx: SpecContext
   spec?: Spec
   onSpec: (s: Spec) => void
@@ -32,6 +35,8 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
   /** picture descriptions written into the spec workbook, and read back from it */
   pictures?: SpecPicture[]
   onPictures?: (pictures: SpecPicture[]) => void
+  /** what the instruction overrode or could not apply, for REVIEW_NOTES */
+  onNotes?: (notes: DecisionNote[]) => void
 }) {
   const [actor, setActor] = useState(actorName())
   const [series, setSeries] = useState(ctx.series)
@@ -41,7 +46,7 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
   const [log, setLog] = useState<Decision[]>([])
 
   useEffect(() => {
-    if (!spec || spec.ctx.client !== ctx.client || spec.ctx.book !== ctx.book || spec.ctx.series !== series) openSpec({ ...ctx, series }).then(onSpec)
+    if (!spec || spec.ctx.client !== ctx.client || spec.ctx.book !== ctx.book || spec.ctx.series !== series) openSpec({ ...ctx, series, instruction: loadApplied(ctx.book) }).then(onSpec)
   }, [ctx.client, ctx.book, series]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     store().listDecisions({ client: ctx.client, book: ctx.book }).then(setLog)
@@ -153,6 +158,19 @@ export function SpecStep({ ctx, spec, onSpec, onDecided, onBack, pictures, onPic
           your name and the time are recorded.
         </Help>
       </section>
+
+      <InstructionCard
+        book={ctx.book}
+        actor={actor}
+        applied={spec.ctx.instruction}
+        onApplied={(a) =>
+          guard(async () => {
+            const next = a ? await applyInstruction(spec, a) : await openSpec({ ...spec.ctx, instruction: undefined })
+            onSpec(next)
+            if (a) onNotes?.(instructionNotes({ compiled: a.compiled, refused: a.refused, resolved: next.resolved }))
+          })
+        }
+      />
 
       <RequirementsImport
         levels={levels}

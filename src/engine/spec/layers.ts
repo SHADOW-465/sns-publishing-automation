@@ -32,6 +32,8 @@ export interface Waiver {
 }
 export interface Layer {
   level: Level
+  /** order inside one level: a book's instruction (rank 1) is read after its spec (rank 0, the default) and wins over it (OPUS_DESIGN2 a.3) */
+  rank?: number
   name: string // "" for house, the publisher for client, the series name, the book (ISBN or title)
   values: Record<string, RuleValue> // rule ID → value
   sources: Record<string, Source>
@@ -54,7 +56,7 @@ export const emptyLayer = (level: Level, name: string): Layer => ({ level, name,
 export interface Resolved {
   settings: HouseSettings
   /** rule ID → who set the value in effect */
-  from: Record<string, { level: Level | 'default'; name: string; source?: Source; waiver?: Waiver; basis?: { plain: string; standard: string } }>
+  from: Record<string, { level: Level | 'default'; name: string; source?: Source; waiver?: Waiver; basis?: { plain: string; standard: string }; overrode?: { level: Level; name: string; source?: Source; value: RuleValue } }>
   /** advisory values that were asked for but have no waiver yet (the accessible value stays in effect) */
   pendingWaivers: { ruleId: string; level: Level; name: string; value: RuleValue }[]
 }
@@ -67,7 +69,7 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
   const from: Resolved['from'] = {}
   const pendingWaivers: Resolved['pendingWaivers'] = []
   for (const r of RULES) if (r.key) from[r.id] = { level: 'default', name: '', ...(kind ? { basis: (({ plain, standard }) => ({ plain, standard }))(defaultFor(kind, r.id)) } : {}) }
-  const ordered = [...layers].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level))
+  const ordered = [...layers].sort((a, b) => LEVELS.indexOf(a.level) - LEVELS.indexOf(b.level) || (a.rank ?? 0) - (b.rank ?? 0))
   const labels: Record<string, Record<string, string>> = {}
   for (const [code, m] of Object.entries(base.labels ?? {})) labels[code] = { ...m }
   for (const layer of ordered) {
@@ -78,8 +80,11 @@ export function resolve(layers: Layer[], base: HouseSettings = DEFAULT_SETTINGS,
         pendingWaivers.push({ ruleId: id, level: layer.level, name: layer.name, value })
         continue
       }
+      // an instruction that replaces a value some layer set says whose it was (REVIEW_NOTES: "spec row 14 said …")
+      const was = from[id]
+      const overrode = layer.rank && was.level !== 'default' && JSON.stringify(settings[r.key]) !== JSON.stringify(value) ? { level: was.level, name: was.name, source: was.source, value: settings[r.key] as RuleValue } : undefined
       settings[r.key] = value
-      from[id] = { level: layer.level, name: layer.name, source: layer.sources[id], waiver: layer.waivers[id] }
+      from[id] = { level: layer.level, name: layer.name, source: layer.sources[id], waiver: layer.waivers[id], ...(overrode ? { overrode } : {}) }
     }
     for (const [code, m] of Object.entries(layer.labels ?? {})) labels[code] = { ...(labels[code] ?? {}), ...m }
   }

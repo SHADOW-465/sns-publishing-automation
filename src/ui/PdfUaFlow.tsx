@@ -14,6 +14,9 @@ import { specForFigures, type UaAnalysis } from '../engine/pdfua/index.ts'
 import { draftPictureAlts, mimeOf, visionConfig } from '../engine/epub/alt-ai.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
 import { jobChoice } from './job-choice.ts'
+import { InstructionCard, loadApplied } from './InstructionCard.tsx'
+import { actorName } from './SpecStep.tsx'
+import { instructionNotes, knobsOf, type AppliedInstruction } from '../engine/spec/instruction.ts'
 import type { ReviewItem } from '../engine/epub/package.ts'
 
 // Print PDF → accessible PDF (PDF/UA-1). The PDF is re-tagged from scratch; the reviewer checks
@@ -41,6 +44,7 @@ export function PdfUaFlow() {
   const [result, setResult] = useState<Built>()
   const [notice, setNotice] = useState<string>()
   const rn = useReviewNotes()
+  const [instruction, setInstruction] = useState<AppliedInstruction>()
 
   /** a failed job shows its error and returns undefined: the person can try again or go on anyway */
   const run = async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
@@ -99,8 +103,13 @@ export function PdfUaFlow() {
       const { openSpec } = await import('../engine/spec/session.ts')
       const { uaOptionsFrom } = await import('../engine/pdfua/structure.ts')
       // the client's layers, then the Accessible PDF defaults, give the options (heading level, bookmarks, logos, links)
-      const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book: metaNow.isbn || metaNow.title, kind: 'accessible-pdf' })
-      const options = uaOptionsFrom(uaSpec.resolved.settings)
+      const book = metaNow.isbn || metaNow.title
+      const instructionNow = instruction ?? loadApplied(book)
+      const uaSpec = await openSpec({ client: jobChoice()?.client || a!.book.meta.publisher, series: '', book, kind: 'accessible-pdf', ...(instructionNow ? { instruction: instructionNow } : {}) })
+      // the instruction's directives that have a setting here (caption_style); the rest are in REVIEW_NOTES as hints
+      const captionStyle = instructionNow && knobsOf(instructionNow.compiled).captionStyle
+      const options = { ...uaOptionsFrom(uaSpec.resolved.settings), ...(captionStyle ? { captionStyle } : {}) }
+      if (instructionNow) rn.add(instructionNotes({ compiled: instructionNow.compiled, refused: instructionNow.refused, resolved: uaSpec.resolved }))
       const built = await buildUa(a!, {
         styles, meta: metaNow, alt: altNow, spec, ai: aiNow, decorative: decorativeNow, cropToTrim: crop, sourceName: pdf!.name, options,
         onProgress: (done, total, stage) => {
@@ -354,6 +363,8 @@ export function PdfUaFlow() {
             }}
             onSheet={(file) => loadSheet(file)}
           />
+
+          <InstructionCard book={meta!.isbn || meta!.title} pages={a.book.pages.length} actor={actorName()} applied={instruction ?? loadApplied(meta!.isbn || meta!.title)} onApplied={setInstruction} />
 
           <section className="card">
             <h2>Build</h2>
