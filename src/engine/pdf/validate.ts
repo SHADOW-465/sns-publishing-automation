@@ -40,15 +40,15 @@ export interface Validated {
   needsSecond?: boolean
 }
 
-const ROLES = new Set<string>(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'Caption', 'Note', 'Artifact', 'Aside', 'LI', 'TOCI', 'BlockQuote'])
-const FIELDS: Record<string, string[]> = { order: ['ids'], role: ['id', 'role'], split: ['id', 'atLine', 'roles'], merge: ['ids'], continues: ['id', 'from'], figure: ['pieces', 'caption'], caption: ['figure', 'caption'], none: [] }
+export const ROLES = new Set<string>(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'Caption', 'Note', 'Artifact', 'Aside', 'LI', 'TOCI', 'BlockQuote'])
+export const FIELDS: Record<string, string[]> = { order: ['ids'], role: ['id', 'role'], split: ['id', 'atLine', 'roles'], merge: ['ids'], continues: ['id', 'from'], figure: ['pieces', 'caption'], caption: ['figure', 'caption'], none: [] }
 /** the engine was sure of its order when its confidence is at least this (LOW_CONFIDENCE in flags.ts) and a change this big needs a second opinion */
-const SURE = 0.85
-const BIG_CHANGE = 0.5
+export const SURE = 0.85
+export const BIG_CHANGE = 0.5
 // ponytail: "agrees" is the same tau as a big change; tune on the eval set (T25)
-const AGREE = 0.8
-const BAND = 0.08
-const MAX_HEADING_WORDS = 25
+export const AGREE = 0.8
+export const BAND = 0.08
+export const MAX_HEADING_WORDS = 25
 
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean)
 const strs = (x: unknown): x is string[] => Array.isArray(x) && x.every((s) => typeof s === 'string')
