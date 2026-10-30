@@ -21,19 +21,21 @@ export function lcs(a: string[], b: string[]): number {
   return prev[b.length]
 }
 
-/** which words of `a` one longest common subsequence with `b` uses (the full table, so pages only) */
-function aligned(a: string[], b: string[]): boolean[] {
+/** for each word of `a`, the place in `b` of the word one longest common subsequence pairs it with, or -1 (the full table, so pages only) */
+export function alignment(a: string[], b: string[]): number[] {
   const w = b.length + 1
   const t = new Uint32Array((a.length + 1) * w)
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) t[i * w + j] = a[i - 1] === b[j - 1] ? t[(i - 1) * w + j - 1] + 1 : Math.max(t[(i - 1) * w + j], t[i * w + j - 1])
-  const used = a.map(() => false)
+  const at = a.map(() => -1)
   for (let i = a.length, j = b.length; i && j; ) {
-    if (a[i - 1] === b[j - 1]) used[--i] = true, j--
+    if (a[i - 1] === b[j - 1]) at[--i] = --j
     else if (t[(i - 1) * w + j] >= t[i * w + j - 1]) i--
     else j--
   }
-  return used
+  return at
 }
+/** which words of `a` one longest common subsequence with `b` uses */
+const aligned = (a: string[], b: string[]): boolean[] => alignment(a, b).map((j) => j >= 0)
 
 /** the build's page with the reference's untagged text taken out: words that match the reference's tagged text stay, and of
  *  the rest those that line up with the untagged text go (so the reference against itself is untouched) */

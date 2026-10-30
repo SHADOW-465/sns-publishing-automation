@@ -21,9 +21,16 @@ export interface PdfStats {
   content: { artifactBlocks: number; markedBlocks: number; unmarkedPaintOps: number }
   /** only when pdfjs was given: per page, the words of the tagged text in the order the tag tree reads them; and the text of
    *  every caption, heading and figure element (on the page where it starts; a figure with text is a letter tagged as a picture); and per page, in content order, the words of text no
-   *  tag claims (marked content outside the tag tree, or text outside any marked content; artifacts are not text) */
-  order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[]; untagged: Record<number, string[]> }
+   *  tag claims (marked content outside the tag tree, or text outside any marked content; artifacts are not text); and
+   *  `elements`: the block-level elements (P, headings, Caption, Note, TOCI, list and table parts, Figure) in tag-tree order, each with
+   *  its page, its structure id (the same on every page an element runs on) and the words it holds on that page */
+  order?: { pages: Record<number, string[]>; roles: { role: string; page: number; text: string }[]; untagged: Record<number, string[]>; elements: { id: number; role: string; page: number; words: string[] }[] }
 }
+
+/** the elements that stand for a block of text or a picture: a marked-content sequence belongs to the nearest of these above it, or to
+ *  the outermost of those that give a role (a P inside a Note is the Note) */
+const BLOCKS = new Set(['P', 'H', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'Caption', 'Note', 'TOCI', 'Figure', 'Lbl', 'LBody', 'TD', 'TH', 'BlockQuote', 'Code', 'Formula'])
+const ROLE_BLOCKS = new Set(['H', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'Caption', 'Note', 'TOCI', 'Figure'])
 
 /** the roles the role-F1 report scores */
 export const SCORED_ROLES = ['Caption', 'H', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']
@@ -121,12 +128,18 @@ export async function pdfStats(data: Uint8Array, pdfjs?: any): Promise<PdfStats>
   const byRef = new Map<string, number>()
   const kidList = (k: PDFObject | undefined): PDFObject[] => (k === undefined ? [] : k instanceof PDFArray ? k.asArray() : [k])
   /** marked content in tag-tree order, with the caption or heading element it belongs to */
-  const marks: { page: number | null; mcid: number; owner: number | null }[] = []
+  const marks: { page: number | null; mcid: number; owner: number | null; block: number | null }[] = []
+  /** the block element a marked-content sequence under element `e` belongs to */
+  const blockOf = (e: number | null): number | null => {
+    let best: number | null = null
+    for (let k = e; k !== null; k = elems[k].parent) if (BLOCKS.has(elems[k].mapped) && (best === null || ROLE_BLOCKS.has(elems[k].mapped))) best = k
+    return best
+  }
   const walk = (node: PDFObject, parent: number | null, inheritedPage: number | null, owner: number | null) => {
     const o = node instanceof PDFRef ? ctx.lookup(node) : node
     if (o instanceof PDFNumber) {
       if (parent !== null) elems[parent].mcids++
-      marks.push({ page: inheritedPage, mcid: o.asNumber(), owner })
+      marks.push({ page: inheritedPage, mcid: o.asNumber(), owner, block: blockOf(parent) })
       return
     }
     if (!(o instanceof PDFDict)) return
@@ -135,7 +148,7 @@ export async function pdfStats(data: Uint8Array, pdfjs?: any): Promise<PdfStats>
       if (parent !== null) elems[parent].mcids++
       const pg = o.get(N('Pg'))
       const mcid = num(o.get(N('MCID')))
-      if (mcid !== undefined) marks.push({ page: pg instanceof PDFRef ? (pageIdx.get(pg.toString()) ?? inheritedPage) : inheritedPage, mcid, owner })
+      if (mcid !== undefined) marks.push({ page: pg instanceof PDFRef ? (pageIdx.get(pg.toString()) ?? inheritedPage) : inheritedPage, mcid, owner, block: blockOf(parent) })
       return
     }
     if (t === 'OBJR') {
@@ -262,15 +275,20 @@ async function markedText(pdfjs: any, data: Uint8Array): Promise<Map<string, str
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number | null; mcid: number; owner: number | null }[], elems: Elem[]): Promise<NonNullable<PdfStats['order']>> {
+async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number | null; mcid: number; owner: number | null; block: number | null }[], elems: Elem[]): Promise<NonNullable<PdfStats['order']>> {
   const txt = await markedText(pdfjs, data)
   const pages: Record<number, string[]> = {}
   const roles = new Map<number, { role: string; page: number; text: string }>()
   const claimed = new Set<string>()
+  const blocks = new Map<string, NonNullable<PdfStats['order']>['elements'][number]>()
   for (const m of marks) {
     if (m.page === null) continue
     claimed.add(`${m.page}:${m.mcid}`)
     const w = words(txt.get(`${m.page}:${m.mcid}`) ?? '')
+    if (m.block !== null) {
+      const b = blocks.get(`${m.block}:${m.page}`) ?? blocks.set(`${m.block}:${m.page}`, { id: m.block, role: elems[m.block].mapped, page: m.page, words: [] }).get(`${m.block}:${m.page}`)!
+      b.words.push(...w)
+    }
     if (!w.length) continue
     ;(pages[m.page] ??= []).push(...w)
     if (m.owner === null) continue
@@ -282,5 +300,6 @@ async function readingOrder(pdfjs: any, data: Uint8Array, marks: { page: number 
     const w = words(t)
     if (!claimed.has(k.replace(/!$/, '')) && w.length) (untagged[Number(k.split(':')[0])] ??= []).push(...w)
   }
-  return { pages, roles: [...roles.values()], untagged }
+  // a block with no words stays only when it is a picture
+  return { pages, roles: [...roles.values()], untagged, elements: [...blocks.values()].filter((e) => e.words.length || e.role === 'Figure') }
 }
