@@ -123,7 +123,8 @@ const DINGBAT = /wingding|dingbat|zapf|symbol|webding/i
 const PUA = /[-\u0000-\u0008\u000b-\u001f�]/g
 export const cleanFont = (n: string) => n.replace(/^[A-Z]{6}\+/, '')
 export const isBoldFont = (f: string) => /bold|black|heavy|semibold|demi|-[6-9]00\b|-[6-9]\d\d$/i.test(f)
-export const isItalicFont = (f: string) => /italic|oblique|-it$|-\w*it$|It$/.test(f) && !/italian/i.test(f)
+// the words match in any case (AGaramondPro-Italic); the short suffixes (-It, BoldIt) stay case-sensitive, or any name ending in "it" would match
+export const isItalicFont = (f: string) => (/italic|oblique/i.test(f) || /-it$|-\w*it$|It$/.test(f)) && !/italian/i.test(f)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any

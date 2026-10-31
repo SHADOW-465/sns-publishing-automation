@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { continuesIndexLine, linkIndexLocators } from '../src/engine/pdfua/indexlinks.ts'
+import { isBoldFont, isItalicFont } from '../src/engine/pdf/layout.ts'
 
 test('REGR-1: only a line of numbers, commas and dashes continues the previous index line', () => {
   assert.equal(continuesIndexLine('42, 44, 77'), true)
@@ -18,4 +19,11 @@ test('REGR-2: an abbreviated index range is written out in full and only its fir
   assert.equal(linkIndexLocators('Rome, 266-69'), 'Rome, <a href="#pg:266">266</a>-269')
   assert.equal(linkIndexLocators('Edge, 199-02'), 'Edge, <a href="#pg:199">199</a>-202')
   assert.equal(linkIndexLocators('Full, 192–195'), 'Full, <a href="#pg:192">192</a>–195', 'a range already in full is left as printed')
+})
+
+test('REGR-3: bold and italic font names are recognised whatever their case', () => {
+  for (const f of ['ZUHANU+AGaramondPro-Italic', 'AGaramondPro-ITALIC', 'Minion-Oblique', 'MinionPro-It', 'Arial,Italic']) assert.equal(isItalicFont(f), true, f)
+  for (const f of ['AGaramondPro-Regular', 'Italian-Text', 'Summit', 'FuturaPT-Book']) assert.equal(isItalicFont(f), false, f)
+  for (const f of ['AGaramondPro-Bold', 'AGARAMONDPRO-BOLD', 'FuturaPT-Demi', 'Arial-BoldMT', 'Myriad-SEMIBOLD']) assert.equal(isBoldFont(f), true, f)
+  for (const f of ['AGaramondPro-Regular', 'FuturaPT-Book', 'FuturaPT-Medium']) assert.equal(isBoldFont(f), false, f)
 })
