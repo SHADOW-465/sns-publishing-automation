@@ -130,7 +130,8 @@ function imageChoices(ex: Export, publisher: string, pictures: SpecPicture[]): I
   const lastText = ex.blocks.findLastIndex((b) => b.t === 'p' && !!b.text)
   const images: ImageChoice[] = []
   for (const [src, data] of ex.images) {
-    if (src === ex.coverImage || !data.length) continue
+    // an empty picture is skipped; bytes missing from the package are the same case (reading .length threw)
+    if (src === ex.coverImage || !data?.length) continue
     const { width, height } = imageSize(data)
     const at = ex.blocks.findIndex((b) => b.t === 'img' && b.src === src)
     const given = at < 0 ? '' : (ex.blocks[at] as { alt: string }).alt // alt text set in InDesign's object export options
@@ -1694,7 +1695,7 @@ function renderFront(
  * Only used when every line is found on the printed page; otherwise the export's order stays.
  */
 export function inPrintOrder(items: Block[], page?: PrintPage): Block[] {
-  if (!page?.lines.length) return items
+  if (!page?.lines?.length) return items
   const lines = page.lines.map((l) => norm(l.text))
   const ps = items.filter((b): b is PBlock => b.t === 'p' && !!b.text)
   const at = ps.map((b) => {

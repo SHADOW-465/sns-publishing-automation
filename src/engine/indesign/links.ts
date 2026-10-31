@@ -23,7 +23,7 @@ export function linkFiles(files: Files): Map<string, { path: string; data: Uint8
   const out = new Map<string, { path: string; data: Uint8Array }[]>()
   for (const [path, data] of files) {
     const p = norm(path)
-    if (!IS_LINK.test(p) || /(^|\/)(\._|\.DS_Store|Thumbs\.db)/i.test(p) || /(^|\/)__MACOSX\//.test(p) || !data.length) continue
+    if (!IS_LINK.test(p) || /(^|\/)(\._|\.DS_Store|Thumbs\.db)/i.test(p) || /(^|\/)__MACOSX\//.test(p) || !data?.length) continue
     const k = key(p)
     out.set(k, [...(out.get(k) ?? []), { path, data }])
   }

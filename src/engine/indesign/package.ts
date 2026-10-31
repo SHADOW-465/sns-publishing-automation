@@ -37,7 +37,7 @@ export function rootExport(files: Files): Files {
     for (const [k, v] of files) if (k.startsWith(prefix)) out.set(k.slice(prefix.length), v)
     return out
   }
-  const epub = [...files].filter(([k]) => /\.epub$/i.test(k)).sort((a, b) => b[1].length - a[1].length)[0]
+  const epub = [...files].filter((e): e is [string, Uint8Array] => /\.epub$/i.test(e[0]) && !!e[1]?.length).sort((a, b) => b[1].length - a[1].length)[0]
   if (!epub) return files
   const out: Files = new Map([...files].filter(([k]) => k !== epub[0]))
   for (const [k, v] of unzip(epub[1])) out.set(k, v)
