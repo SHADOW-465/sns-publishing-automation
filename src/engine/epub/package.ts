@@ -185,6 +185,61 @@ export interface Section {
   body: string
 }
 
+const pageFrag = /^(?:page-|Page_)\d+$/
+const idsIn = (body: string) => new Set([...body.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]))
+
+/** Two sections must not share a manifest id or a file name. The later one becomes title2 / title2.xhtml.
+ *  A link to an anchor that moves with that file is pointed at the new name. */
+function uniqueSectionIds(sections: Section[]): Section[] {
+  const usedId = new Set<string>()
+  const usedFile = new Set<string>()
+  const out: Section[] = []
+  for (const s of sections) {
+    let { id, file, body } = s
+    if (usedId.has(id) || usedFile.has(file)) {
+      const idBase = id.replace(/\d+$/, '') || 'section'
+      const dot = file.lastIndexOf('.')
+      const stem = (dot < 0 ? file : file.slice(0, dot)).replace(/\d+$/, '') || 'section'
+      const ext = dot < 0 ? '' : file.slice(dot)
+      let n = 2
+      while (usedId.has(`${idBase}${n}`) || usedFile.has(`${stem}${n}${ext}`)) n++
+      const nextFile = `${stem}${n}${ext}`
+      const here = idsIn(body)
+      const from = file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const rewrite = (html: string) => html.replace(new RegExp(`href="${from}#([^"]+)"`, 'g'), (full, frag: string) => (here.has(frag) ? `href="${nextFile}#${frag}"` : full))
+      for (const prev of out) prev.body = rewrite(prev.body)
+      body = rewrite(body)
+      id = `${idBase}${n}`
+      file = nextFile
+    }
+    usedId.add(id)
+    usedFile.add(file)
+    out.push({ ...s, id, file, body })
+  }
+  return out
+}
+
+/** A link to a printed-page anchor that is not in the target file is retargeted, or left as a file link / plain text. */
+function dropMissingPageAnchors(sections: Section[]): void {
+  const ids = new Map(sections.map((s) => [s.file, idsIn(s.body)]))
+  const owner = new Map<string, string>()
+  for (const [file, set] of ids) for (const id of set) if (pageFrag.test(id) && !owner.has(id)) owner.set(id, file)
+  for (const s of sections) {
+    s.body = s.body.replace(/<a\b([^>]*?)href="([^"]+)"([^>]*)>([\s\S]*?)<\/a>/g, (m, pre: string, href: string, post: string, inner: string) => {
+      const hash = href.indexOf('#')
+      if (hash < 0) return m
+      const frag = href.slice(hash + 1)
+      if (!pageFrag.test(frag)) return m
+      const rel = href.slice(0, hash)
+      const target = rel.split('/').pop() || s.file
+      if (ids.get(target)?.has(frag)) return m
+      const who = owner.get(frag)
+      if (who) return `<a${pre}href="${who === s.file ? `#${frag}` : `${who}#${frag}`}"${post}>${inner}</a>`
+      return rel ? `<a${pre}href="${rel}"${post}>${inner}</a>` : inner
+    })
+  }
+}
+
 export interface ReviewItem {
   level: 'error' | 'warn' | 'info'
   msg: string
@@ -277,13 +332,18 @@ export function packageEpub(p: {
   const prepared = prepareEpubImages(p.cover, p.images)
   // RSC-020: a web address typed with spaces ("facebook.com/Mr Luyen homestay ") is trimmed and its spaces encoded
   const cleanHrefs = (b: string) => b.replace(/href="(https?:[^"]*)"/g, (_, u: string) => `href="${u.trim().replace(/ /g, '%20')}"`)
-  const sectionsIn = sectionsIn0.map((s) => ({ ...s, body: cleanHrefs(rewriteImagePaths(s.body, prepared.renames)) }))
+  const sectionsIn = uniqueSectionIds(sectionsIn0.map((s) => ({ ...s, body: cleanHrefs(rewriteImagePaths(s.body, prepared.renames)) })))
   const standard = (meta.profile ?? settings().defaultProfile) === 'standard'
   const rtl = isRtl(meta.language)
   const L = labelsFor(meta.language)
-  const sections = standard ? sectionsIn.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : sectionsIn
-  const pageList = planned.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file })))
+  const sections = standard ? sectionsIn.map((x) => ({ ...x, body: toStandard(x.body, L, settings()) })) : sectionsIn.map((x) => ({ ...x }))
+  dropMissingPageAnchors(sections)
   const pageTarget = (n: string) => (standard ? pageAnchorId(n, settings().pageAnchorId) : `page-${n}`)
+  const writtenIds = new Map(sections.map((s) => [s.file, idsIn(s.body)]))
+  const pageList = sectionsIn.flatMap((s) => [...s.body.matchAll(/id="page-([^"]+)"/g)].map((m) => ({ n: m[1], file: s.file }))).filter((pg) => {
+    const ids = writtenIds.get(pg.file)
+    return !!ids && (ids.has(pageTarget(pg.n)) || ids.has(`page-${pg.n}`))
+  })
   const lang = meta.language
   const files: Files = new Map()
   const put = (path: string, s: string) => files.set(path, bytes(s))

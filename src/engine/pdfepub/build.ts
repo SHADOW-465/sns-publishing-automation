@@ -829,9 +829,22 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const author = meta.authors && p.lines.some((l) => l.text.toLowerCase().includes(meta.authors.toLowerCase()))
       const type: SectionType = known ? (idx === book.halfTitle ? 'halftitle' : 'title') : !halfDone && !author ? 'halftitle' : 'title'
       if (type === 'halftitle') halfDone = true
-      // a second title page (a series page, a title verso set like one) gets its own file: title2, never title twice
-      const nSame = front.filter((f) => f.type === type).length
-      const stem = known && type === 'title' && idx === book.titlePage ? 'title' : nSame ? `${type}${nSame + 1}` : type
+      // the known title page owns "title". An earlier page that is also typed title (a series page) must not take that
+      // stem: both became title.xhtml, the second write dropped the first, and the contents still linked to its anchor.
+      const used = new Set(front.map((f) => f.stem))
+      let stem: string
+      if (type === 'title') {
+        if (known && book.titlePage !== undefined && idx !== book.titlePage) used.add('title')
+        if (!used.has('title')) stem = 'title'
+        else {
+          let n = 2
+          while (used.has(`title${n}`)) n++
+          stem = `title${n}`
+        }
+      } else {
+        const nSame = front.filter((f) => f.type === type).length
+        stem = nSame ? `${type}${nSame + 1}` : type
+      }
       if (settings().titlePageAs === 'text') {
         front.push({ type, stem, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
         continue
