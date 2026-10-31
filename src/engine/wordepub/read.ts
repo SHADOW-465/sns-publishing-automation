@@ -96,12 +96,28 @@ function attr(el: Element | undefined, name: string): string {
   return ''
 }
 
+// The tree is walked by sibling pointers. Array.from(el.children) and Array.from(getElementsByTagName('*')) read a live collection
+// by index, which jsdom answers in time proportional to its length: quadratic on a long manuscript (8000 paragraphs took 100 s).
 function child(el: Element, name: string): Element | undefined {
-  return Array.from(el.children).find((c) => local(c) === name)
+  for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (local(c) === name) return c
+  return undefined
 }
 
 function kids(el: Element): Element[] {
-  return Array.from(el.children)
+  const out: Element[] = []
+  for (let c = el.firstElementChild; c; c = c.nextElementSibling) out.push(c)
+  return out
+}
+
+/** Every element of the document, in document order (what getElementsByTagName('*') lists). */
+function allElements(doc: Document): Element[] {
+  const out: Element[] = []
+  const walk = (el: Element) => {
+    out.push(el)
+    for (let c = el.firstElementChild; c; c = c.nextElementSibling) walk(c)
+  }
+  if (doc.documentElement) walk(doc.documentElement)
+  return out
 }
 
 /** "Capítulo 1. El método 12" and "1 El método" meet as the same contents entry. */
@@ -126,7 +142,7 @@ interface StyleInfo {
 function stylesOf(xml: string): Map<string, StyleInfo> {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
   const out = new Map<string, StyleInfo>()
-  for (const el of Array.from(doc.getElementsByTagName('*')).filter((e) => local(e) === 'style')) {
+  for (const el of allElements(doc).filter((e) => local(e) === 'style')) {
     const id = attr(el, 'styleId')
     if (!id) continue
     const pPr = child(el, 'pPr')
@@ -164,7 +180,7 @@ interface NumInfo {
 function numberingOf(xml: string): Map<string, Map<string, NumInfo>> {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
   const fmt = new Map<string, Map<string, NumInfo>>()
-  for (const abs of Array.from(doc.getElementsByTagName('*')).filter((e) => local(e) === 'abstractNum')) {
+  for (const abs of allElements(doc).filter((e) => local(e) === 'abstractNum')) {
     const id = attr(abs, 'abstractNumId')
     const levels = new Map<string, NumInfo>()
     for (const lvl of kids(abs).filter((e) => local(e) === 'lvl')) {
@@ -174,7 +190,7 @@ function numberingOf(xml: string): Map<string, Map<string, NumInfo>> {
     fmt.set(id, levels)
   }
   const out = new Map<string, Map<string, NumInfo>>()
-  for (const num of Array.from(doc.getElementsByTagName('*')).filter((e) => local(e) === 'num')) {
+  for (const num of allElements(doc).filter((e) => local(e) === 'num')) {
     const abs = fmt.get(attr(child(num, 'abstractNumId'), 'val'))
     if (abs) out.set(attr(num, 'numId'), abs)
   }
@@ -594,7 +610,7 @@ function allBold(inlines: WordInline[]): boolean {
 }
 
 function dcText(doc: Document, name: string): string {
-  for (const el of Array.from(doc.getElementsByTagName('*'))) {
+  for (const el of allElements(doc)) {
     const dc = el.tagName.startsWith('dc:') || el.prefix === 'dc' || (el.namespaceURI ?? '').includes('purl.org/dc')
     if (dc && local(el) === name) return (el.textContent ?? '').replace(/\s+/g, ' ').trim()
   }
@@ -606,7 +622,7 @@ function declaredLang(files: Map<string, Uint8Array>): string {
     const raw = files.get(path)
     if (!raw) continue
     const doc = new DOMParser().parseFromString(text(raw), 'application/xml')
-    const langs = Array.from(doc.getElementsByTagName('*')).filter((e) => local(e) === 'lang')
+    const langs = allElements(doc).filter((e) => local(e) === 'lang')
     const preferred = langs.find((el) => {
       let p: Element | null = el
       while (p) {
@@ -624,7 +640,7 @@ function declaredLang(files: Map<string, Uint8Array>): string {
 function relTargets(xml: string): Map<string, string> {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
   const out = new Map<string, string>()
-  for (const el of Array.from(doc.getElementsByTagName('*')).filter((e) => local(e) === 'Relationship')) {
+  for (const el of allElements(doc).filter((e) => local(e) === 'Relationship')) {
     const id = el.getAttribute('Id') ?? attr(el, 'Id')
     const target = el.getAttribute('Target') ?? attr(el, 'Target')
     if (id && target) out.set(id, target)
@@ -813,8 +829,8 @@ export function readWordBook(data: Uint8Array): WordBook {
   const docBytes = files.get('word/document.xml')
   if (!docBytes) throw new Error('This is not a Word document (.docx).')
   const doc = new DOMParser().parseFromString(text(docBytes), 'application/xml')
-  // body is a direct child. Indexing getElementsByTagName('*') is quadratic on a long manuscript.
-  const body = Array.from(doc.documentElement?.children ?? []).find((e) => local(e) === 'body')
+  // body is a direct child
+  const body = doc.documentElement ? child(doc.documentElement, 'body') : undefined
   if (!body) throw new Error('This Word document has no body.')
   const styles = files.get('word/styles.xml') ? stylesOf(text(files.get('word/styles.xml')!)) : new Map<string, StyleInfo>()
   const nums = files.get('word/numbering.xml') ? numberingOf(text(files.get('word/numbering.xml')!)) : new Map<string, Map<string, NumInfo>>()

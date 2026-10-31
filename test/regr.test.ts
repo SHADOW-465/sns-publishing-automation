@@ -118,3 +118,14 @@ test('REGR-4: typed index entries in a Word manuscript link to the page ids', ()
   assert.equal(built.review.filter((r) => r.msg.startsWith('IDX-002')).length, 0)
 })
 
+
+// ---- REGR-5: the Word reader stays linear on a long manuscript ----------------------------------------------
+test('REGR-5: reading a manuscript with thousands of paragraphs takes seconds, not minutes', () => {
+  const body = h1('Chapter one') + Array.from({ length: 8000 }, (_, i) => p(run(`Paragraph ${i} of the long chapter keeps going with ordinary words.`)) + (i % 40 === 39 ? sect() : '')).join('')
+  const data = doc(body)
+  const t0 = Date.now()
+  const book = readWordBook(data)
+  const ms = Date.now() - t0
+  assert.ok(book.blocks.length >= 8000)
+  assert.ok(ms < 4000, `readWordBook took ${ms} ms for ${book.blocks.length} blocks`)
+})
