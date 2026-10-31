@@ -124,7 +124,8 @@ test('T12 split: a caption clumped with the line under it becomes a Caption and 
   assert.ok((await ua()).flat.some(([t, s]) => t === 'Caption' && s.includes('Charlie')), 'the engine alone keeps them together')
   const e = await epub(d)
   const fig = elementOf(e.html, 'Figure 1. The mill')!
-  assert.match(fig, /^<figure[\s\S]*<figcaption[^>]*>Figure 1\. The mill and the weir\.<\/figcaption>/)
+  // the caption is set in Times-Italic: REGR-3 reads that face (capital I) as italic, so the caption text is in <em>
+  assert.match(fig, /^<figure[\s\S]*<figcaption[^>]*>(?:<em>)?Figure 1\. The mill and the weir\.(?:<\/em>)?<\/figcaption>/)
   assert.doesNotMatch(fig, /Charlie/)
   assert.match(elementOf(e.html, 'Charlie the carts')!, /^<p/)
 })
