@@ -20,11 +20,11 @@ test('REGR-1: only a line of numbers, commas and dashes continues the previous i
   assert.equal(continuesIndexLine(''), false)
 })
 
-test('REGR-2: an abbreviated index range is written out in full and only its first number is a link', () => {
-  assert.equal(linkIndexLocators('Australia, return to 174–8, 180'), 'Australia, return to <a href="#pg:174">174</a>–178, <a href="#pg:180">180</a>')
-  assert.equal(linkIndexLocators('Rome, 266-69'), 'Rome, <a href="#pg:266">266</a>-269')
-  assert.equal(linkIndexLocators('Edge, 199-02'), 'Edge, <a href="#pg:199">199</a>-202')
-  assert.equal(linkIndexLocators('Full, 192–195'), 'Full, <a href="#pg:192">192</a>–195', 'a range already in full is left as printed')
+test('REGR-2: an abbreviated index range keeps its printed text and both numbers link (the end to the expanded page)', () => {
+  assert.equal(linkIndexLocators('Australia, return to 174–8, 180'), 'Australia, return to <a href="#pg:174">174</a>–<a href="#pg:178">8</a>, <a href="#pg:180">180</a>')
+  assert.equal(linkIndexLocators('Rome, 266-69'), 'Rome, <a href="#pg:266">266</a>-<a href="#pg:269">69</a>')
+  assert.equal(linkIndexLocators('Edge, 199-02'), 'Edge, <a href="#pg:199">199</a>-<a href="#pg:202">02</a>')
+  assert.equal(linkIndexLocators('Full, 192–195'), 'Full, <a href="#pg:192">192</a>–<a href="#pg:195">195</a>', 'a range already in full is left as printed')
 })
 
 test('REGR-3: bold and italic font names are recognised whatever their case', () => {
@@ -35,8 +35,8 @@ test('REGR-3: bold and italic font names are recognised whatever their case', ()
 })
 
 test('REGR-3: a page number set in italic or bold in the index is still a link', () => {
-  assert.equal(linkIndexLocators('Australia, 174–8, <em>174</em>'), 'Australia, <a href="#pg:174">174</a>–178, <em><a href="#pg:174">174</a></em>')
-  assert.equal(linkIndexLocators('Arbuthnot 45–7, <em>47–9</em>, <strong>94</strong>'), 'Arbuthnot <a href="#pg:45">45</a>–47, <em><a href="#pg:47">47</a>–49</em>, <strong><a href="#pg:94">94</a></strong>')
+  assert.equal(linkIndexLocators('Australia, 174–8, <em>174</em>'), 'Australia, <a href="#pg:174">174</a>–<a href="#pg:178">8</a>, <em><a href="#pg:174">174</a></em>')
+  assert.equal(linkIndexLocators('Arbuthnot 45–7, <em>47–9</em>, <strong>94</strong>'), 'Arbuthnot <a href="#pg:45">45</a>–<a href="#pg:47">7</a>, <em><a href="#pg:47">47</a>–<a href="#pg:49">9</a></em>, <strong><a href="#pg:94">94</a></strong>')
   assert.equal(linkIndexLocators('aircraft <em>see by name</em>'), 'aircraft <em>see by name</em>')
 })
 
@@ -110,7 +110,7 @@ test('REGR-4: typed index entries in a Word manuscript link to the page ids', ()
   const index = [...built.files].find(([f]) => /OEBPS\/index\d*\.xhtml$/.test(f))
   assert.ok(index, 'the INDEX heading starts an index section')
   const html = text(index[1])
-  assert.match(html, /base <a href="chapter01\.xhtml#page-1">1<\/a>–3/)
+  assert.match(html, /base <a href="chapter01\.xhtml#page-1">1<\/a>–<a href="index\.xhtml#page-3">3<\/a>/)
   assert.match(html, /<i><a href="chapter01\.xhtml#page-2">2<\/a><\/i>/)
   assert.match(html, /101st Field Battery <a href="index\.xhtml#page-3">3<\/a>, <a href="chapter01\.xhtml#page-1">1<\/a>/)
   assert.doesNotMatch(html, /<a [^>]*>[^<]*page[^<]*<\/a>/i, 'the page markers themselves are not turned into links')
@@ -128,4 +128,11 @@ test('REGR-5: reading a manuscript with thousands of paragraphs takes seconds, n
   const ms = Date.now() - t0
   assert.ok(book.blocks.length >= 8000)
   assert.ok(ms < 4000, `readWordBook took ${ms} ms for ${book.blocks.length} blocks`)
+})
+
+test('REGR-2b: an abbreviated range keeps its printed text and links its end to the expanded page', () => {
+  assert.equal(linkIndexLocators('x, 1203–15'), 'x, <a href="#pg:1203">1203</a>–<a href="#pg:1215">15</a>')
+  assert.equal(linkIndexLocators('x, 98–102'), 'x, <a href="#pg:98">98</a>–<a href="#pg:102">102</a>')
+  assert.equal(linkIndexLocators('x, 174–8'), 'x, <a href="#pg:174">174</a>–<a href="#pg:178">8</a>')
+  assert.ok(!linkIndexLocators('x, 174–8').includes('#pg:8"'))
 })

@@ -35,12 +35,12 @@ export function expandPageEnd(start: number, endDigits: string): number {
 /** A printed line that only carries more page numbers of the entry above it; any other line (even one that starts with a digit, like "101st Field Battery") is a new entry. */
 export const continuesIndexLine = (t: string): boolean => /^[\d\s,–—-]+$/.test(t) && /\d/.test(t)
 
-/** Page numbers in index HTML become links. A range is written out in full (174–8 → 174–178) and only its first number is a link. */
+/** Page numbers in index HTML become links. A range keeps its printed text (174–8); both numbers are links, the end to the expanded page (#pg:178). */
 export function linkIndexLocators(html: string): string {
   // a number may open or close an emphasis span: the primary reference of an entry is often set in italic or bold
   const ranged = html.replace(/(^|[\s,]|<(?:em|i|strong|b)>)(\d{1,4})(\s*[–—-]\s*)(\d{1,4})(?=$|[\s,–—-]|<\/(?:em|i|strong|b)>)/g, (_m, pre: string, a: string, mid: string, b: string) => {
     const end = expandPageEnd(Number(a), b)
-    return `${pre}<a href="#pg:${a}">${a}</a>${mid}${end === Number(b) ? b : end}`
+    return `${pre}<a href="#pg:${a}">${a}</a>${mid}<a href="#pg:${end}">${b}</a>`
   })
   // after a range only a comma or space starts a locator: the end of a range is already in place
   return ranged.replace(/(^|[\s,]|<(?:em|i|strong|b)>)(\d{1,4})(?=$|[\s,–—-]|<\/(?:em|i|strong|b)>)/g, (m, pre: string, n: string, offset: number, whole: string) => {
