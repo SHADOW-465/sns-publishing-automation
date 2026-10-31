@@ -248,16 +248,45 @@ function linkHref(target: string): string {
   return t
 }
 
+/** A next-page section break between two paragraphs: the page the next section starts on, when it says so (w:pgNumType w:start). */
+interface SectionBreak {
+  no?: string
+}
+
+/**
+ * The break after each paragraph that ends a section (its w:sectPr). How the *next* section starts is in the next
+ * section's own sectPr, as `w:type`: nextPage (the default) is a page break; continuous is not. Even/odd page are
+ * page breaks too. The last sectPr is a child of w:body.
+ */
+function sectionBreaks(body: Element): Map<Element, SectionBreak> {
+  const ends: { el: Element; sect: Element }[] = []
+  for (const el of kids(body)) {
+    const name = local(el)
+    const sect = name === 'p' ? child(child(el, 'pPr') ?? el, 'sectPr') : name === 'sectPr' ? el : undefined
+    if (sect) ends.push({ el, sect })
+  }
+  const out = new Map<Element, SectionBreak>()
+  ends.forEach((e, k) => {
+    const next = ends[k + 1]?.sect
+    if (!next || attr(child(next, 'type'), 'val') === 'continuous') return
+    out.set(e.el, { no: attr(child(next, 'pgNumType'), 'start') || undefined })
+  })
+  return out
+}
+
 /** Runs of one paragraph: text, and a page break as an inline marker rather than its own paragraph. */
-function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>): WordInline[] {
+function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>, sectionBreak?: SectionBreak): WordInline[] {
   const out: WordInline[] = []
   let field: 'none' | 'unknown' | 'page' | 'skip' | 'keep' = 'none'
   let instr = ''
   let inResult = false
-  let pagePending = false
+  // a section break just before this paragraph starts a new page (its pgNumType start, if any, is the page number)
+  let pagePending = !!sectionBreak
+  let startNo = sectionBreak?.no
 
   const flushPage = (explicit?: string) => {
-    out.push({ t: 'page', text: nos.take(explicit) })
+    out.push({ t: 'page', text: nos.take(explicit ?? startNo) })
+    startNo = undefined
     pagePending = false
   }
   const emit = (s: string, face: Face) => {
@@ -785,7 +814,7 @@ export function readWordBook(data: Uint8Array): WordBook {
   let tocMarked = false
   let prevBody = ''
 
-  const pushPara = (p: Element) => {
+  const pushPara = (p: Element, sectionBreak?: SectionBreak) => {
     for (const id of blipIds(p)) {
       const target = rels.get(id)
       const path = target ? mediaPath(target) : ''
@@ -801,7 +830,7 @@ export function readWordBook(data: Uint8Array): WordBook {
     const numPr = pPr ? child(pPr, 'numPr') : undefined
     const ilvl = attr(numPr && child(numPr, 'ilvl'), 'val') || '0'
     const numId = attr(numPr && child(numPr, 'numId'), 'val')
-    const inlines = inlinesOf(p, nos, rels)
+    const inlines = inlinesOf(p, nos, rels, sectionBreak)
     let plain = plainOf(inlines)
     const hasPage = inlines.some((i) => i.t === 'page')
     if (!plain && !hasPage) return
@@ -856,10 +885,16 @@ export function readWordBook(data: Uint8Array): WordBook {
     if (role === 'heading') prevBody = ''
   }
 
+  const breaks = sectionBreaks(body)
+  let breakBefore: SectionBreak | undefined
   let lastPara: WordBlock | undefined
   for (const el of kids(body)) {
     const name = local(el)
-    if (name === 'p') (pushPara(el), (lastPara = blocks[blocks.length - 1]))
+    if (name === 'p') {
+      pushPara(el, breakBefore)
+      lastPara = blocks[blocks.length - 1]
+      breakBefore = breaks.get(el) // (a table in between keeps the break waiting for the next paragraph)
+    }
     else if (name === 'tbl') {
       const rows: WordInline[][][] = []
       const header: boolean[] = []
