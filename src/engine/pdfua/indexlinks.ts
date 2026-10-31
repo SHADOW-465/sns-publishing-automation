@@ -37,12 +37,13 @@ export const continuesIndexLine = (t: string): boolean => /^[\d\s,–—-]+$/.te
 
 /** Page numbers in index HTML become links. A range is written out in full (174–8 → 174–178) and only its first number is a link. */
 export function linkIndexLocators(html: string): string {
-  const ranged = html.replace(/(^|[\s,])(\d{1,4})(\s*[–—-]\s*)(\d{1,4})(?=$|[\s,–—-])/g, (_m, pre: string, a: string, mid: string, b: string) => {
+  // a number may open or close an emphasis span: the primary reference of an entry is often set in italic or bold
+  const ranged = html.replace(/(^|[\s,]|<(?:em|i|strong|b)>)(\d{1,4})(\s*[–—-]\s*)(\d{1,4})(?=$|[\s,–—-]|<\/(?:em|i|strong|b)>)/g, (_m, pre: string, a: string, mid: string, b: string) => {
     const end = expandPageEnd(Number(a), b)
     return `${pre}<a href="#pg:${a}">${a}</a>${mid}${end === Number(b) ? b : end}`
   })
   // after a range only a comma or space starts a locator: the end of a range is already in place
-  return ranged.replace(/(^|[\s,])(\d{1,4})(?=$|[\s,–—-])/g, (m, pre: string, n: string, offset: number, whole: string) => {
+  return ranged.replace(/(^|[\s,]|<(?:em|i|strong|b)>)(\d{1,4})(?=$|[\s,–—-]|<\/(?:em|i|strong|b)>)/g, (m, pre: string, n: string, offset: number, whole: string) => {
     const before = whole.slice(0, offset)
     if (before.lastIndexOf('<') > before.lastIndexOf('>')) return m
     return `${pre}<a href="#pg:${n}">${n}</a>`

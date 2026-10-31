@@ -27,3 +27,9 @@ test('REGR-3: bold and italic font names are recognised whatever their case', ()
   for (const f of ['AGaramondPro-Bold', 'AGARAMONDPRO-BOLD', 'FuturaPT-Demi', 'Arial-BoldMT', 'Myriad-SEMIBOLD']) assert.equal(isBoldFont(f), true, f)
   for (const f of ['AGaramondPro-Regular', 'FuturaPT-Book', 'FuturaPT-Medium']) assert.equal(isBoldFont(f), false, f)
 })
+
+test('REGR-3: a page number set in italic or bold in the index is still a link', () => {
+  assert.equal(linkIndexLocators('Australia, 174–8, <em>174</em>'), 'Australia, <a href="#pg:174">174</a>–178, <em><a href="#pg:174">174</a></em>')
+  assert.equal(linkIndexLocators('Arbuthnot 45–7, <em>47–9</em>, <strong>94</strong>'), 'Arbuthnot <a href="#pg:45">45</a>–47, <em><a href="#pg:47">47</a>–49</em>, <strong><a href="#pg:94">94</a></strong>')
+  assert.equal(linkIndexLocators('aircraft <em>see by name</em>'), 'aircraft <em>see by name</em>')
+})
