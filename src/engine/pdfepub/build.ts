@@ -16,7 +16,7 @@ import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
-import { continuesIndexLine, linkIndexLocators } from '../pdfua/indexlinks.ts'
+import { continuesIndexLine, linkIndexLocators, resolvePageLinks } from '../pdfua/indexlinks.ts'
 import { centreIn, decideBook, pdfRoleOf, type PageDecision } from '../pdf/decision.ts'
 import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
 
@@ -997,14 +997,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     const meta0 = SECTION_META[s.type]
     let body = bodyOf.get(s)!
     // index links: page N → the file that holds page N's marker (or the closest page before it)
-    body = body.replace(/href="#pg:(\d+)"/g, (_, n: string) => {
-      const want = Number(n)
-      let k = want
-      while (k > 0 && !pageFile.has(String(k))) k--
-      if (!pageFile.has(String(k))) return 'href="#"'
-      if (k < want) review.push({ level: 'error', msg: `IDX-002: an index link asked for page ${want} and fell back to page ${k}, an earlier page. The abbreviated end should expand to the page that holds the marker.` })
-      return `href="${pageFile.get(String(k))}#page-${k}"`
-    })
+    body = resolvePageLinks(body, pageFile, review as { level: 'error'; msg: string }[])
     const named = s.title.length && !(s.type === 'chapter' && settings().chapterOpener === 'split')
     const label = named ? ` aria-labelledby="${s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem}"` : ` aria-label="${esc(s.nav || s.stem)}"`
     sections.push({

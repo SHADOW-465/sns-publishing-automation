@@ -99,3 +99,20 @@ test('REGR-4: page numbers matched in the print PDF win over the ones counted fr
   const none = htmlOf(buildWordEpub(readWordBook(doc(body)), { meta, cover: { name: 'cover.png', data: COVER }, printPages: [{ n: '7', text: 'text that is nowhere in the manuscript at all, so no page matches' }] }))
   assert.match(none, /id="page-1"/, 'a PDF that matches nothing leaves the counted numbers')
 })
+
+test('REGR-4: typed index entries in a Word manuscript link to the page ids', () => {
+  const body = h1('Chapter one') + p(run('First page text.')) + sect()
+    + p(run('Second page text.')) + sect()
+    + p(run('Third page text.')) + sect()
+    + h1('INDEX') + p(run('base 1–3, ')) + p('<w:r><w:rPr><w:i/></w:rPr><w:t>2</w:t></w:r>') + p(run('101st Field Battery 3, 1'))
+  const book = readWordBook(doc(body))
+  const built = buildWordEpub(book, { meta, cover: { name: 'cover.png', data: COVER } })
+  const index = [...built.files].find(([f]) => /OEBPS\/index\d*\.xhtml$/.test(f))
+  assert.ok(index, 'the INDEX heading starts an index section')
+  const html = text(index[1])
+  assert.match(html, /base <a href="chapter01\.xhtml#page-1">1<\/a>–3/)
+  assert.match(html, /<i><a href="chapter01\.xhtml#page-2">2<\/a><\/i>/)
+  assert.match(html, /101st Field Battery <a href="index\.xhtml#page-3">3<\/a>, <a href="chapter01\.xhtml#page-1">1<\/a>/)
+  assert.doesNotMatch(html, /<a [^>]*>[^<]*page[^<]*<\/a>/i, 'the page markers themselves are not turned into links')
+})
+

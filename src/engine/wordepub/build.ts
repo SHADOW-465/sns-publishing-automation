@@ -10,6 +10,7 @@ import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
 import { figureWrap } from '../epub/markup.ts'
+import { linkIndexLocators, resolvePageLinks } from '../pdfua/indexlinks.ts'
 import { bookHasPage, markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
 import { smallCapsSpan } from '../indesign/inline.ts'
 import { settings } from '../settings.ts'
@@ -290,6 +291,13 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
       body: `<section${labelled} epub:type="${meta0.epubType}"${role}>\n${bodyInner}\n</section>`,
     }
   })
+
+  // a typed index (no INDEX field in the manuscript): its page numbers link to the page markers, when the book has any
+  const pageFile = new Map<string, string>()
+  for (const s of sections) for (const m of s.body.matchAll(/id="page-([^"]+)"/g)) pageFile.set(m[1], s.file)
+  if (pageFile.size)
+    for (const s of sections.filter((x) => x.type === 'index'))
+      s.body = resolvePageLinks(s.body.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner: string) => `<p>${linkIndexLocators(inner)}</p>`), pageFile, review as { level: 'error'; msg: string }[])
 
   // the printed contents page: every entry links to the section it names
   const tocSection = sections.find((s) => s.type === 'toc')

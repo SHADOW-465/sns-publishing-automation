@@ -50,6 +50,21 @@ export function linkIndexLocators(html: string): string {
   })
 }
 
+/**
+ * Index links (`#pg:N`) become links to the file that holds page N's marker. A page with no marker falls back to the
+ * closest page before it, and that is reported (IDX-002): the abbreviated end of a range should have been expanded.
+ */
+export function resolvePageLinks(body: string, pageFile: Map<string, string>, review: { level: 'error'; msg: string }[]): string {
+  return body.replace(/href="#pg:(\d+)"/g, (_, n: string) => {
+    const want = Number(n)
+    let k = want
+    while (k > 0 && !pageFile.has(String(k))) k--
+    if (!pageFile.has(String(k))) return 'href="#"'
+    if (k < want) review.push({ level: 'error', msg: `IDX-002: an index link asked for page ${want} and fell back to page ${k}, an earlier page. The abbreviated end should expand to the page that holds the marker.` })
+    return `href="${pageFile.get(String(k))}#page-${k}"`
+  })
+}
+
 const LOCATOR = /^[\s\d.n–—-]+$/
 
 export function indexNumberSpans(text: string): IndexLocator[] {
