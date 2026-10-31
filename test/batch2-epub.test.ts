@@ -140,8 +140,8 @@ test('4: an abbreviated index range expands and the guard rejects a link to an e
   assert.equal(expandPageEnd(199, '02'), 202)
   assert.equal(expandPageEnd(192, '161'), 161)
   const html = linkIndexLocators('Rome, 48–9, 266-69')
-  assert.match(html, /<a href="#pg:48">48<\/a>–<a href="#pg:49">9<\/a>/)
-  assert.match(html, /<a href="#pg:266">266<\/a>-<a href="#pg:269">69<\/a>/)
+  assert.match(html, /<a href="#pg:48">48<\/a>–49/) // REGR-2: written out in full, the first number is the link
+  assert.match(html, /<a href="#pg:266">266<\/a>-269/)
   assert.deepEqual(indexNumberSpans('Rome, 48–9').map((s) => s.pageNo), [48, 49])
   const bad = new Map([['OEBPS/index.xhtml', bytes('<p><a href="c.xhtml#page-266">266</a>-<a href="c.xhtml#page-69">69</a></p>')]])
   assert.match(indexRangeGuards(bad)[0].msg, /^IDX-002: the index range 266-69/)
