@@ -23,7 +23,8 @@ const reference = resolve(DIR, 'Output/9780719847127.epub')
 // the reference uses a few different file names for the same sections
 const RENAME: Record<string, string> = { 'half-title': 'halftitle', copy: 'copyright', bm1: 'bib' }
 
-const words = (html: string) => html.replace(/^[\s\S]*?<body>|<\/body>[\s\S]*$/g, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').toLowerCase().split(/\s+/).filter(Boolean)
+// a link boundary inside a line is not a word boundary (REGR-2: "149-150" is one link on 149, not two tokens), and the hand-made file's hyphen in a range is the PDF's en dash
+const words = (html: string) => html.replace(/^[\s\S]*?<body>|<\/body>[\s\S]*$/g, '').replace(/<\/?a\b[^>]*>/g, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ').replace(/[–—]/g, '-').toLowerCase().split(/\s+/).filter(Boolean)
 function similarity(a: string[], b: string[]) {
   const count = new Map<string, number>()
   for (const w of a) count.set(w, (count.get(w) ?? 0) + 1)
