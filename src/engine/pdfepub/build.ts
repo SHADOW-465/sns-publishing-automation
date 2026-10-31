@@ -16,7 +16,7 @@ import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
-import { linkIndexLocators } from '../pdfua/indexlinks.ts'
+import { continuesIndexLine, linkIndexLocators } from '../pdfua/indexlinks.ts'
 import { centreIn, decideBook, pdfRoleOf, type PageDecision } from '../pdf/decision.ts'
 import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
 
@@ -1307,7 +1307,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
     let prev: PLine | undefined
     for (const l of s.raw) {
       const t = l.text.trim()
-      if (/^[\d–-]/.test(t) && entries.length) {
+      if (continuesIndexLine(t) && entries.length) {
         const e = entries[entries.length - 1]
         e.segs.push({ t: ' ' }, ...markOf(l), ...segsOf(l))
         prev = l

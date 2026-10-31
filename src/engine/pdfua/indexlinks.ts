@@ -32,6 +32,9 @@ export function expandPageEnd(start: number, endDigits: string): number {
   return written
 }
 
+/** A printed line that only carries more page numbers of the entry above it; any other line (even one that starts with a digit, like "101st Field Battery") is a new entry. */
+export const continuesIndexLine = (t: string): boolean => /^[\d\s,–—-]+$/.test(t) && /\d/.test(t)
+
 /** Page numbers in index HTML become links. A range is two links; the second targets the expanded page. */
 export function linkIndexLocators(html: string): string {
   const ranged = html.replace(/(^|[\s,])(\d{1,4})(\s*[–—-]\s*)(\d{1,4})(?=$|[\s,–—-])/g, (_m, pre: string, a: string, mid: string, b: string) =>
