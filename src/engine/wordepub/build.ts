@@ -297,7 +297,8 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
   for (const s of sections) for (const m of s.body.matchAll(/id="page-([^"]+)"/g)) pageFile.set(m[1], s.file)
   if (pageFile.size)
     for (const s of sections.filter((x) => x.type === 'index'))
-      s.body = resolvePageLinks(s.body.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner: string) => `<p>${linkIndexLocators(inner)}</p>`), pageFile, review as { level: 'error'; msg: string }[])
+      // a number with no marker (a year, a regiment) is left as text rather than linked to an earlier page
+      s.body = resolvePageLinks(s.body.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner: string) => `<p>${linkIndexLocators(inner).replace(/<a href="#pg:(\d+)">(\d+)<\/a>/g, (a, n: string, t: string) => (pageFile.has(n) ? a : t))}</p>`), pageFile, review as { level: 'error'; msg: string }[])
 
   // the printed contents page: every entry links to the section it names
   const tocSection = sections.find((s) => s.type === 'toc')
