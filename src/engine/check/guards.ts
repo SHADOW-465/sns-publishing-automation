@@ -205,7 +205,8 @@ export function indexRangeGuards(files: Files): ReviewItem[] {
       const abbreviated = endText.length < String(start).length || (endText.length === String(start).length && endText.startsWith('0'))
       if (!abbreviated) continue
       const expanded = expandPageEnd(start, endText)
-      if (hrefEnd !== expanded || hrefEnd < start) out.push({ level: 'error', msg: `IDX-002: the index range ${start}-${endText} in ${path.split('/').pop()} links the end to page ${hrefEnd}, an earlier page. The end expands to ${expanded}.` })
+      // the end may sit on a later marker when the expanded page has none, or on the start when nothing later is marked
+      if (hrefEnd < start) out.push({ level: 'error', msg: `IDX-002: the index range ${start}-${endText} in ${path.split('/').pop()} links the end to page ${hrefEnd}, an earlier page. The end expands to ${expanded}.` })
     }
   }
   return out

@@ -10,7 +10,7 @@ import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
 import { figureWrap } from '../epub/markup.ts'
-import { linkIndexLocators, resolvePageLinks } from '../pdfua/indexlinks.ts'
+import { linkIndexLocators, rangeEndAnchor, resolvePageLinks } from '../pdfua/indexlinks.ts'
 import { bookHasPage, markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
 import { smallCapsSpan } from '../indesign/inline.ts'
 import { settings } from '../settings.ts'
@@ -298,7 +298,7 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
   if (pageFile.size)
     for (const s of sections.filter((x) => x.type === 'index'))
       // a number with no marker (a year, a regiment) is left as text rather than linked to an earlier page
-      s.body = resolvePageLinks(s.body.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner: string) => `<p>${linkIndexLocators(inner).replace(/<a href="#pg:(\d+)">(\d+)<\/a>/g, (a, n: string, t: string) => (pageFile.has(n) ? a : t))}</p>`), pageFile, review as { level: 'error'; msg: string }[])
+      s.body = resolvePageLinks(s.body.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner: string) => `<p>${linkIndexLocators(inner).replace(/<a href="#pg:(\d+)">(\d+)<\/a>/g, (a, n: string, t: string, offset: number, whole: string) => (pageFile.has(n) || rangeEndAnchor(whole, offset) ? a : t))}</p>`), pageFile, review as { level: 'error'; msg: string }[])
 
   // the printed contents page: every entry links to the section it names
   const tocSection = sections.find((s) => s.type === 'toc')

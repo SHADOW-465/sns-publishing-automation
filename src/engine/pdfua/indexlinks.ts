@@ -51,24 +51,30 @@ export function linkIndexLocators(html: string): string {
 }
 
 /** The anchor is the end of a range (`</a>–<a`), not a locator standing on its own. */
-const rangeEndAnchor = (body: string, offset: number) => /<\/a>\s*[–—-]\s*$/.test(body.slice(Math.max(0, offset - 80), offset))
+export const rangeEndAnchor = (body: string, offset: number) => /<\/a>\s*[–—-]\s*$/.test(body.slice(Math.max(0, offset - 80), offset))
 
 /**
  * Index links (`#pg:N`) become links to the file that holds page N's marker.
- * A number with no marker (a year, a regiment, a locator whose page was not marked) stays the printed digits:
- * it must not fall back to some earlier page. The end of a range is the exception and still walks back to the
- * closest marked page, reported as IDX-002, until that end is retargeted to the nearest marker.
+ * A number with no marker (a year, a regiment, a locator whose page was not marked) stays the printed digits.
+ * The end of a range is the exception: it links to the nearest marked page at or after the expanded page,
+ * or the nearest marked page before it. The printed digits are not changed. `review` is kept for callers.
  */
 export function resolvePageLinks(body: string, pageFile: Map<string, string>, review: { level: 'error'; msg: string }[]): string {
-  return body.replace(/<a href="#pg:(\d+)">(\d+)<\/a>/g, (m, n: string, printed: string, offset: number) => {
+  void review
+  const pages = [...pageFile.keys()].map(Number).filter((n) => Number.isFinite(n)).sort((a, b) => a - b)
+  const nearest = (want: number): number | undefined => {
+    const after = pages.find((p) => p >= want)
+    if (after !== undefined) return after
+    for (let i = pages.length - 1; i >= 0; i--) if (pages[i] < want) return pages[i]
+    return undefined
+  }
+  return body.replace(/<a href="#pg:(\d+)">(\d+)<\/a>/g, (_m, n: string, printed: string, offset: number) => {
     const want = Number(n)
     const exact = pageFile.get(String(want))
     if (exact) return `<a href="${exact}#page-${want}">${printed}</a>`
     if (!rangeEndAnchor(body, offset)) return printed
-    let k = want
-    while (k > 0 && !pageFile.has(String(k))) k--
-    if (!pageFile.has(String(k))) return printed
-    if (k < want) review.push({ level: 'error', msg: `IDX-002: an index link asked for page ${want} and fell back to page ${k}, an earlier page. The abbreviated end should expand to the page that holds the marker.` })
+    const k = nearest(want)
+    if (k === undefined) return printed
     return `<a href="${pageFile.get(String(k))}#page-${k}">${printed}</a>`
   })
 }

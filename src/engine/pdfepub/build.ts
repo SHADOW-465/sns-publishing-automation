@@ -1009,7 +1009,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
   for (const s of all) {
     const meta0 = SECTION_META[s.type]
     let body = bodyOf.get(s)!
-    // index links: page N → the file that holds that marker. A number with no marker stays the printed text.
+    // index links: page N → the file that holds that marker. A number with no marker stays text. A range end uses the nearest marker at or after it.
     body = resolvePageLinks(body, pageFile, review as { level: 'error'; msg: string }[])
     const named = s.title.length && !(s.type === 'chapter' && settings().chapterOpener === 'split')
     const label = named ? ` aria-labelledby="${s.type === 'chapter' ? `chap${chapterIndex(s)}` : s.stem}"` : ` aria-label="${esc(s.nav || s.stem)}"`

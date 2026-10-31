@@ -118,6 +118,23 @@ test('REGR-4: typed index entries in a Word manuscript link to the page ids', ()
   assert.equal(built.review.filter((r) => r.msg.startsWith('IDX-002')).length, 0)
 })
 
+test('REGR-4: an index range whose end page has no marker links to the nearest later marker', () => {
+  const body = h1('Chapter one') + p(run('Alpha text on the early page of the book for the marker.')) + sect()
+    + p(run('Beta text on the later page of the book for the marker.'))
+    + h1('INDEX') + p(run('Writers, 167–68'))
+  const pages = [
+    { n: '167', text: 'Alpha text on the early page of the book for the marker.' },
+    { n: '170', text: 'Beta text on the later page of the book for the marker.' },
+  ]
+  const built = buildWordEpub(readWordBook(doc(body)), { meta, cover: { name: 'cover.png', data: COVER }, printPages: pages })
+  const index = [...built.files].find(([f]) => /OEBPS\/index\d*\.xhtml$/.test(f))
+  assert.ok(index)
+  const html = text(index[1])
+  assert.match(html, /Writers, <a href="chapter01\.xhtml#page-167">167<\/a>–<a href="chapter01\.xhtml#page-170">68<\/a>/)
+  assert.equal(html.includes('>170<'), false, 'the printed end stays 68')
+  assert.equal(built.review.filter((r) => r.msg.startsWith('IDX-002')).length, 0)
+})
+
 
 // ---- REGR-5: the Word reader stays linear on a long manuscript ----------------------------------------------
 test('REGR-5: reading a manuscript with thousands of paragraphs takes seconds, not minutes', () => {
