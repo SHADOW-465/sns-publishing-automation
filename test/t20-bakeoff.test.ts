@@ -3,7 +3,8 @@
 // The models are fakes: a canned answer per model, a clock that advances by a set time per page, a VRAM sampler.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { removeTempDir } from './cleanup.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EvidenceBlock, PageEvidence } from '../src/engine/pdf/evidence.ts'
@@ -117,6 +118,6 @@ test('T20: the choice is the most accurate model with p95 under 20 s, and it is 
     assert.throws(() => recordChoice(file, pick, { ...cands[1], weightsSha256: undefined }), /weights/i)
     assert.equal(readChoice(join(dir, 'none.json')), undefined)
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    removeTempDir(dir)
   }
 })

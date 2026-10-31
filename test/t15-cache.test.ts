@@ -2,7 +2,8 @@
 // a rule card changes the keys only of the pages it applies to; a miss in replay mode fails loudly; a person's override is kept on the key.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { removeTempDir } from './cleanup.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type Server } from 'node:http'
@@ -58,7 +59,7 @@ test('T15: a book rebuilt with replay is identical to the first build, and the m
     assert.equal(s.calls(), 3)
   } finally {
     s.close()
-    rmSync(root, { recursive: true, force: true })
+    removeTempDir(root)
   }
 })
 
@@ -93,7 +94,7 @@ test('T15: a miss in replay mode fails loudly and says which page', async () => 
     assert.equal(s.calls(), 2)
   } finally {
     s.close()
-    rmSync(root, { recursive: true, force: true })
+    removeTempDir(root)
   }
 })
 
@@ -116,7 +117,7 @@ test('T15: a person\'s override is stored on the key and wins, in later live bui
     assert.equal(e.override?.by, 'sam')
   } finally {
     s.close()
-    rmSync(root, { recursive: true, force: true })
+    removeTempDir(root)
   }
 })
 
@@ -140,7 +141,7 @@ test('T15: a bad answer is kept as "left" for replay, but a live build asks agai
     assert.equal(readdirSync(cache.dir).length, 1)
   } finally {
     s.close()
-    rmSync(root, { recursive: true, force: true })
+    removeTempDir(root)
   }
 })
 

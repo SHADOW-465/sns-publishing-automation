@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, linkSync, copyFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, linkSync, copyFileSync } from 'node:fs'
+import { removeTempDir } from './cleanup.ts'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { toolPaths, epubcheckHandler, runEpubcheck } from '../server/epubcheck-service.mjs'
@@ -55,6 +56,6 @@ test('an EPUBCheck that did not run (no jar, a Java that will not start) is "did
   } finally {
     if (before === undefined) delete process.env.EPUBCHECK_HOME
     else process.env.EPUBCHECK_HOME = before
-    rmSync(home, { recursive: true, force: true })
+    removeTempDir(home)
   }
 })

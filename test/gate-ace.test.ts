@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { removeTempDir } from './cleanup.ts'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { acePath, aceHandler, aceFindings, runAce } from '../server/ace-service.mjs'
@@ -101,7 +102,7 @@ test('Ace is optional: when it is missing or fails to run, the service says 503 
     if (before === undefined) delete process.env.ACE_HOME
     else process.env.ACE_HOME = before
     srv.close()
-    rmSync(home, { recursive: true, force: true })
+    removeTempDir(home)
   }
 })
 

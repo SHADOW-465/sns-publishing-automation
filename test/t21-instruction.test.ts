@@ -3,7 +3,8 @@
 // vocabulary, nothing locked); the result sits in the `book` layer above the spec rows; the directives reach the knobs that exist.
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { removeTempDir } from './cleanup.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, setSettings } from '../src/engine/settings.ts'
@@ -130,7 +131,7 @@ test('the same text gives a cached, identical compile (memory and file cache)', 
     const d = await compileInstruction('Something new.', cfg, { fetch, cache: fileCache(dir), cacheOnly: true })
     assert.ok(!d.ok && seen.length === 0)
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    removeTempDir(dir)
   }
 })
 
@@ -347,6 +348,6 @@ test('instruction.txt in the job folder (or <book>.instruction.txt beside the PD
     writeFileSync(join(dir, 'instruction.txt'), '   ')
     assert.equal(readInstruction(dir, join(dir, 'Other.pdf')), undefined, 'an empty file is no instruction')
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    removeTempDir(dir)
   }
 })
