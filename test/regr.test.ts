@@ -87,3 +87,15 @@ test('REGR-4: a next-page section break is a page break for the page ids; a cont
   assert.match(html, /id="page-9"[^>]*\/>Page nine text/)
   assert.doesNotMatch(html, /\/>Still the third page/)
 })
+
+test('REGR-4: page numbers matched in the print PDF win over the ones counted from section breaks', () => {
+  const body = h1('Chapter one') + p(run(sentence + ' and then the chapter goes on with ordinary words.')) + sect()
+    + p(run(second + ' and the rest of the printed page follows here')) + sect() + p(run('Closing words of the book.'))
+  const pages = [{ n: '40', text: `${sentence} extra words that belong to the printed page` }, { n: '42', text: `${second} and the rest of the printed page follows here` }]
+  const html = htmlOf(buildWordEpub(readWordBook(doc(body)), { meta, cover: { name: 'cover.png', data: COVER }, printPages: pages }))
+  assert.match(html, /id="page-40"/)
+  assert.match(html, /id="page-42"/)
+  assert.doesNotMatch(html, /id="page-(1|2)"/, 'the counted numbers are replaced, not added')
+  const none = htmlOf(buildWordEpub(readWordBook(doc(body)), { meta, cover: { name: 'cover.png', data: COVER }, printPages: [{ n: '7', text: 'text that is nowhere in the manuscript at all, so no page matches' }] }))
+  assert.match(none, /id="page-1"/, 'a PDF that matches nothing leaves the counted numbers')
+})

@@ -10,7 +10,7 @@ import { imageSize, withRealExt } from '../epub/image.ts'
 import { isPlaceholderAlt, type SpecPicture } from '../epub/alt.ts'
 import { pdfImgHtml, pdfPictureAlt } from '../pdfepub/build.ts'
 import { figureWrap } from '../epub/markup.ts'
-import { markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
+import { bookHasPage, markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
 import { smallCapsSpan } from '../indesign/inline.ts'
 import { settings } from '../settings.ts'
 
@@ -143,8 +143,7 @@ export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuild
   let printPageCount: number | undefined
   if (input.printPages?.length && settings().wordPagesFromPdf) {
     const usable = input.printPages.filter((p) => p.text.trim().length >= 24)
-    const before = book.blocks.some((b) => b.role === 'table' ? b.rows.some((row) => row.some((cell) => cell.some((i) => i.t === 'page'))) : 'inlines' in b && b.inlines.some((i) => i.t === 'page'))
-    if (!before) {
+    if (!bookHasPage(book)) {
       stampPagesFromPdf(book, usable)
       printPageCount = usable.length
     }

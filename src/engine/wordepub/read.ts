@@ -23,6 +23,8 @@ export interface WordInline {
   href?: string
   /** bookmark target, a safe XML id */
   id?: string
+  /** on a page marker: counted from a section break, not a page break in the text. A page number matched in the print PDF replaces it. */
+  sectionBreak?: boolean
 }
 
 export interface WordPara {
@@ -283,10 +285,12 @@ function inlinesOf(p: Element, nos: PageNos, rels: Map<string, string>, sectionB
   // a section break just before this paragraph starts a new page (its pgNumType start, if any, is the page number)
   let pagePending = !!sectionBreak
   let startNo = sectionBreak?.no
+  let counted = !!sectionBreak
 
   const flushPage = (explicit?: string) => {
-    out.push({ t: 'page', text: nos.take(explicit ?? startNo) })
+    out.push({ t: 'page', text: nos.take(explicit ?? startNo), sectionBreak: counted || undefined })
     startNo = undefined
+    counted = false
     pagePending = false
   }
   const emit = (s: string, face: Face) => {
@@ -634,8 +638,9 @@ function mediaPath(target: string): string {
   return `word/${t.replace(/^\.\//, '')}`
 }
 
-function bookHasPage(book: WordBook): boolean {
-  const hit = (ins: WordInline[]) => ins.some((i) => i.t === 'page')
+/** page markers the manuscript itself carries (a page break or a PAGE field), not the ones counted from section breaks */
+export function bookHasPage(book: WordBook): boolean {
+  const hit = (ins: WordInline[]) => ins.some((i) => i.t === 'page' && !i.sectionBreak)
   return book.blocks.some((b) => b.role === 'table' ? b.rows.some((r) => r.some(hit)) : 'inlines' in b && hit(b.inlines))
 }
 
@@ -736,6 +741,14 @@ export function stampPagesFromPdf(book: WordBook, pages: { n: string; text: stri
     if (after) parts.push({ ...inline, text: after, id: before ? undefined : inline.id })
     slot.inlines.splice(slot.index, 1, ...parts)
     placed.add(hit.n)
+  }
+  // the numbers read from the print PDF are the printed ones: the counts from section breaks (front matter, unnumbered pages) go
+  if (placed.size) {
+    const drop = (ins: WordInline[]) => ins.splice(0, ins.length, ...ins.filter((i) => !i.sectionBreak))
+    for (const b of book.blocks) {
+      if (b.role === 'table') for (const row of b.rows) for (const cell of row) drop(cell)
+      else if ('inlines' in b) drop(b.inlines)
+    }
   }
   return placed.size
 }
