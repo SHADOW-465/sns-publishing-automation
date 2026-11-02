@@ -34,6 +34,8 @@ export interface QcSection {
 
 /** Which heading a finding belongs to, and the sub-group it is listed under. First match wins. */
 const ROUTES: { re: RegExp; heading: QcHeadingKey; kind: string; rule?: string }[] = [
+  { re: /No cover image is declared|print edition they come from|dc:source|pageBreakSource/i, heading: 'metadata', kind: 'Book details and package' },
+  { re: /Broken link|points to an anchor|Empty web link|\bLink [“"]/i, heading: 'navigation', kind: 'Links that do not work' },
   { re: /TOC entry|Contents entry|contents entries (?:show|do)|menu entr|navigation entr|table of contents|navigation (?:document|menu)|landmark|page list/i, heading: 'navigation', kind: 'Contents and menu', rule: 'NAV-008' },
   { re: /Sections with a heading that are missing from the navigation/i, heading: 'navigation', kind: 'Contents and menu', rule: 'NAV-001' },
   { re: /\bNAV-\d+|\bPGM-\d+|\bIDX-\d+|\bSEM-005|page marker|page number|printed page|note (?:call|link)|footnote|endnote|index/i, heading: 'navigation', kind: 'Pages, notes and links' },

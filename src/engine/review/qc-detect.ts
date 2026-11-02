@@ -132,7 +132,7 @@ function indexLinks(d: Doc, pageHome: Map<string, { file: string; id: string }>,
   for (const p of d.html.matchAll(/<(p|li)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
     const para = p[2]
     const at = p.index ?? 0
-    const entry = snip(textOf(para.replace(/<a\b[\s\S]*?<\/a>/g, '')).replace(/[,;\s]+$/, '') || textOf(para), 40)
+    const entry = snip(textOf(para.split(/<a\b/)[0]).replace(/[,;\s]+$/, '') || textOf(para), 40)
     const here = { file: d.file, ...pageAt(d, at) }
     const err = { level: 'error' as const, heading: 'navigation' as const, source: 'Index check', ...here }
     for (const a of para.matchAll(LINK)) if (!textOf(a[2])) add({ ...err, kind: 'Index links with no text', rule: 'IDX-001', msg: `Index entry “${entry}” has a link with no link text.` })

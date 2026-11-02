@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { text, type Files } from '../engine/zip.ts'
 import { resolvePath } from '../engine/xml.ts'
 import { useObjectUrls } from './shared.tsx'
@@ -8,6 +8,8 @@ import { useObjectUrls } from './shared.tsx'
 export function Preview({ files, file, base = 'OEBPS/', anchor }: { files: Files; file?: string; base?: string; anchor?: string }) {
   const images = useMemo(() => [...files].filter(([p]) => /\.(jpe?g|png|gif|svg|webp)$/i.test(p)), [files])
   const urls = useObjectUrls(images)
+
+  const frame = useRef<HTMLIFrameElement>(null)
 
   const doc = useMemo(() => {
     const path = file ? base + file : ''
@@ -23,8 +25,12 @@ export function Preview({ files, file, base = 'OEBPS/', anchor }: { files: Files
       .replace(/<span([^>]*)id="page-([^"]+)"([^>]*)\/>/g, (_, a: string, n: string, b: string) => `<span${a}id="page-${n}"${b} class="pb">${n}</span>`)
   }, [files, file, base, urls])
 
+  // the same file asked for at another spot: the page does not reload, so scroll it
+  useEffect(() => { if (anchor) frame.current?.contentDocument?.getElementById(anchor)?.scrollIntoView({ block: 'start' }) }, [anchor])
+
   return (
     <iframe
+      ref={frame}
       className="preview"
       title={`Preview of ${file}`}
       sandbox="allow-same-origin"

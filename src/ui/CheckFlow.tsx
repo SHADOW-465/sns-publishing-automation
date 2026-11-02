@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { ReviewBoard } from './ReviewBoard.tsx'
 import { FileDrop, type Picked } from './FileDrop.tsx'
-import { Status, Outline, CheckReportView, Help, ComparePrint, flaggedPages } from './wizard.tsx'
+import { Status, Outline, Help, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { checkEpubBytes, type CheckReport } from '../engine/check/epub.ts'
 import { gate, httpValidator, type GateReport } from '../engine/check/gate.ts'
@@ -94,7 +95,7 @@ export function CheckFlow() {
               {g.errors.length > 8 && <p className="muted">…and {g.errors.length - 8} more.</p>}
             </div>
           ))}
-          <CheckReportView report={out.report} />
+          <ReviewBoard files={out.files} base={out.base} report={out.report} ec={{ errors: out.verdict.stages.filter((g) => g.id !== 'structure').flatMap((g) => g.errors), warnings: [] }} />
           {out.layout && pdf && out.base === 'OEBPS/' && (
             <>
               <h3>Compare with the print book</h3>

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { reviewList, blockingItems, acceptable } from '../engine/review/confidence.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
@@ -18,6 +18,7 @@ import { readRequirements } from '../engine/spec/requirements.ts'
 import type { WordBook } from '../engine/wordepub/read.ts'
 import { jobChoice, profileFor } from './job-choice.ts'
 import { settings, setSettings, houseSettings } from '../engine/settings.ts'
+import { ReviewBoard } from './ReviewBoard.tsx'
 import { GatedDownload } from './GatedDownload.tsx'
 import { openSpec, applyBookDetailsToSpec } from '../engine/spec/session.ts'
 import { collectGate, uiStages, type ExportGate } from '../engine/check/exportgate.ts'
@@ -588,7 +589,7 @@ export function PdfFlow() {
           )}
           <EpubcheckBox result={ec} />
           <AccessibilityBox result={a11y} />
-          <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
+          <ReviewBoard files={result.files} report={report} review={result.review} ec={ec} a11y={a11y} left={leftNow()} />
           <div className="row">
             <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" notes={notesText} onFix={fixAll} busy={!!busy} ctx={{ client: meta.publisher, book: meta.eisbn || meta.title }} />
           </div>

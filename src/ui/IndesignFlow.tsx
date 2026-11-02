@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDrop, type Picked } from './FileDrop.tsx'
 import { BookDetails, download, remember, useObjectUrls } from './shared.tsx'
-import { Steps, StepNav, Help, Status, Outline, CheckReportView, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
+import { Steps, StepNav, Help, Status, Outline, EpubcheckBox, runEpubcheck, AccessibilityBox, runAccessibility, type A11yResult, ComparePrint, flaggedPages } from './wizard.tsx'
 import type { ValidatorResult } from '../engine/check/gate.ts'
 import { unzip, text } from '../engine/zip.ts'
 import { analyzeSteps, build, usePdfPictures, type Analysis, type BuildResult, type ImageChoice } from '../engine/indesign/build.ts'
@@ -14,6 +14,7 @@ import { isbn13Valid, epubFileName, type BookMeta } from '../engine/epub/package
 import type { SectionType } from '../engine/epub/locale.ts'
 import type { PrintPage } from '../engine/pdf/pages.ts'
 import { SpecStep } from './SpecStep.tsx'
+import { ReviewBoard } from './ReviewBoard.tsx'
 import { GatedDownload } from './GatedDownload.tsx'
 import { openSpec, applySpec, setRule, saveStyleRule, migrateProfile, applyBookDetailsToSpec, type Spec } from '../engine/spec/session.ts'
 import { readRequirements } from '../engine/spec/requirements.ts'
@@ -568,7 +569,7 @@ export function IndesignFlow() {
           )}
           <EpubcheckBox result={ec} />
           <AccessibilityBox result={a11y} />
-          <CheckReportView report={report} review={result.review} epubcheckErrors={(ec?.errors.length ?? 0) + (a11y?.errors.length ?? 0)} />
+          <ReviewBoard files={result.files} report={report} review={result.review} ec={ec} a11y={a11y} left={leftNow()} />
           <div className="row">
             <GatedDownload gate={stale ? undefined : gate} data={result.epub} name={epubFileName(meta)} type="application/epub+zip" label="Download EPUB" notes={notesText} onFix={fixAll} busy={!!busy} ctx={{ client: meta.publisher, book: meta.eisbn || meta.title, specHash: spec ? specHash(spec.resolved.settings) : undefined }} />
             <button onClick={() => rebuild()} disabled={!!busy}>Build and check again</button>

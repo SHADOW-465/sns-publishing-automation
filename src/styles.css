@@ -386,3 +386,22 @@ table.req select { max-width: 240px; }
 .needs-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 .need-highlight { outline: 3px solid var(--warn); outline-offset: 4px; border-radius: 8px; transition: outline-color 0.4s; }
 .busy { position: sticky; top: 8px; z-index: 20; }
+
+/* Review page: seven QC headings, items that need action, and a preview of the spot */
+.qc { display: grid; gap: 12px; }
+.qc-tabs ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.qc-tabs button { gap: 8px; padding: 6px 12px 6px 6px; }
+.qc-tabs .badge { min-width: 0; }
+.qc-grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.qc-sections { display: grid; gap: 10px; min-width: 0; }
+.qc-heading h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; font-size: 16px; scroll-margin-top: 12px; }
+.qc-heading h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.qc-kind h4 { margin: 14px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.qc-items li.on { background: var(--accent-soft); border-radius: 8px; box-shadow: 0 0 0 6px var(--accent-soft); }
+.qc-at { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 3px; }
+.qc-pane { min-width: 0; }
+.qc-pane .preview { height: 70vh; }
+@media (min-width: 1100px) {
+  .qc-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); }
+  .qc-pane { position: sticky; top: 12px; }
+}
