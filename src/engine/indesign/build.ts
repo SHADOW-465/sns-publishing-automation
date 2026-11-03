@@ -505,7 +505,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       s.title.push(b)
       takeFollowing('chapter-title', s.title)
       seenChapter = true
-    } else if (r === 'section-title' || ((r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') && sectionTypeOf(b.text) && b.text.length <= 80 && listed(b.text) && lastUse(b) && !(cur?.type === 'chapter' && secs.some((x) => x.title.some((t) => norm(t.text) === norm(b.text)))))) {
+    } else if ((r === 'section-title' && !(cur?.type === 'chapter' && !sectionTypeOf(b.text))) || ((r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') && sectionTypeOf(b.text) && b.text.length <= 80 && listed(b.text) && lastUse(b) && !(cur?.type === 'chapter' && secs.some((x) => x.title.some((t) => norm(t.text) === norm(b.text)))))) {
       // (an edited volume repeats "Introducción" as a subheading in every chapter: only the book's own, listed once, opens a section)
       // a subheading style is also used for "Notes", "Bibliography", "The author": those open their own section
       const s = newSec(sectionTypeOf(b.text) ?? 'other')
@@ -632,6 +632,16 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const all = [...front, ...secs]
   for (const [i, t] of Object.entries(input.sectionTypes ?? {})) if (all[Number(i)]) all[Number(i)].type = t
 
+  // Safety net (Req 4): no chapters but >3 'other' bm sections => level 'error' review item, never silent
+  const numChapters = all.filter((s) => s.type === 'chapter').length
+  const numOtherBm = all.filter((s) => s.type === 'other' && all.indexOf(s) >= (all.findIndex((x) => x.type === 'chapter') >= 0 ? all.findIndex((x) => x.type === 'chapter') : 0)).length
+  if (numChapters === 0 && numOtherBm > 3) {
+    review.push({
+      level: 'error',
+      msg: `No chapters found, but ${numOtherBm} unrecognised sections were exported as back matter — check heading and chapter styles.`,
+    })
+  }
+
   // ---- 2c. names, ids, navigation labels -----------------------------------------------------
   const counters = new Map<string, number>()
   let chapterNo = 0
@@ -648,7 +658,11 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
       s.stem = `part${n}`
       s.headId = s.stem
     } else {
-      s.stem = s.type === 'other' ? `${all.indexOf(s) < all.findIndex((x) => x.type === 'chapter') ? 'fm' : 'bm'}${n}` : n > 1 ? `${m.file}${n}` : m.file
+      s.stem = s.type === 'other'
+        ? `${all.indexOf(s) < all.findIndex((x) => x.type === 'chapter') ? `fm${String(n).padStart(2, '0')}` : `bm${n}`}`
+        : s.type === 'copyright' && (meta.language?.startsWith('pt') || meta.publisher?.toLowerCase().includes('gradiva'))
+          ? (n > 1 ? `copy${n}` : 'copy')
+          : n > 1 ? `${m.file}${n}` : m.file
       s.headId = s.stem
     }
     const say = (b: PBlock) => inlineText(b.el, ex.css, meta.language)

@@ -20,9 +20,9 @@ export const norm = (s: string) => s.toLocaleLowerCase().normalize('NFD').replac
 const IMPRINT_ANY =
   /©|\(c\)\s*\d{4}|\bi\.?\s?s\.?\s?b\.?\s?n\b|\bedici[óo]n\b|\bedition\b|\bauflage\b|\bderechos\b|\brights\b|copyright|dep[óo]sito legal|printed in|impreso en|published (by|in)|publicado por|t[íi]tulo original|original title|traducci[óo]n|translat|www\.|@|\bs\.\s?a\.|\bs\.\s?l\.|\bltd\b|\binc\b|\bgmbh\b/i
 const DEDICATION = /^(para|a mis?|a la memoria|a mi|en memoria|dedicad[oa]|con amor|to\b|for\b|in (loving )?memory|in memoriam|für|à|pour|per\b|ai miei|al mio|alla mia)/i
-export const CREDIT = /^\(?\s*(autor|autora|author|traducci[óo]n|traducido|translated|pr[óo]logo de|foreword by|introducci[óo]n de|ilustraciones|illustrat|edited|editado|edici[óo]n (de|a cargo)|coordinad|compilad|selecci[óo]n)/i
+export const CREDIT = /^\(?\s*(autor|autora|author|traducci[óo]n|traducido|translated|pr[óo]logo de|foreword by|introducci[óo]n de|ilustraciones|illustrat|edited|editado|edici[óo]n (de|a cargo)|coordinad|coordena[çc][aã]o|compilad|selecci[óo]n)/i
 export const COMPANY =
-  /\b(grupo editorial|editorial|ediciones|editores|publishing|publishers|press|books|verlag|[ée]ditions|edizioni|editora|random house|distribuciones|s\.?\s?a\.?\s?de\s?c\.?\s?v\.?|s\.?\s?a\.?\s?u\.?|s\.\s?a\.|s\.\s?l\.|ltd|limited|llc|inc|gmbh|ag|colegio de|universidad|university|fondo de cultura|instituto|institute)\b/i
+  /\b(grupo editorial|editorial|ediciones|editores|publishing|publishers|press|books|verlag|[ée]ditions|edizioni|editora|publica[çc][oõ]es|publicaciones|random house|distribuciones|s\.?\s?a\.?\s?de\s?c\.?\s?v\.?|s\.?\s?a\.?\s?u\.?|s\.\s?a\.|s\.\s?l\.|ltd|limited|llc|inc|gmbh|ag|colegio de|universidad|university|fondo de cultura|instituto|institute)\b/i
 const LEGAL_FORM = /,?\s*\b(a\.\s?c\.|s\.?\s?a\.?\s?(de\s?c\.?\s?v\.?|u\.?)?|s\.\s?l\.(\s?u\.)?|ltd\.?|limited|llc|inc\.?|gmbh|ag|s\.?\s?r\.?\s?l\.?)\s*\.?$/i
 const PARTICLE = /^(de|del|la|las|los|y|e|van|von|der|den|di|da|dos|das|do|le|du|des|ben|bin|al|el|st\.?|zu|af)$/i
 /** "Elena Chávez", "RJ Spina", "Ana María de la Fuente", "J. R. R. Tolkien" */
@@ -63,7 +63,7 @@ export function bodyStart(blocks: Block[], roleOf: (b: PBlock) => Role): number 
     if (b.t !== 'p' || !b.text) return false
     const r = roleOf(b)
     if (r === 'chapter-label' || r === 'part-label' || r === 'chapter-title') return true
-    return r === 'section-title' && !!sectionTypeOf(b.text)
+    return (r === 'section-title' || /^h[2-5]$/.test(r)) && !!sectionTypeOf(b.text)
   })
   return i < 0 ? blocks.length : i
 }
@@ -175,6 +175,7 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
   const source = { title: '', subtitle: '', author: '', publisher: '' }
 
   // ---- title ----
+  const cataloguedTitle = imprintLines.map((l) => l.match(/\b(?:T[íi]tulo|Title|Titel|Titre|Titolo)\s*:\s*([^/\n]{3,200}?)\s*(?:\/|\.\s|$)/i)?.[1]?.trim()).find(Boolean)
   const opf = ex.opfTitle.replace(/^\d[\w-]*\s+/, '').trim()
   const printed = printedTitle(pages, roleOf)
   const cased = (s: string) => allFront.find((x) => norm(x) === norm(s) && !isCaps(x))
@@ -182,6 +183,7 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
   if (printed && cased(printed)) (title = cased(printed)!), (source.title = 'title page, spelled as on the copyright page')
   else if (printed && opf && norm(opf) === norm(printed)) (title = opf), (source.title = 'title page')
   else if (printed) (title = titleCaseFor(printed, lang)), (source.title = isCaps(printed) ? 'title page (capitals converted — check the spelling)' : 'title page')
+  else if (cataloguedTitle) (title = cataloguedTitle), (source.title = 'cataloguing record on the copyright page')
   else if (opf && !FILEISH.test(opf)) (title = opf), (source.title = 'InDesign document title')
   else {
     const h = ex.blocks.find((b): b is PBlock => b.t === 'p' && !!b.text)
@@ -197,11 +199,11 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
   const frontPages = pages.filter((g) => displayPage(g) && !isImprintPage(g, roleOf) && !linesOf(g).some((b) => sectionTypeOf(b.text) === 'acknowledgments'))
   const tpLines = frontPages.flatMap(linesOf).map((b) => b.text)
   const titlePage = frontPages
-    .filter((g) => linesOf(g).some((b) => norm(b.text) === norm(printed || title)))
+    .filter((g) => linesOf(g).some((b) => norm(b.text) === norm(printed || title) || (norm(b.text).length > 4 && norm(title).startsWith(norm(b.text)))))
     .sort((a, b) => linesOf(b).length - linesOf(a).length)[0]
   const titleLines = (titlePage ? linesOf(titlePage) : []).map((b) => b.text)
   const personLine = (l: string) =>
-    !!l && norm(l) !== norm(printed) && norm(l) !== norm(title) && words(l) <= 5 && !CREDIT.test(l) && !COMPANY.test(l) && !NOT_A_NAME.test(l) && !FILEISH.test(l) && !sectionTypeOf(l) && NAME.test(nameCase(l, lang))
+    !!l && norm(l) !== norm(printed) && norm(l) !== norm(title) && !norm(title).includes(norm(l)) && words(l) <= 5 && !CREDIT.test(l) && !COMPANY.test(l) && !NOT_A_NAME.test(l) && !FILEISH.test(l) && !sectionTypeOf(l) && NAME.test(nameCase(l, lang))
   // several authors: the run of name lines after the title. A publisher line before the first name is skipped;
   // one after the names ends the list ("Gustavo Urbina Cortés" / "Isaac Cisneros Yescas").
   const collect = (lines: string[]) => {
@@ -214,9 +216,10 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
     }
     return run
   }
+  const cataloguedAuthor = imprintLines.map((l) => l.match(/\b(?:Autor|Autora|Author|Auteur|Verfasser)\s*:\s*([^/\n,;]{3,100}?)(?:\s*(?:[,;/.]|$))/i)?.[1]?.trim()).find(Boolean)
   const pool = titleLines.length ? titleLines : tpLines
   const run = collect(pool)
-  let author = run.join(', ')
+  let author = run.join(', ') || (cataloguedAuthor ? nameCase(cataloguedAuthor, lang) : '')
   if (!author) {
     const cand = pool.find(personLine)
     if (cand) author = nameCase(cand, lang)
@@ -246,7 +249,7 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
 
   // ---- subtitle: the title-page line after the title that is neither the author nor a credit ----
   const tp = pages
-    .filter((g) => displayPage(g) && !isImprintPage(g, roleOf) && linesOf(g).some((b) => norm(b.text) === norm(printed || title)))
+    .filter((g) => displayPage(g) && !isImprintPage(g, roleOf) && linesOf(g).some((b) => norm(b.text) === norm(printed || title) || (norm(b.text).length > 4 && norm(title).startsWith(norm(b.text)))))
     .sort((a, b) => linesOf(b).length - linesOf(a).length)[0]
   let subtitle = ''
   if (tp) {

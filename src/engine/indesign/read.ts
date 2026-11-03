@@ -1,6 +1,7 @@
 import { decide, evidence, findPairs, scoreStyle, type Evidence, type Canon } from '../structure/score.ts'
 import { styleStats, type StyleStats } from '../structure/features.ts'
-import { nameRole, NAMED_HEAD, TOC_NAME, IMPRINT_NAME } from '../structure/dict.ts'
+import { nameRole, NAMED_HEAD, TOC_NAME, IMPRINT_NAME, classifyStyleName } from '../structure/dict.ts'
+import { sectionTypeOf } from '../epub/locale.ts'
 import { indesignFeatures, CHAPTER_WORD, PART_WORD, BULLET, TOC_LINE, IMPRINT } from './features.ts'
 import { StyleSheet, isOverride, px, em, type Decls } from './css.ts'
 import { type Files, text } from '../zip.ts'
@@ -371,6 +372,8 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     const tg = tag(bl[0].el)
     const fromTag = bl.every((b) => tag(b.el) === tg) ? headingRoleOfTag(tg) : undefined
     if (fromTag && avgLen(k) < 180) mark(k, fromTag, `paragraphs are <${tg}> elements`, false)
+    const cl = classifyStyleName(k)
+    if (cl && k !== bodyKey && (cl.role === 'drop' || cl.role === 'p' || avgLen(k) < 180)) mark(k, cl.role, cl.reason, false)
     const named = NAMED_HEAD.find(([, re]) => re.test(k))
     if (named && avgLen(k) < 180) mark(k, named[0], `style name “${k}” is a heading`, false)
     const dn = nameRole(k)
@@ -410,6 +413,53 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       for (const [k, n] of hits) {
         const total = byKey.get(k)!.blocks.length
         if (n >= 3 && n >= total * 0.5 && k !== bodyKey) mark(k, 'chapter-title', 'its lines are the chapters named in the contents', false)
+      }
+    }
+  }
+  // pass 1c: structural fallback independent of names (Req 2)
+  {
+    const bd = settings().bookDetails
+    const bdChapters = bd ? bd.files.filter((f) => /chapter\d+/i.test(f.file) || (f.epubType === 'chapter' && !/^(intro|prolog|preface)/i.test(f.title))).length : 0
+    const isToc = (b: Extract<Block, { t: 'p' }>) => TOC_LINE.test(b.el.textContent ?? '') || hasPageSpan(b.el) || (TOC_NAME.test(b.key) && /\d/.test(b.el.textContent ?? ''))
+    const tocEntries: string[] = []
+    nonEmpty.forEach((b, i) => {
+      if (!isToc(b)) return
+      const before = nonEmpty[i - 1]
+      const t = before && !isToc(before) && before.key !== b.key ? before.text : tocEntryText(b.el)
+      if (t.trim().length > 2) tocEntries.push(t.trim())
+    })
+    const tocChapters = tocEntries.filter((t) => {
+      const st = sectionTypeOf(t)
+      return !st || st === 'chapter'
+    }).length
+    const expectedChapters = bdChapters > 0 ? bdChapters : tocChapters >= 2 ? tocChapters : 0
+    if (expectedChapters >= 2) {
+      const candidates = keys.filter((k) => {
+        if (k === bodyKey || avgLen(k) > 150) return false
+        const bl = byKey.get(k)!.blocks
+        return bl.length === expectedChapters && (display(k) || isHeading(ex, k, decl(k), bl, bodySans, avgLen(k)) || size(k) >= 1.1)
+      })
+      candidates.sort((a, b) => size(b) - size(a))
+      for (const topKey of candidates) {
+        const topBlocks = byKey.get(topKey)!.blocks
+        const firstTop = nonEmpty.indexOf(topBlocks[0])
+        const lastTop = nonEmpty.indexOf(topBlocks[topBlocks.length - 1])
+        if (firstTop < 0 || lastTop < 0) continue
+        const nestedKey = keys.find((subKey) => {
+          if (subKey === topKey || subKey === bodyKey || avgLen(subKey) > 150) return false
+          const subBlocks = byKey.get(subKey)!.blocks
+          if (subBlocks.length < 2) return false
+          const subInNonEmpty = subBlocks.map((b) => nonEmpty.indexOf(b)).filter((idx) => idx >= 0)
+          const between = subInNonEmpty.filter((idx) => idx > firstTop && idx < lastTop)
+          return between.length >= 2 && (display(subKey) || isHeading(ex, subKey, decl(subKey), subBlocks, bodySans, avgLen(subKey)) || size(subKey) <= size(topKey))
+        })
+        if (nestedKey) {
+          mark(topKey, 'chapter-title', 'top heading style whose count matches printed TOC/Book_Details chapter count', false)
+          roles.set(topKey, ['chapter-title', 'top heading style whose count matches printed TOC/Book_Details chapter count', false])
+          mark(nestedKey, 'h2', 'heading style nested under chapter style', false)
+          roles.set(nestedKey, ['h2', 'heading style nested under chapter style', false])
+          break
+        }
       }
     }
   }
