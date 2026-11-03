@@ -41,6 +41,8 @@ export interface ScoreCtx {
   pairs: Map<string, Canon>
   /** the first-match answer per style, kept as one weak vote */
   fallback?: Map<string, { role: Canon; reason: string }>
+  /** styles the book's own chapter count decided (Book_Details or the printed contents) when no name or tag did */
+  counted?: Map<string, { role: Canon; note: string; weight: number }>
 }
 
 const displayLook = (s: StyleStats) => s.mostly((b) => b.align) === 'center' && s.sizeRatio >= 1.15 && s.avgLen < 120
@@ -86,6 +88,8 @@ export function scoreStyle(s: StyleStats, c: ScoreCtx): Evidence<Canon>[] {
     const role: Canon = s.contents.part === 'label' ? 'chapter-label' : lv === 1 && (part || pair === 'part-title') ? 'part-title' : lv === 1 && otherChapter && !pair ? 'section-title' : (HEADING_OF_LEVEL[Math.min(lv, 5) - 1] ?? 'h5')
     add(s.contents.source, role, `${s.contents.source === 'nav' ? 'listed in the book’s navigation' : 'listed in the printed contents'}, level ${lv} (${Math.round(s.contents.share * 100)}% of its lines)`)
   }
+  const cnt = body ? undefined : c.counted?.get(s.key)
+  if (cnt) add('contents', cnt.role, cnt.note, cnt.weight)
   // 2. the element
   const tg = s.mostly((b) => b.tag)
   if (!body && tg && HEADING_OF_TAG[tg] && s.avgLen < 180) add('tag', HEADING_OF_TAG[tg], `paragraphs are <${tg}> elements`)

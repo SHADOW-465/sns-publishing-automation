@@ -233,7 +233,7 @@ test('REQ 4: Safety net: no chapters but >3 unrecognised bm sections generates l
   // Create synthetic analysis where blocks are section-title with no known section type (unknown generic bm)
   const syntheticDoc = `<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
-<head><link rel="stylesheet" href="style.css"/></head>
+<head><link href="style.css" rel="stylesheet" type="text/css"/></head>
 <body>
   <p class="unnamed-bm">Introduction</p><p class="body">Intro text</p>
   <p class="unnamed-bm">Section One</p><p class="body">Text 1</p>
@@ -249,7 +249,7 @@ test('REQ 4: Safety net: no chapters but >3 unrecognised bm sections generates l
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>`))
-  files.set('OEBPS/content.opf', new TextEncoder().encode(`<?xml version="1.0"?><package version="3.0" unique-identifier="pub-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Book</dc:title><dc:language>en</dc:language></metadata><manifest><item id="t1" href="text1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="t1"/></spine></package>`))
+  files.set('OEBPS/content.opf', new TextEncoder().encode(`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Book</dc:title><dc:language>en</dc:language></metadata><manifest><item id="css" href="style.css" media-type="text/css"/><item id="t1" href="text1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="t1"/></spine></package>`))
   files.set('OEBPS/style.css', new TextEncoder().encode(`.unnamed-bm { font-size: 1.5em; text-align: center; } .body { font-size: 1em; }`))
   files.set('OEBPS/text1.xhtml', new TextEncoder().encode(syntheticDoc))
 
@@ -260,4 +260,73 @@ test('REQ 4: Safety net: no chapters but >3 unrecognised bm sections generates l
 
   const errors = r.review.filter((x) => x.level === 'error' && x.msg.includes('No chapters found'))
   assert.equal(errors.length, 1, 'level error review item pushed when no chapters and >3 bm sections exist')
+})
+
+test('REQ 1: style names without accents, hyphens or spaces, in any case, and inside a style group', () => {
+  for (const k of ['CAPITULO', 'capitulo', 'Capitulo', 'CAPÍTULO', 'Capítulo-1', 'Capitulo1', 'Capitulo_01', 'TituloCapitulo', 'TITULO CAPITULO', 'Titulo_de_Capitulo', 'Capitulo-Titulo', 'Titoli_Titolo-capitolo', 'Estilos/Capitulo', 'KAPITEL', 'Kapitelueberschrift', 'CHAPITRE', 'ChapitreTitre', 'HOOFDSTUK', 'ROZDZIAL', 'ГЛАВА', 'BOLUM', 'CHUONG']) {
+    assert.equal(classifyStyleName(k)?.role, 'chapter-title', k)
+  }
+  for (const k of ['NumeroCapitulo', 'Numero_de_Capitulo', 'Capitulo Numero', 'Capitulo-No', 'Kapitelnr', 'Chapter No', 'CN-1']) {
+    assert.equal(classifyStyleName(k)?.role, 'chapter-label', k)
+  }
+  for (const k of ['PARTE', 'Parte_1', 'TituloParte', 'PARTIE', 'TEIL', 'DEEL', 'CZESC', 'Część', 'ЧАСТЬ']) assert.equal(classifyStyleName(k)?.role, 'part-title', k)
+  // subheadings in every spelling stay inside the chapter
+  for (const k of ['SUBCAPITULO', 'SUB CAPITULO', 'Sub_Capitulo', 'sub-capítulo', 'SubCapitulo', 'SUBCAPÍTULO', 'SOUS-CHAPITRE', 'Souschapitre', 'UNTERKAPITEL', 'SOTTOCAPITOLO', 'Subtitulo', 'SUBTÍTULO', 'SECAO', 'SEÇÃO', 'Secção', 'ABSCHNITT', 'Intertitre', 'Subhead']) {
+    assert.equal(classifyStyleName(k)?.role, 'h2', k)
+  }
+  assert.equal(classifyStyleName('Subtitulo2')?.role, 'h3', 'second subheading level (client book style)')
+  assert.equal(classifyStyleName('SUB-CAPITULO-2')?.role, 'h3')
+})
+
+test('REQ 1: a chapter word alone does not make a heading: styles for things inside the chapter keep their own role', () => {
+  // these name something else than the chapter heading: the name gives no vote, the layout decides
+  for (const k of ['Chapter Epigraph', 'Chapter_Body', 'Chapter Author', 'Chapter Opener Text', 'Chapter Intro Para', 'Capitulo_Texto', 'Texto Capitulo', 'Kapitel Text', 'Part Intro Text', 'Parte Texto']) {
+    assert.equal(classifyStyleName(k), undefined, k)
+  }
+  // drop caps and point sizes are never chapters or parts ("cap", "pt" count only as the first word)
+  for (const k of ['Drop Cap', 'DropCap', 'Cap Inicial', 'Cap', 'CH', 'Capitular', 'Small Caps', 'Body 10pt', 'Text_11pt', 'Texto 12 pt', 'Note CN', 'Abstand zu', 'Section Break']) {
+    const r = classifyStyleName(k)?.role
+    assert.ok(r !== 'chapter-title' && r !== 'chapter-label' && r !== 'part-title' && r !== 'part-label' && r !== 'h2' && r !== 'h3', `${k} → ${r}`)
+  }
+  // a subtitle style is the book's or a chapter's subtitle, not a subheading level
+  for (const k of ['Subtitle', 'Chapter Subtitle', 'Chapter-Subtitle', 'Sous-titre', 'Soustitre', 'Untertitel', 'Sottotitolo']) assert.equal(classifyStyleName(k), undefined, k)
+  // the German abbreviation table still answers for its own short names
+  assert.equal(classifyStyleName('ZT2')?.role, 'h3')
+  assert.equal(classifyStyleName('KT')?.role, 'drop')
+})
+
+test('REQ 2: structural fallback: with neutral style names, the top heading style whose count matches Book_Details is the chapter and the style nested under it stays inside', () => {
+  const files = new Map<string, Uint8Array>()
+  const enc = (s: string) => new TextEncoder().encode(s)
+  const para = (n: number) => `<p class="corpo">${'Texto corrido do livro, com frases longas o bastante para ser o corpo do texto. '.repeat(4)}${n}</p>`
+  let body = ''
+  const titles = ['Origens do sistema', 'Mudança e continuidade', 'Leituras comparadas']
+  titles.forEach((t, i) => {
+    body += `<p class="estilo-a">${i + 1}. ${t}</p>${para(1)}${para(2)}`
+    body += `<p class="estilo-b">${i + 1}.1 Primeira parte</p>${para(3)}${para(4)}`
+    body += `<p class="estilo-b">${i + 1}.2 Segunda parte</p>${para(5)}${para(6)}`
+  })
+  files.set('META-INF/container.xml', enc(`<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`))
+  files.set('OEBPS/content.opf', enc(`<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Livro</dc:title><dc:language>pt</dc:language></metadata><manifest><item id="css" href="style.css" media-type="text/css"/><item id="t1" href="text1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="t1"/></spine></package>`))
+  files.set('OEBPS/style.css', enc(`p.estilo-a { font-size: 2em; font-weight: bold; text-align: center; margin-top: 4em; } p.estilo-b { font-size: 1.25em; font-weight: bold; margin-top: 1.5em; } p.corpo { font-size: 1em; text-indent: 1.5em; text-align: justify; }`))
+  files.set('OEBPS/text1.xhtml', enc(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><link href="style.css" rel="stylesheet" type="text/css"/></head><body>${body}</body></html>`))
+
+  setSettings({
+    ...DEFAULT_SETTINGS,
+    bookDetails: {
+      source: 'Book_Details.xlsx', title: 'Livro', author: '', publisher: '', eisbn: '',
+      files: titles.map((t, i) => ({ row: i + 2, file: `chapter0${i + 1}.xhtml`, level: '1', title: t, epubType: 'chapter', role: 'doc-chapter' })),
+    },
+  })
+  const a = analyze(files)
+  const roleOf = (k: string) => a.styles.find((s) => s.key === k)?.role
+  assert.equal(roleOf('estilo-a'), 'chapter-title')
+  assert.ok(['h2', 'h3'].includes(String(roleOf('estilo-b'))), `nested style is a subheading, got ${roleOf('estilo-b')}`)
+  const meta = { title: 'Livro', subtitle: '', authors: 'Autor', publisher: 'Editora', language: 'pt', eisbn: '978-0-306-40615-7', printIsbn: '', rights: '', certifiedBy: '', conformsTo: '' }
+  const r = build(a, { styles: a.styles, images: [], meta, cover: { name: 'cover.png', data: PNG } })
+  const chapters = r.sections.filter((s) => /^chapter\d+\.xhtml$/.test(s.file))
+  assert.equal(chapters.length, 3, r.sections.map((s) => s.file).join(' '))
+  assert.equal(r.sections.filter((s) => s.file.startsWith('bm')).length, 0, r.sections.map((s) => s.file).join(' '))
+  assert.match(chapters[1].body, /2\.1 Primeira parte/)
+  assert.match(chapters[1].body, /2\.2 Segunda parte/)
 })

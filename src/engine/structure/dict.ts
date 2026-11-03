@@ -46,8 +46,6 @@ function foldStyleName(s: string): string {
     .toLowerCase()
 }
 
-const SHORT_TOKENS = new Set(['ch', 'cap', 'ct', 'cn', 'pt', 'pn', 'zt', 'zu', 'kt'])
-
 const CHAPTER_WORDS = [
   'chapter', 'chap', 'capitulo', 'chapitre', 'kapitel', 'capitolo',
   'hoofdstuk', 'rozdzial', 'glava', 'глава', 'kapitola', 'fejezet',
@@ -58,15 +56,57 @@ const PART_WORDS = [
   'part', 'parte', 'partie', 'teil', 'deel', 'czesc', 'часть',
 ]
 
+/** Words that name a subheading level (a "sub-" prefix also does). "Subtitle", "sous-titre", "Untertitel" and
+ * "sottotitolo" are left out on purpose: they usually mean the book's or a chapter's subtitle, not a subheading. */
 const SECTION_WORDS = [
   'section', 'seccao', 'secao', 'abschnitt', 'sezione', 'sekcja',
-  'subheading', 'subhead', 'subtitulo', 'subtitle', 'zwischentitel', 'zwischenueberschrift',
+  'subheading', 'subhead', 'subtitulo', 'zwischentitel', 'zwischenuberschrift', 'zwischenueberschrift',
   'intertitre', 'intertitulo',
 ]
+const SUBTITLE = /^(sub ?title|sous ?titre|unter ?titel|sotto ?titolo)s?$/
+const SUB_PREFIXES = ['sub', 'sous', 'unter', 'sotto']
 
-const NUMBER_WORDS = new Set(['number', 'num', 'no', 'nr', 'label', 'zahl', 'numero'])
-const TITLE_SUFFIXES = /^(title|name|head(ing)?|titel|uberschrift|berschrift|titulo|titre|titolo)$/i
+/** Words that may stand next to a chapter/part/section word without changing what the style is. */
+const TITLE_WORDS = new Set(['title', 'titles', 'name', 'head', 'heading', 'titel', 'uberschrift', 'ueberschrift', 'titulo', 'titre', 'titolo', 'tytul', 'naam', 'nazev', 'cim', 'otsikko', 'baslik', 'de', 'del', 'do', 'da', 'di', 'du', 'of', 'the', 'van', 'des', 'h1', '第', '제'])
+const LABEL_WORDS = new Set(['number', 'num', 'no', 'nr', 'nummer', 'label', 'zahl', 'numero', 'nro'])
+const TITLE_SUFFIXES = /^(title|name|head(ing)?|titel|u?e?berschrift|titulo|titre|titolo)$/i
 const LABEL_SUFFIXES = /^(zahl|nummer|number|num|no|nr|label|numero)$/i
+
+type Kind = 'chap' | 'part' | 'sect' | 'sub' | 'title' | 'label' | 'digit' | 'ct' | 'cn' | 'pt' | 'pn' | 'ch' | 'other'
+
+/** "kapitel", "kapitelzahl", "capitulos", "chapter1", "chaptertitle": the word, then nothing, an s, a number, a title or a label word. */
+function compound(t: string, words: string[]): 'title' | 'label' | undefined {
+  for (const w of words) {
+    if (t === w) return 'title'
+    if (!t.startsWith(w)) continue
+    const rest = t.slice(w.length)
+    if (rest === 's' || /^\d+$/.test(rest) || TITLE_SUFFIXES.test(rest)) return 'title'
+    if (LABEL_SUFFIXES.test(rest)) return 'label'
+  }
+}
+
+function kindOf(t: string, first: boolean): { kind: Kind; label?: boolean } {
+  if (/^\d+$/.test(t)) return { kind: 'digit' }
+  if (TITLE_WORDS.has(t)) return { kind: 'title' }
+  if (LABEL_WORDS.has(t)) return { kind: 'label' }
+  // the short forms count only as the style's first word ("CT", "CT_01", "ch-title", "cap 1"), never inside
+  // "Body 10pt", "Drop Cap" or "Text CN"
+  if (first && (t === 'ct' || t === 'cn' || t === 'pt' || t === 'pn')) return { kind: t }
+  if (first && (t === 'ch' || t === 'cap')) return { kind: 'ch' }
+  if (SUB_PREFIXES.includes(t)) return { kind: 'sub' }
+  for (const p of SUB_PREFIXES) {
+    if (!t.startsWith(p) || t.length <= p.length) continue
+    const rest = t.slice(p.length)
+    if (compound(rest, CHAPTER_WORDS) || compound(rest, SECTION_WORDS) || rest === 'ch' || rest === 'cap' || /^\d+$/.test(rest) || TITLE_SUFFIXES.test(rest)) return { kind: 'sub' }
+  }
+  if (compound(t, SECTION_WORDS) || t.startsWith('zwischen')) return { kind: 'sect' }
+  const ch = compound(t, CHAPTER_WORDS)
+  if (ch) return { kind: 'chap', label: ch === 'label' }
+  if (t.includes('章') || t.includes('장')) return { kind: 'chap' }
+  const pa = compound(t, PART_WORDS)
+  if (pa) return { kind: 'part', label: pa === 'label' }
+  return { kind: 'other' }
+}
 
 function matchClassifier(key: string): { role: Role; reason: string } | undefined {
   const f = foldStyleName(key)
@@ -80,79 +120,47 @@ function matchClassifier(key: string): { role: Role; reason: string } | undefine
   if (/^h4$/i.test(f) || /^(heading|titre|titel|titulo)[-_ ]?4$/i.test(f)) return { role: 'h4', reason: `style name “${key}” is a heading` }
   if (/^h[56]$/i.test(f) || /^(heading|titre|titel|titulo)[-_ ]?[56]$/i.test(f)) return { role: 'h5', reason: `style name “${key}” is a heading` }
 
-  // 2. Subheading negative patterns:
-  // Any sub-/sous-/unter-/sotto- prefix or section/seccao/secao/abschnitt form = subheading, never chapter.
-  const hasSubPrefix = tokens.some((t) => {
-    if ((t === 'sub' || t === 'sous' || t === 'unter' || t === 'sotto') && tokens.length > 1) return true
-    for (const p of ['sub', 'sous', 'unter', 'sotto']) {
-      if (t.startsWith(p) && t.length > p.length) {
-        const rest = t.slice(p.length)
-        if (
-          CHAPTER_WORDS.some((w) => rest.startsWith(w)) ||
-          SHORT_TOKENS.has(rest) ||
-          SECTION_WORDS.some((w) => rest.startsWith(w)) ||
-          /^\d+$/.test(rest) ||
-          TITLE_SUFFIXES.test(rest) ||
-          LABEL_SUFFIXES.test(rest)
-        )
-          return true
-      }
-    }
-    return false
-  })
+  // a subtitle style ("Subtitle", "Chapter Subtitle", "Sous-titre") is not a heading level: left to the other evidence
+  if (tokens.some((t, i) => SUBTITLE.test(t) || (i + 1 < tokens.length && SUBTITLE.test(`${t} ${tokens[i + 1]}`)))) return undefined
 
-  const hasSectionWord = tokens.some((t) => SECTION_WORDS.some((w) => t === w || t.startsWith(w)))
-  const hasZt = tokens.includes('zt') || tokens.includes('zu') || tokens.some((t) => t.startsWith('zwischen'))
+  // 2. Every word must be structural. "Chapter Epigraph", "Chapter_Body", "Kapitel Text", "Drop Cap" and "Body 10pt"
+  // name something else than the heading itself, so they are left to the other evidence (style table, layout).
+  const kinds = tokens.map((t, i) => kindOf(t, i === 0))
+  if (kinds.some((k) => k.kind === 'other')) return undefined
+  // a bare "Sub" or "Sous 2" says sub-what? Too little to name a heading: left to the size and position evidence
+  if (tokens.every((t, i) => SUB_PREFIXES.includes(t) || kinds[i].kind === 'digit')) return undefined
+  const has = (k: Kind) => kinds.some((x) => x.kind === k)
+  const isLabel = has('label') || kinds.some((x) => x.label)
 
-  if (hasSubPrefix || hasSectionWord || hasZt) {
+  // 3. Any sub-/sous-/unter-/sotto- prefix or section/seccao/secao/abschnitt form = subheading, never chapter.
+  if (has('sub') || has('sect')) {
     let role: Role = 'h2'
     if (tokens.some((t) => t === '3' || t === 'h3')) role = 'h3'
     else if (tokens.some((t) => t === '4' || t === 'h4')) role = 'h4'
     else if (tokens.some((t) => t === '5' || t === '6' || t === 'h5' || t === 'h6')) role = 'h5'
     else if (tokens.some((t) => t === '2' || t === 'h2')) role = 'h3'
-    else if (hasZt) role = 'h3'
+    else if (tokens.some((t) => t.startsWith('zwischen'))) role = 'h3'
     return { role, reason: `style name “${key}” is a subheading` }
   }
 
-  // 3. Short tokens (match whole tokens only)
-  if (tokens.includes('cn')) return { role: 'chapter-label', reason: `style name “${key}” is a chapter number` }
-  if (tokens.includes('ct')) return { role: 'chapter-title', reason: `style name “${key}” is a chapter title` }
-  if (tokens.includes('pn')) return { role: 'part-label', reason: `style name “${key}” is a part number` }
-  if (tokens.includes('pt')) return { role: 'part-title', reason: `style name “${key}” is a part title` }
+  // 4. Short forms (first word only)
+  if (kinds[0].kind === 'cn') return { role: 'chapter-label', reason: `style name “${key}” is a chapter number` }
+  if (kinds[0].kind === 'ct') return { role: 'chapter-title', reason: `style name “${key}” is a chapter title` }
+  if (kinds[0].kind === 'pn') return { role: 'part-label', reason: `style name “${key}” is a part number` }
+  if (kinds[0].kind === 'pt') return { role: 'part-title', reason: `style name “${key}” is a part title` }
+  // a bare "Cap" or "Ch" is too often a drop cap or a character style: only with a number or a title word
+  if (kinds[0].kind === 'ch' && tokens.length === 1) return undefined
 
-  // 4. Chapter words (accent/case/hyphen/space-insensitive, short tokens whole only)
-  const isChToken = (t: string) =>
-    CHAPTER_WORDS.some((w) => {
-      if (t === w) return true
-      if (t.startsWith(w)) {
-        const rest = t.slice(w.length)
-        if (rest === 's' || /^\d+$/.test(rest) || TITLE_SUFFIXES.test(rest) || LABEL_SUFFIXES.test(rest)) return true
-      }
-      return false
-    }) || t === 'ch' || t === 'cap' || t.includes('章') || t.includes('장')
-  const hasChapter = tokens.some(isChToken)
-
-  if (hasChapter) {
-    const isLabel = tokens.some((t) => NUMBER_WORDS.has(t)) || /zahl|nummer|number/i.test(f)
+  // 5. Chapter words (accent/case/hyphen/space-insensitive)
+  if (has('chap') || has('ch')) {
     return {
       role: isLabel ? 'chapter-label' : 'chapter-title',
       reason: isLabel ? `style name “${key}” is a chapter number` : `style name “${key}” is a chapter title`,
     }
   }
 
-  // 5. Part words
-  const isPartToken = (t: string) =>
-    PART_WORDS.some((w) => {
-      if (t === w) return true
-      if (t.startsWith(w)) {
-        const rest = t.slice(w.length)
-        if (rest === 's' || /^\d+$/.test(rest) || TITLE_SUFFIXES.test(rest) || LABEL_SUFFIXES.test(rest)) return true
-      }
-      return false
-    })
-  const hasPart = tokens.some(isPartToken)
-  if (hasPart) {
-    const isLabel = tokens.some((t) => NUMBER_WORDS.has(t)) || /zahl|nummer|number/i.test(f)
+  // 6. Part words
+  if (has('part')) {
     return {
       role: isLabel ? 'part-label' : 'part-title',
       reason: isLabel ? `style name “${key}” is a part number` : `style name “${key}” is a part title`,

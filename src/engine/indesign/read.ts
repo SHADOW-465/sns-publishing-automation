@@ -416,6 +416,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       }
     }
   }
+  const counted = new Map<string, { role: Canon; note: string; weight: number }>()
   // pass 1c: structural fallback independent of names (Req 2)
   {
     const bd = settings().bookDetails
@@ -433,9 +434,11 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
       return !st || st === 'chapter'
     }).length
     const expectedChapters = bdChapters > 0 ? bdChapters : tocChapters >= 2 ? tocChapters : 0
-    if (expectedChapters >= 2) {
+    // only when the names and tags found no chapter at all, and never over a style they already decided
+    const haveChapters = [...roles.values()].some(([r]) => r === 'chapter-title' || r === 'chapter-label')
+    if (expectedChapters >= 2 && !haveChapters) {
       const candidates = keys.filter((k) => {
-        if (k === bodyKey || avgLen(k) > 150) return false
+        if (k === bodyKey || avgLen(k) > 150 || roles.has(k)) return false
         const bl = byKey.get(k)!.blocks
         return bl.length === expectedChapters && (display(k) || isHeading(ex, k, decl(k), bl, bodySans, avgLen(k)) || size(k) >= 1.1)
       })
@@ -446,18 +449,22 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
         const lastTop = nonEmpty.indexOf(topBlocks[topBlocks.length - 1])
         if (firstTop < 0 || lastTop < 0) continue
         const nestedKey = keys.find((subKey) => {
-          if (subKey === topKey || subKey === bodyKey || avgLen(subKey) > 150) return false
+          if (subKey === topKey || subKey === bodyKey || avgLen(subKey) > 150 || roles.has(subKey)) return false
           const subBlocks = byKey.get(subKey)!.blocks
           if (subBlocks.length < 2) return false
           const subInNonEmpty = subBlocks.map((b) => nonEmpty.indexOf(b)).filter((idx) => idx >= 0)
           const between = subInNonEmpty.filter((idx) => idx > firstTop && idx < lastTop)
-          return between.length >= 2 && (display(subKey) || isHeading(ex, subKey, decl(subKey), subBlocks, bodySans, avgLen(subKey)) || size(subKey) <= size(topKey))
+          return between.length >= 2 && (display(subKey) || isHeading(ex, subKey, decl(subKey), subBlocks, bodySans, avgLen(subKey))) && size(subKey) <= size(topKey)
         })
         if (nestedKey) {
-          mark(topKey, 'chapter-title', 'top heading style whose count matches printed TOC/Book_Details chapter count', false)
-          roles.set(topKey, ['chapter-title', 'top heading style whose count matches printed TOC/Book_Details chapter count', false])
-          mark(nestedKey, 'h2', 'heading style nested under chapter style', false)
-          roles.set(nestedKey, ['h2', 'heading style nested under chapter style', false])
+          const src = bdChapters > 0 ? 'Book_Details' : 'printed contents'
+          const topWhy = `its ${expectedChapters} lines match the ${expectedChapters} chapters in the ${src}`
+          roles.set(topKey, ['chapter-title', topWhy, false])
+          roles.set(nestedKey, ['h2', 'heading style nested under the chapter style', false])
+          // a real vote, not only the weak first-match one: the chapter count is what the book itself says
+          const w = bdChapters > 0 ? 0.8 : 0.7
+          counted.set(topKey, { role: 'chapter-title', note: topWhy, weight: w })
+          counted.set(nestedKey, { role: 'h2', note: 'heading style used inside the chapters', weight: w })
           break
         }
       }
@@ -495,6 +502,7 @@ export function inferProfile(ex: Export, saved: Profile = {}): StyleInfo[] {
     bodyKey, pairs: findPairs(stats),
     chapters: Math.max(6, ex.nav.filter((n) => n.level === 1).length),
     fallback: new Map([...roles].map(([k, [role, reason]]) => [k, { role: role as Canon, reason }] as const)),
+    counted,
   }
   for (const k of keys) {
     const [role] = roles.get(k)!
