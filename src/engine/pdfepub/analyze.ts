@@ -108,10 +108,18 @@ export const styleKey = (l: Line) => `${family(l.font)}${isBoldFont(l.font) ? ' 
 
 export function titleCase(s: string): string {
   if (s !== s.toUpperCase()) return s
-  const small = /^(a|an|and|as|at|but|by|for|in|of|on|or|the|to|with|de|la|el|y|del)$/i
+  // small words stay lower case inside a title, in the languages the clients publish (es, pt, fr, it, de, en)
+  const small = /^(a|an|and|as|at|but|by|for|in|of|on|or|the|to|with|de|la|el|y|del|en|los|las|lo|un|una|unos|unas|al|por|con|para|sin|o|u|e|da|do|das|dos|em|no|na|nos|nas|um|uma|ao|aos|à|às|pelo|pela|pelos|pelas|le|les|des|du|et|ou|au|aux|il|gli|di|della|delle|dei|nel|per|und|der|die|von|zu|im|mit)$/i
   // Roman numerals stay capitals: "PART II" is "Part II", not "Part Ii"
   const roman = /^(?=[ivxlc]+$)c{0,3}(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i
-  return s.toLowerCase().replace(/\p{L}[\p{L}'’]*/gu, (w, i: number) => (roman.test(w) ? w.toUpperCase() : i > 0 && small.test(w) ? w : w[0].toUpperCase() + w.slice(1)))
+  // the first word is capitalised even after a number ("2. EL CRECIMIENTO" → "2. El Crecimiento"), and after a colon
+  let first = true
+  return s.toLowerCase().replace(/\p{L}[\p{L}'’]*|[:.?!]/gu, (w) => {
+    if (/^[:.?!]$/.test(w)) return (first = true), w
+    const out = roman.test(w) && w.length > 1 ? w.toUpperCase() : !first && small.test(w) ? w : w[0].toUpperCase() + w.slice(1)
+    first = false
+    return out
+  })
 }
 
 
@@ -434,10 +442,11 @@ export async function analyzePdf(
   }
 
   // ---- metadata guesses ----
-  const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => l.text) : []
-  const publisher = imprint.find((t) => /\b(press|publishing|publishers|books|verlag|editorial|ediciones|éditions)\b/i.test(t) && t.length < 60)?.trim() ?? ''
+  // hyphen look-alikes (U+2010/2011 in "978‑989‑785‑502‑3") read as hyphens, so the ISBN and the dates are found
+  const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => l.text.replace(/[\u2010\u2011\u2012\u2013\u2212]/g, '-')) : []
+  const publisher = imprintPublisher(imprint)
   const year = imprint.join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
-  const printIsbn = imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
+  const printIsbn = (imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? '').replace(/\s+/g, '')
   const info = await doc.getMetadata().catch(() => null)
   // the language the PDF declares can be wrong or missing: the book's own text decides (a region tag is kept when it agrees)
   const declared = (info?.info?.Language as string | undefined)?.replace(/_/g, '-').trim()
@@ -477,4 +486,31 @@ export async function analyzePdf(
   // a spread read as two pages is printed with the number of its left page
   const pageEv = bookEvidence(evPages, (i) => String(numbers[raw.findIndex((p) => p.src === i)] ?? i + 1))
   return { pdfjs, doc, pages, numbers, styles: infos, meta, front, brand, bodyKey, bodySize, lead, step, imprintPage, titlePage: fm.titlePage, halfTitle: fm.halfTitle, contents, notes, evidence: pageEv }
+}
+
+/** The publisher the imprint names. A credit line ("Coordenação editorial: Maria José Batista", "Editor: …") names a person, not the
+ *  house; the house is a line with a publishing word, or the company in the copyright line ("© Autora e Gradiva Publicações, S. A., 2026"). */
+export function imprintPublisher(imprint: string[]): string {
+  const HOUSE = /\b(press|publishing|publishers?|books|verlag|editorial|ediciones|éditions|editions|edições|edicoes|publicações|publicacoes|editora|editores|edizioni|editore|uitgeverij|förlag|forlag|wydawnictwo)\b/iu
+  const LABELLED = /^\s*([^:]{1,40}):\s*\S/u
+  const HOUSE_LABEL = /^(publisher|published by|publicado por|editado por|editorial|editora|verlag|éditeur|editeur|editore|uitgever)$/iu
+  const tidy = (t: string) => t.replace(/^\s*(?:copyright\s*)?(?:©|\(c\))\s*/iu, '').replace(/^(?:1[5-9]|20)\d{2}\s*(?:by\s+)?/iu, '').replace(/,?\s*\b(?:1[5-9]|20)\d{2}\b.*$/u, '')
+    .replace(/^(?:(?:o|a|el|la|il|der|die|the|l[’'])\s*)?(?:autor[a]?|author|auteur|autore|autrice|autorin)\s+(?:e|and|et|und|y|ed)\s+/iu, '')
+    .replace(/,?\s*\b(?:s\.\s?a\.|s\.\s?l\.|lda\.?|ltd\.?|ltda\.?|gmbh|inc\.?|llc|s\.\s?r\.\s?l\.|plc)\s*$/iu, '').replace(/[\s,;.]+$/u, '').trim()
+  for (const raw of imprint) {
+    const t = raw.trim()
+    const lab = t.match(LABELLED)
+    if (lab && HOUSE_LABEL.test(lab[1].trim())) return tidy(t.slice(t.indexOf(':') + 1))
+  }
+  for (const raw of imprint) {
+    const t = raw.trim()
+    const lab = t.match(LABELLED)
+    if (lab && !/^(?:copyright|©)/iu.test(t)) continue // "Coordenação editorial: …" is a credit
+    if (!/\s/.test(t) || /@|www\.|https?:/iu.test(t)) continue // a web address or a social handle ("gradiva.publicacoes")
+    if (HOUSE.test(t) && t.length < 80) {
+      const v = tidy(t)
+      if (v && v.length < 60) return v
+    }
+  }
+  return ''
 }

@@ -51,11 +51,11 @@ async function seriesBook(): Promise<Uint8Array> {
   return new Uint8Array(await doc.save())
 }
 
-function assertPackage(files: Map<string, Uint8Array>) {
+function assertPackage(files: Map<string, Uint8Array>, second = 'title2') {
   const opf = text(files.get('OEBPS/content.opf')!)
   const ids = [...opf.matchAll(/<item\s+id="([^"]+)"/g)].map((m) => m[1])
   assert.equal(ids.filter((id) => id === 'title').length, 1, opf)
-  assert.ok(ids.includes('title2'), ids.join(' '))
+  assert.ok(ids.includes(second), ids.join(' '))
   const refs = [...opf.matchAll(/idref="([^"]+)"/g)].map((m) => m[1])
   assert.equal(new Set(refs).size, refs.length, refs.join(' '))
   const ncx = text(files.get('OEBPS/toc.ncx')!)
@@ -77,20 +77,23 @@ function assertPackage(files: Map<string, Uint8Array>) {
   }
 }
 
-test('a series page before the title page is title2, and no link names an anchor that was not written', async () => {
+test('a series page before the known title page is front matter (fm), not a second title page, and no link names an anchor that was not written', async () => {
   setSettings(DEFAULT_SETTINGS)
   const pdf = await seriesBook()
   const b = await analyzePdf(pdfjs, pdf, nodeRaster)
   assert.ok(b.titlePage !== undefined && b.titlePage > 0, `title page ${b.titlePage} half ${b.halfTitle} front ${b.front}`)
   const input = { styles: b.styles, meta: { ...b.meta, eisbn: '9780306406157', publisher: b.meta.publisher || 'Example Press' }, rules: rulesFor('en'), cover: { name: 'cover.png', data: PNG } }
   const accessible = await buildPdfEpub(b, input, nodeRaster)
-  assert.ok(accessible.files.has('OEBPS/title.xhtml') && accessible.files.has('OEBPS/title2.xhtml'), [...accessible.files.keys()].filter((k) => k.includes('title')).join(' '))
-  assertPackage(accessible.files)
+  assert.ok(accessible.files.has('OEBPS/title.xhtml') && accessible.files.has('OEBPS/fm.xhtml') && !accessible.files.has('OEBPS/title2.xhtml'), [...accessible.files.keys()].filter((k) => /title|fm/.test(k)).join(' '))
+  // Nov 2 report: 1066 and Writers Block showed up to four "Title page" entries; only the real one is named so
+  assert.equal((text(accessible.files.get('OEBPS/nav.xhtml')!).match(/title\d*\.xhtml/g) ?? []).filter((f) => f !== 'title.xhtml').length, 0)
+  assert.match(text(accessible.files.get('OEBPS/nav.xhtml')!), /href="fm\.xhtml">Front matter</)
+  assertPackage(accessible.files, 'fm')
   const standard = await buildPdfEpub(b, { ...input, meta: { ...input.meta, profile: 'standard' } }, nodeRaster)
-  assertPackage(standard.files)
-  const stdTitle = text(standard.files.get('OEBPS/title.xhtml')!) + text(standard.files.get('OEBPS/title2.xhtml')!)
+  assertPackage(standard.files, 'fm')
+  const stdTitle = text(standard.files.get('OEBPS/title.xhtml')!) + text(standard.files.get('OEBPS/fm.xhtml')!)
   assert.match(stdTitle, /id="Page_\d+"/)
-  assert.equal((text(standard.files.get('OEBPS/toc.ncx')!).match(/title\.xhtml#Page_\d+/g) ?? []).every((ref) => stdTitle.includes(ref.split('#')[1])), true)
+  assert.equal((text(standard.files.get('OEBPS/toc.ncx')!).match(/(?:title|fm)\.xhtml#Page_\d+/g) ?? []).every((ref) => stdTitle.includes(ref.split('#')[1])), true)
 })
 
 test('packageEpub gives a repeated title section its own id and file and does not link a missing page anchor', () => {

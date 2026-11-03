@@ -59,6 +59,8 @@ interface PSec {
   stem: string
   number?: string
   title: Seg[][]
+  /** a smaller line set under the chapter title on the opener ("Definição e abordagens") */
+  subtitle?: Seg[][]
   headRole: PdfRole
   blocks: Block[]
   raw: PLine[] // toc / index lines
@@ -372,6 +374,37 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
 
   // ---------------------------------------------------------------- page by page
   const frontSet = new Set(book.front)
+  // a chapter subtitle is set in a style that appears only right under chapter titles; a subhead style ("Abschnitt 1.1") also
+  // opens sections inside the chapters, so its line under a title stays a subhead
+  const openerOnly = new Set<string>()
+  const numberedSubs = new Set<string>()
+  const SECNUM = /^(?:\p{L}+\s+)?\d{1,3}(?:\.\d{1,3})+\.?(?=\s|$)/u
+  {
+    const total = new Map<string, number>()
+    const under = new Map<string, number>()
+    const numbered = new Map<string, number>()
+    for (const pg of book.pages) {
+      if (frontSet.has(pg.index)) continue
+      const ls = [...(pg.lines as PLine[])].filter((l) => l.text.trim()).sort((a, b) => a.y - b.y)
+      let chain = false
+      ls.forEach((l, j) => {
+        const prev = ls[j - 1]
+        const pr = prev ? roleOf(prev) : undefined
+        // the second line of a wrapped heading ("1.2 Estudo dos sistemas partidários:" / "abordagem genética") is not one more heading
+        if (prev && prev.key === l.key && l.y > prev.y && l.y - prev.y < l.size * 1.6) return
+        chain = !!prev && (pr === 'title' || pr === 'chapter-number') && l.y - prev.y < Math.max(l.size, prev.size) * 2.2
+        total.set(l.key, (total.get(l.key) ?? 0) + 1)
+        if (chain) under.set(l.key, (under.get(l.key) ?? 0) + 1)
+        else if (SECNUM.test(l.text.trim())) numbered.set(l.key, (numbered.get(l.key) ?? 0) + 1)
+      })
+    }
+    // …or the subheads of that style are numbered ("2.1 …", "Abschnitt 1.1") and the line under the title is not
+    for (const [k, n] of total) {
+      const u = under.get(k) ?? 0
+      if (u >= n * 0.9) openerOnly.add(k)
+      else if (u && (numbered.get(k) ?? 0) >= (n - u) * 0.6) numberedSubs.add(k)
+    }
+  }
   for (const page of book.pages) {
     if (frontSet.has(page.index)) continue
     lastPdf.page = page.index
@@ -689,6 +722,24 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       const nxt = ordered[i + 1]
       const labelBeforeTitle = (r === 'subhead' || r === 'subhead2' || r === 'text') && isLabelLine(l.text.trim()) && !PART_LABEL.test(l.text.trim())
         && !!nxt && nxt.page === l.page && nxt.y >= l.y - 2 && (roleOf(nxt) === 'title' || roleOf(nxt) === 'chapter-number')
+      // a smaller line right under a chapter opener's title, before any text, is the chapter's subtitle, not a new chapter or a subhead
+      if ((r === 'title' || r === 'subhead' || r === 'subhead2') && cur && (cur.type === 'chapter' || cur.number !== undefined) && cur.title.length && !cur.blocks.length && !para && !sectionTypeOf(text) && (openerOnly.has(l.key) || (numberedSubs.has(l.key) && !SECNUM.test(l.text.trim())))) {
+        const prev = ordered[i - 1]
+        if (prev && prev.page === l.page && (roleOf(prev) === 'chapter-number' || roleOf(prev) === 'title' || cur.subtitle?.length) && l.y > prev.y
+          && l.y - prev.y < Math.max(l.size, prev.size) * 2.2 && (l.size < prev.size * 0.8 || (!!cur.subtitle?.length && Math.abs(l.size - prev.size) < 0.5)) && !isLabelLine(l.text.trim())) {
+          ;(cur.subtitle ??= []).push(segsOf(l))
+          continue
+        }
+      }
+      // a chapter title set in the same display face as its number ("1." then "Estudo dos sistemas" / "partidários", all 24 pt)
+      // is read as chapter-number too: once the opener has its number, a following wording line close below is its title, not a new chapter
+      if (r === 'chapter-number' && cur && cur.number !== undefined && !cur.blocks.length && !para && !isLabelLine(l.text.trim())) {
+        const prev = ordered[i - 1]
+        if (prev && prev.page === l.page && (roleOf(prev) === 'chapter-number' || roleOf(prev) === 'title') && l.y > prev.y && l.y - prev.y < l.size * 2.2) {
+          cur.title.push(segsOf(l))
+          continue
+        }
+      }
       if (r === 'chapter-number' || labelBeforeTitle) {
         const s = cur && cur.number === undefined && !cur.blocks.length && cur.title.length && cur.firstPage === book.numbers[page.index] ? cur : newSec('chapter', 'title', book.numbers[page.index])
         // "Primera parte" / "Part One" opens a part; anything else ("Capítulo 1", "3") a chapter
@@ -701,6 +752,11 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         const prev = ordered[i - 1]
         if (cur && !cur.blocks.length && !para && ((cur.number !== undefined && !cur.title.length) || (prev && roleOf(prev) === 'title' && l.y - prev.y < l.size * 2))) {
           cur.title.push(segsOf(l))
+          continue
+        }
+        // a number alone in the title face ("8." above "Uma (re)leitura…") is the chapter's number: it opens a chapter, never a back-matter section
+        if (/^(?:\d{1,3}|[ivxlc]{1,6})[.:)]?$/iu.test(l.text.trim())) {
+          newSec('chapter', 'title', book.numbers[page.index]).number = l.text.trim()
           continue
         }
         // a numbered title ("3. Relaciones intergubernamentales…") opens a chapter of an edited volume
@@ -827,6 +883,13 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       // analyze found the half-title (the title alone) and the full title page (the author's name); a PDF with only one of them keeps the old reading
       const known = book.titlePage !== undefined || book.halfTitle !== undefined
       const author = meta.authors && p.lines.some((l) => l.text.toLowerCase().includes(meta.authors.toLowerCase()))
+      // with the title page known, another front page (a series page, the publisher's blurb, a second title page) is front matter, not one
+      // more "Title page" in the menu
+      if (known && book.titlePage !== undefined && idx !== book.titlePage && idx !== book.halfTitle) {
+        const stem = fm++ ? `fm${fm - 1}` : 'fm'
+        front.push({ type: 'other', stem, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: L.front })
+        continue
+      }
       const type: SectionType = known ? (idx === book.halfTitle ? 'halftitle' : 'title') : !halfDone && !author ? 'halftitle' : 'title'
       if (type === 'halftitle') halfDone = true
       // the known title page owns "title". An earlier page that is also typed title (a series page) must not take that
@@ -846,7 +909,22 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         stem = nSame ? `${type}${nSame + 1}` : type
       }
       if (settings().titlePageAs === 'text') {
-        front.push({ type, stem, title: [], headRole: 'title', blocks: titleText(p.lines, mk).map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
+        // a line set twice on a designed page (one copy hidden under a panel, "NÃO-ficção · política") is read once: the copy drawn last, on top
+        const once = (ls: typeof p.lines) => ls.filter((l, i) => !ls.slice(i + 1).some((m) => m.text.toLowerCase().replace(/[\s\u00ad\u2010-\u2011-]+/g, '') === l.text.toLowerCase().replace(/[\s\u00ad\u2010-\u2011-]+/g, '')))
+        // the artwork of a designed title page (vector panels, an ornament) is still a picture of the book (IMG-011): it follows the text
+        const art: string[] = []
+        for (const [k, im] of p.images.filter((x) => x.jpeg).entries()) {
+          const path = `images/${stem}-${k + 1}.jpg`
+          images.push({ path, data: im.jpeg! })
+          const choice = pdfPictureAlt({
+            name: path, typed: input.alt?.[path], pictures: input.pictures, ai: input.ai?.[path], jpeg: im.jpeg, width: im.x1 - im.x0, height: im.y1 - im.y0, page: p,
+          })
+          pictures.push({ path, alt: choice.alt, caption: '', decorative: choice.decorative, longDesc: choice.longDesc, source: choice.source, approved: choice.approved })
+          const { img, extra } = pdfImgHtml(path, choice, 'cv', meta.language)
+          const f = figureWrap('img_cont')
+          art.push(`${f.open}\n<p class="image_Container">${img}</p>${extra}\n${f.close}`)
+        }
+        front.push({ type, stem, title: [], headRole: 'title', blocks: [...titleText(once(p.lines), mk), ...art].map((html) => ({ kind: 'raw' as const, html })), raw: [], nav: type === 'halftitle' ? L.halftitle : L.title })
         continue
       }
       const page = await book.doc.getPage(idx + 1)
@@ -948,9 +1026,12 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
       seenTitle.push(segs)
     }
     s.title = seenTitle
-    const title = titleCase(s.title.map(plain).join(' '))
-    // "Capítulo 1. Title", "Primera parte: Title", "3: Title" — as the InDesign workflow names them
-    s.nav ||= !s.number ? title : s.type === 'part' ? `${sentence(s.number)}: ${title}` : /\p{L}/u.test(s.number) && /\d$/.test(s.number) ? `${s.number}. ${title}` : `${s.number}: ${title}`
+    const sub = s.subtitle?.length ? titleCase(s.subtitle.map(plain).join(' ')).trim() : ''
+    // a note mark on the chapter title ("…en Brasil*", the author's note) stays in the heading, not in the menu
+    const title = titleCase(s.title.map(plain).join(' ')).replace(/\s*[*†‡]+$/u, '') + (sub ? `: ${sub}` : '')
+    // "Capítulo 1. Title", "Primera parte: Title", "3: Title" — as the InDesign workflow names them; a number that already
+    // ends in a stop ("1.") is followed by a space only, never "1.: Title"
+    s.nav ||= !s.number ? title : s.type === 'part' ? `${sentence(s.number)}: ${title}` : /\p{L}/u.test(s.number) && /\d$/.test(s.number) ? `${s.number}. ${title}` : /[.:)]$/.test(s.number.trim()) ? `${s.number.trim()} ${title}` : `${s.number}: ${title}`
     if (s.type === 'part') lastPart = s
     else if (s.type === 'chapter' && lastPart) s.parent = `${lastPart.stem}.xhtml`
     else if (s.type !== 'chapter') lastPart = undefined
@@ -987,6 +1068,7 @@ export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: 
         : s.number !== undefined
           ? `<${h} class="${cls}" id="${headId}"${extra}><span class="${numCls}">${esc(s.number)}</span> <span class="${titCls}">${t}</span></${h}>`
           : `<${h} class="${cls}" id="${headId}"${extra}>${t}</${h}>`
+      if (s.subtitle?.length) heading += `\n<p class="ch-subtitle" role="doc-subtitle">${s.subtitle.map(segHtml).join(' ')}</p>`
     }
     // page markers that arrived before the heading text go in front of it
     let body = (s.lead ? `${s.lead}\n` : '') + (heading ? `${heading}\n` : '')

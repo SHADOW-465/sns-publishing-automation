@@ -29,6 +29,17 @@ export interface FrontRead {
 const YEAR = String.raw`(?:1[5-9]|20)\d{2}`
 const clean = (s: string) => s.replace(/\s+/g, ' ').replace(/[\s,;:.]+$/, '').trim()
 
+const AUTHOR_LABEL = /^(?:autor(?:a|es|as|\(a\))?|author(?:s|\(s\))?|auteur(?:e|s)?|autore|autrice|verfasser(?:in)?|autorin)\s*:\s*(.+)$/iu
+const TITLE_LABEL = /^(?:t[íi]tulo|title|titel|titre|titolo)\s*:\s*(.+)$/iu
+/** The title a copyright page prints after a label ("Título: Sistemas Partidários: Reflexões…"); "Título original" (a translation's source) is not it. */
+export function imprintTitle(lines: string[]): string {
+  for (const t of lines) {
+    const m = t.trim().match(TITLE_LABEL)
+    if (m && m[1].trim().length > 2) return clean(m[1])
+  }
+  return ''
+}
+
 /** Names the imprint gives for the author, most reliable first. */
 export function imprintAuthors(lines: string[]): string[] {
   const out: string[] = []
@@ -37,6 +48,8 @@ export function imprintAuthors(lines: string[]): string[] {
     if (t && plausibleAuthor(t) && !COMPANY.test(t) && !NOT_A_NAME.test(t) && !out.includes(t)) out.push(t)
   }
   const text = lines.map((l) => l.trim())
+  // a labelled credit line ("Autor: Conceição Pequito Teixeira", "Author: …", "Auteur : …") names the author outright
+  for (const t of text) add(t.match(AUTHOR_LABEL)?.[1])
   for (const t of text) add(t.match(/\bthe right of (.+?) to be identified/i)?.[1])
   for (const t of text) add(t.match(/^(?:copyright\s*)?(?:©|\(c\)|c(?=\s+\p{Lu}))\s*(?:(?:19|20)\d{2}\s*(?:by\s+)?)?(.+)$/iu)?.[1])
   // cataloguing record: "Poulton-Smith, Anthony, 1950–" → "Anthony Poulton-Smith"
@@ -72,13 +85,29 @@ export function readFront(
     const person = people.find((l) => known(personLine(l.text, lang).split(', ')[0])) ?? people[people.length - 1]
     const confirmed = person && known(personLine(person.text, lang).split(', ')[0])
     // title type: the lines near the biggest size ("CONTEMPORARY" 60 pt over "CERAMICS" 100 pt), not the author's line or the small print under it
+    if (!confirmed) {
+      // the name the imprint gives, set over several lines ("Conceição" / "Pequito" / "Teixeira"): those lines are the author
+      const whole = norm(ls.map((l) => l.text).join(' '))
+      const named = evidence.find((e) => norm(e).length > 5 && whole.includes(norm(e)))
+      if (named) {
+        const nameLines = ls.filter((l) => norm(l.text).length >= 2 && norm(named).includes(norm(l.text)))
+        if (nameLines.length) {
+          const titleLines = ls.filter((l) => l.size >= max * 0.55 && !nameLines.includes(l))
+          const rest = ls.filter((l) => !titleLines.includes(l) && !nameLines.includes(l))
+          return { p, ls, titleLines, rest, author: named, authorLine: nameLines[0], confirmed: true }
+        }
+      }
+    }
     const titleLines = ls.filter((l) => l.size >= max * 0.55 && l !== person)
     const rest = ls.filter((l) => !titleLines.includes(l))
     return { p, ls, titleLines, rest, author: person ? personLine(person.text, lang) : '', authorLine: person, confirmed: !!confirmed }
   }
   const reads = text.map(read)
   // the title page is the page that names the author; failing that, the fullest page
-  const best = [...reads].sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || Number(!!b.author) - Number(!!a.author) || b.ls.length - a.ls.length)[0]
+  // the copyright page's "Título:" line also points at it: the page whose big type is that title
+  const said = norm(imprintTitle(imprint))
+  const saysTitle = (r: ReturnType<typeof read>) => { const t = norm(r.titleLines.map((l) => l.text).join(' ')); return !!said && t.length >= 4 && said.startsWith(t) }
+  const best = [...reads].sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || Number(saysTitle(b)) - Number(saysTitle(a)) || Number(!!b.author) - Number(!!a.author) || b.ls.length - a.ls.length)[0]
   const titlePage = best && (best.author || reads.length > 1) ? best : undefined
   // a half-title is an earlier page that holds nothing but (part of) the title
   const inTitle = (r: ReturnType<typeof read>, of: ReturnType<typeof read>) => {
@@ -113,6 +142,19 @@ export function readFront(
     subtitle = titleCase(sub.map((l) => l.text.trim()).join(' '))
   } else if (half) {
     subtitle = titleCase(half.rest.filter((l) => !COMPANY.test(l.text) && !personLine(l.text, lang)).map((l) => l.text.trim()).join(' '))
+  }
+  // the copyright page's own "Título:" line is the book's title as the publisher wrote it ("Title: Subtitle" splits in two)
+  const labelled = imprintTitle(imprint)
+  if (labelled) {
+    const sub = subtitle && norm(labelled).endsWith(norm(subtitle)) ? subtitle : ''
+    let t = sub ? clean(labelled.slice(0, labelled.toLowerCase().lastIndexOf(sub.toLowerCase().slice(0, 4)))) : labelled
+    if (sub && !t) t = labelled
+    if (!sub && !subtitle && /:\s/.test(labelled)) {
+      const at = labelled.indexOf(': ')
+      t = clean(labelled.slice(0, at))
+      subtitle = titleCase(clean(labelled.slice(at + 2)))
+    }
+    title = titleCase(t)
   }
   return { title, subtitle, author, titlePage: titlePage?.p.index, halfTitle: half?.p.index }
 }

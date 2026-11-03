@@ -54,6 +54,7 @@ p.title-3 { font-family: serif; font-size: 150%; margin: 1em 0 0 0; text-indent:
 h1.${t.chapterClass} { font-family: ${t.chapterTitleFont}; font-size: 300%; font-weight: bold; margin: 1em 0 2em ${t.chapterTitle === 'center' ? '0' : '0.8em'}; text-indent: ${t.chapterTitle === 'center' ? '0' : '-0.8em'}; text-align: ${t.chapterTitle}; color: ${brand}; }
 span.${t.numClass} { font-weight: bold; }
 span.${t.titleClass} { font-family: sans-serif; font-size: 60%; vertical-align: middle; border-bottom: 5px solid ${brand}; }
+p.ch-subtitle { font-family: ${t.chapterTitleFont}; font-size: 130%; margin: -1.5em 0 2em 0; text-indent: 0; text-align: ${t.chapterTitle}; }
 h1.subhead, h2.subhead { font-family: sans-serif; font-size: 110%; font-weight: bold; margin: 2em 0 1em 0; text-align: left; color: ${brand}; page-break-after: avoid; }
 h2.subhead1, h3.subhead1 { font-family: sans-serif; font-size: 100%; font-weight: bold; margin: 1.5em 0 0.2em 0; text-align: left; color: ${brand}; page-break-after: avoid; }
 h1.ded-h, h1.ack-h { font-family: sans-serif; font-size: 100%; font-weight: bold; margin: 2em 0 0.2em 0; text-align: left; }

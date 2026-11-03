@@ -49,6 +49,13 @@ export function clusterDrawings(
       return cx > c.box.x0 && cx < c.box.x1 && cy > c.box.y0 && cy < c.box.y1 && l.text.trim().length > 45
     })
     if (prose.length) continue
+    // display type inside the drawing ("Conceição Pequito Teixeira" 35 pt in a panel of a designed title page) is the page's own text, not a
+    // chart label: the panel stays vector art behind it and the text stays text
+    if (page.lines.some((l) => {
+      const cx = (l.x0 + l.x1) / 2
+      const cy = l.y + l.size / 2
+      return cx > c.box.x0 && cx < c.box.x1 && cy > c.box.y0 && cy < c.box.y1 && l.size >= 24 && /\p{L}{2}/u.test(l.text)
+    })) continue
     // two points of margin: a legend's text (which is no line) reaches a little below its swatch
     const g = grow(absorbLabels(c.box, page.lines), 2)
     out.push({ x0: Math.max(0, g.x0), y0: Math.max(0, g.y0), x1: Math.min(page.width, g.x1), y1: Math.min(page.height, g.y1) })
