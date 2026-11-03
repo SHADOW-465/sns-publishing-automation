@@ -325,6 +325,17 @@ interface Sec {
   firstPage?: string
 }
 
+/** The element a section's own heading is written as: h2 for a chapter typed as a paragraph (house style), h1 for a part or
+ *  a chapter the export already marked <h1>, or the client's template (HD-07). */
+function sectionHeadTag(s: Sec): string {
+  const first = s.title[0] ?? s.label[0]
+  if (!first) return ''
+  const srcTag = tag(first.el)
+  const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : s.type === 'part' ? settings().markup['part-title'] : undefined
+  const want = tpl?.tag ?? (s.type === 'chapter' && settings().chapterTag === 'h2' ? 'h2' : undefined)
+  return want && /^h[1-6]$/.test(want) ? want : s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
+}
+
 /** The class a client's content rule gives a paragraph: its text matches, its style is only an override, and it has the shape the rule asks for. */
 export function contentClass(b: { key: string; text: string }, d: Decls): string | undefined {
   if (!isOverride(b.key)) return undefined
@@ -698,6 +709,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   const showPages = settings().tocPageNumbers === 'show'
   // chapter → its first heading, when the printed contents lists that heading right under the chapter (a subtitle)
   const subtitles = new Map<Sec, string>()
+  const printedTogether = new Set<Sec>() // the contents page prints title and subtitle as one line: the menu does too
   let secNo = 0
   const repaired: string[] = []
   // h2 is an exact match only. A fuzzy "same page" match on h2 turned exercise lines into chapter entries.
@@ -736,7 +748,21 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         out.push({ html: `<p>${html}</p>`, src: e })
         continue
       }
-      const target = all.find((x) => x !== s && n && (norm(x.labelText + x.titleText) === n || norm(x.titleText) === n || norm(x.nav) === n || sameTitle(x.nav) || sameTitle(x.titleText)))
+      let target = all.find((x) => x !== s && n && (norm(x.labelText + x.titleText) === n || norm(x.titleText) === n || norm(x.nav) === n || sameTitle(x.nav) || sameTitle(x.titleText)))
+      // one contents line "1. Title: subtitle 15" for a chapter whose title and subtitle are two headings: the chapter, and its subtitle
+      if (!target && n) {
+        const firstHead = (x: Sec) => x.items.find((b): b is PBlock => b.t === 'p' && !!b.text)
+        const both = all.find((x) => {
+          const h = x !== s && x.type === 'chapter' ? firstHead(x) : undefined
+          return !!h && /^h[2-5]$/.test(roleOf(h)) && (norm(x.labelText + x.titleText + h.text) === n || norm(x.titleText + h.text) === n)
+        })
+        if (both) {
+          target = both
+          printedTogether.add(both)
+          const h = firstHead(both)!
+          subtitles.set(both, raw.slice(raw.toLocaleLowerCase().lastIndexOf(h.text.trim().slice(0, 4).toLocaleLowerCase())).trim() || h.text)
+        }
+      }
       const labelOnly = !target && all.find((x) => x !== s && x.labelText && norm(x.labelText) === n)
       if (labelOnly && labelOnly.type === 'part') {
         // "Primera parte" + next entry "Identifica tu…" → one linked entry
@@ -801,8 +827,9 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   for (const m of crossChecks(all.map((s) => ({ type: s.type, nav: s.nav, words: wordCount(s) })), tocSeen ? chapterLinks : undefined)) review.push({ level: 'warn', msg: m, kind: 'cross-check' })
 
   // (NAV-03) "Natur" + its listed subtitle → "Natur: Ackerland, Grünfläche, Urban Gardening" in the menu and the <title>
-  if (settings().navSubtitle) {
+  {
     for (const [sec, sub] of subtitles) {
+      if (!settings().navSubtitle && !printedTogether.has(sec)) continue
       if (input.sectionNav?.[all.indexOf(sec)]?.trim()) continue
       if (sec.nav && sub) sec.nav = `${sec.nav}${/[.:!?]$/.test(sec.nav) ? '' : ':'} ${sub}`
     }
@@ -955,7 +982,14 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
   }
   const majority = (key: string): Decls | undefined => [...(lookTally.get(key)?.values() ?? [])].sort((x, y) => y.n - x.n)[0]?.d
   const paraLook = (tg: string, d: Decls) => ruleOf('x', houseDecls(tg, d, bodyDecls))
-  const tagOf = (r: Role) => (r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5' ? r : 'p')
+  // a subheading is always below its chapter's heading: with chapter titles written h2, a style decided as h2 is written h3,
+  // h3 as h4 and so on, so the client's SUB-CAPITULO is never at the level of its CAPITULO (no level is skipped either)
+  const chapterLevel = Math.max(0, ...all.filter((x) => x.type === 'chapter').map((x) => Number(sectionHeadTag(x).slice(1)) || 0))
+  const subLevels = all.flatMap((x) => x.items).filter((b): b is PBlock => b.t === 'p' && /^h[2-5]$/.test(roleOf(b))).map((b) => Number(roleOf(b).slice(1)))
+  const subShift = chapterLevel && subLevels.length ? Math.max(0, chapterLevel + 1 - Math.min(...subLevels)) : 0
+  if (subShift) review.push({ level: 'info', msg: `Subheadings are written one level below the chapter titles (h${chapterLevel}): ${[...new Set(subLevels)].sort().map((n) => `h${n} → h${Math.min(6, n + subShift)}`).join(', ')}.` })
+  const subTag = (r: Role) => `h${Math.min(6, Number(r.slice(1)) + subShift)}`
+  const tagOf = (r: Role) => (r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5' ? subTag(r) : 'p')
   const cellsOfTable = (t: Element) => Array.from(t.querySelectorAll('tr')).flatMap((tr) => Array.from(tr.children).filter((c) => /^t[dh]$/.test(tag(c))))
   const cellInfo = (c: Element) => {
     const named = classesOf(c).filter((x) => !isOverride(x))
@@ -1129,12 +1163,13 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
         items.push({ kind: 'li', list: b.list ?? { ordered: false, depth: 0 }, html: inlineHtml(b.el, ctx, { stripBullet: !b.list }) })
       } else if (r === 'h2' || r === 'h3' || r === 'h4' || r === 'h5') {
         const hang = /^\d{1,3}\s*[:.)]\s/.test(b.text) && !px(declsOf(b)['margin-left']) // "1: Deseas tener tiempo…": the number hangs in the margin
-        const ca = hang ? hangClass(r, b, cls) : classAttr(r, b, cls)
+        const tg = subTag(r)
+        const ca = hang ? hangClass(tg, b, cls) : classAttr(tg, b, cls)
         const id = headingIds.get(b)
         inNotes = sectionTypeOf(b.text) === 'notes'
         const sc = seriesCaps.has(b) ? { base: { ...ex.css.paragraphFace(b.classes), smallCaps: true } } : {}
         const inner = inlineHtml(b.el, ctx, { heading: true, ...sc })
-        items.push({ kind: inNotes ? 'note' : 'other', html: `<${r} class="${ca}"${id ? ` id="${id}"` : ''}>${hang ? inner.replace(/^(\d{1,3}\s*[:.)])\s*/, '<span class="list">$1</span> ') : inner}</${r}>` })
+        items.push({ kind: inNotes ? 'note' : 'other', html: `<${tg} class="${ca}"${id ? ` id="${id}"` : ''}>${hang ? inner.replace(/^(\d{1,3}\s*[:.)])\s*/, '<span class="list">$1</span> ') : inner}</${tg}>` })
       } else {
         const d = declsOf(b)
         const vc = verse.get(b)
@@ -1325,6 +1360,13 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     .filter((i) => i.placement !== 'drop' && i.source === 'ai' && !i.approved && !!i.alt.trim() && !isPlaceholderAlt(i.alt))
     .map((i) => imgName(i.src))
   let ship = meta
+  // (PKG-005) the publisher is the one the client's Book_Details names, unless a person typed another one under Book details;
+  // the page's own wording stays in the copyright line
+  const bdPublisher = settings().bookDetails?.publisher?.trim()
+  if (bdPublisher && meta.publisher.trim() === a.meta.publisher.trim() && norm(meta.publisher) !== norm(bdPublisher)) {
+    review.push({ level: 'info', msg: `PKG-005: the publisher is “${bdPublisher}”, as Book_Details gives it${meta.publisher.trim() ? ` (the book's pages say “${meta.publisher.trim()}”; the copyright line keeps the printed wording)` : ''}.` })
+    ship = { ...ship, publisher: bdPublisher }
+  }
   if (pendingAi.length && (meta.certifiedBy.trim() || meta.conformsTo.trim())) {
     review.push({ level: 'error', msg: `${pendingAi.length} AI picture description${pendingAi.length === 1 ? '' : 's'} still need approval, so this book is not marked as certified.` })
     ship = { ...meta, certifiedBy: '', conformsTo: '' }
@@ -1376,12 +1418,10 @@ function renderHeading(
 ): string {
   if (!s.label.length && !s.title.length) return ''
   // a chapter the export already marked <h1> stays h1; a chapter typed as a paragraph stays h2 (house style)
-  const srcTag = tag((s.title[0] ?? s.label[0]).el)
   // (HD-07) a chapter title is always a heading: h2, whatever the export typed it as
   // the client's template for this kind of heading (chapter-title, part-title): tag, class, extra attributes
   const tpl = s.type === 'chapter' ? settings().markup['chapter-title'] : s.type === 'part' ? settings().markup['part-title'] : undefined
-  const want = tpl?.tag ?? (s.type === 'chapter' && settings().chapterTag === 'h2' ? 'h2' : undefined)
-  const h = want && /^h[1-6]$/.test(want) ? want : s.type === 'part' || srcTag === 'h1' ? 'h1' : 'h2'
+  const h = sectionHeadTag(s)
   const html = (bs: PBlock[]) => bs.map((b) => inlineHtml(b.el, ctx, { heading: true })).join(' ')
   const extra = Object.entries(tpl?.attrs ?? {}).map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
   const partClass = (own: string) => (s.type === 'part' && tpl?.class ? tpl.class.replace('{style}', own) : own)

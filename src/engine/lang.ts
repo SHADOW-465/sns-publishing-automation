@@ -56,9 +56,17 @@ export function confidentLanguage(text: string): string | undefined {
 }
 
 /** Of the language codes a file declares, the one matching its text ("en-GB, en-US, es-ES" + Spanish text → es-ES). */
-export function pickLanguage(declared: string[], text: string): string {
+export function pickLanguage(declared: string[], text: string, used?: Map<string, number>): string {
   const found = detectLanguage(text)
-  return declared.find((d) => d.slice(0, 2).toLowerCase() === found) ?? declared.find(Boolean) ?? found
+  // InDesign declares every language of the document (en-GB, pt-BR, pt-PT): of the tags for the language the text is in,
+  // the one most paragraphs and spans are tagged with is the book's (a Portuguese book can still carry the pt-BR default)
+  const matching = declared.filter((d) => d.slice(0, 2).toLowerCase() === found)
+  if (used && matching.length > 1) {
+    const n = (d: string) => used.get(d) ?? used.get(d.toLowerCase()) ?? 0
+    const best = [...matching].sort((a, b) => n(b) - n(a))[0]
+    if (n(best) > n(matching[0])) return best
+  }
+  return matching[0] ?? declared.find(Boolean) ?? found
 }
 
 /**

@@ -134,11 +134,13 @@ function matchClassifier(key: string): { role: Role; reason: string } | undefine
 
   // 3. Any sub-/sous-/unter-/sotto- prefix or section/seccao/secao/abschnitt form = subheading, never chapter.
   if (has('sub') || has('sect')) {
+    // the level a subheading style names: "Subtitulo2", "SUB-CAPITULO 2" one below the first, "Subtitulo3" two below.
+    // Each number is its own level, so the client's Subtitulo2 and Subtitulo3 never collapse into one.
     let role: Role = 'h2'
-    if (tokens.some((t) => t === '3' || t === 'h3')) role = 'h3'
-    else if (tokens.some((t) => t === '4' || t === 'h4')) role = 'h4'
-    else if (tokens.some((t) => t === '5' || t === '6' || t === 'h5' || t === 'h6')) role = 'h5'
-    else if (tokens.some((t) => t === '2' || t === 'h2')) role = 'h3'
+    const tagTok = tokens.find((t) => /^h[2-6]$/.test(t))
+    const n = Number(tokens.map((t) => t.match(/^(\d)$/)?.[1] ?? t.match(/^\p{L}{3,}(\d)$/u)?.[1]).find(Boolean) ?? 0)
+    if (tagTok) role = tagTok === 'h2' || tagTok === 'h3' ? 'h3' : tagTok === 'h4' ? 'h4' : 'h5'
+    else if (n >= 2) role = (['h3', 'h4', 'h5'] as const)[Math.min(2, n - 2)]
     else if (tokens.some((t) => t.startsWith('zwischen'))) role = 'h3'
     return { role, reason: `style name “${key}” is a subheading` }
   }

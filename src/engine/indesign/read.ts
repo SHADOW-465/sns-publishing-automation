@@ -94,8 +94,11 @@ export function readExport(given: Files): Export {
   const footnotes = new Map<string, Element>()
   const endnotes = new Set<string>()
   let page = ''
+  // how often each language tag is used on the text itself (not on <html>): decides pt-PT over a pt-BR document default
+  const langUse = new Map<string, number>()
   for (const it of spine) {
     if (!it || it.props.includes('nav') || !files.has(it.href)) continue
+    for (const m of text(files.get(it.href)!).matchAll(/<(?!html\b)[a-z][a-z0-9]*\b[^>]*\sxml:lang="([^"]+)"/g)) langUse.set(m[1], (langUse.get(m[1]) ?? 0) + 1)
     const doc = parseXml(text(files.get(it.href)!), it.href)
     // the cover page InDesign generates holds only the placeholder cover image
     if (it.href === resolvePath(opfPath, 'cover.xhtml') || /cover/i.test(doc.body?.id ?? '')) continue
@@ -186,7 +189,7 @@ export function readExport(given: Files): Export {
     walk(doc.body ?? doc.documentElement)
   }
 
-  const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '))
+  const lang = pickLanguage(declared, blocks.slice(0, 3000).map((b) => (b.t === 'p' ? b.text : '')).join(' '), langUse)
   const creators = Array.from(opf.getElementsByTagName('dc:creator')).map((e) => (e.textContent ?? '').trim()).filter(Boolean)
   return { opfPath, lang, opfTitle: opf.getElementsByTagName('dc:title')[0]?.textContent ?? '', opfCreators: creators, css, blocks, footnotes, endnotes, images, coverImage, links, nav }
 }

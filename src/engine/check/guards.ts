@@ -315,6 +315,16 @@ export function bookDetailsGuards(files: Files, d: BookDetails, nav: 'plan' | 'k
     const entry = menu.find(([h]) => h === f.file)
     if (nav === 'plan' && entry && f.title && foldTitle(entry[1]) !== foldTitle(f.title)) out.push({ level: 'warn', msg: `NAV-002: the menu calls ${f.file} “${entry[1]}” but ${who} says “${f.title}”.` })
     if (nav === 'plan' && entry && !f.level) out.push({ level: 'warn', msg: `NAV-001: ${f.file} is in the menu but ${who} gives it no navigation level.` })
+    if (nav === 'plan' && !entry && f.level && f.epubType !== 'cover') out.push({ level: 'warn', msg: `NAV-001: ${who} gives level ${f.level}, but ${f.file} is not in the menu.` })
+  }
+  // a chapter row at another level than all the other chapter rows: followed as written, but shown, as it is most likely a typing slip
+  if (nav === 'plan') {
+    const chapters = d.files.filter((f) => f.epubType === 'chapter' && f.level.trim())
+    const tally = new Map<string, number>()
+    for (const f of chapters) tally.set(f.level.trim(), (tally.get(f.level.trim()) ?? 0) + 1)
+    const [usual, n] = [...tally].sort((a, b) => b[1] - a[1])[0] ?? ['', 0]
+    if (chapters.length >= 3 && n >= chapters.length - 1)
+      for (const f of chapters) if (f.level.trim() !== usual) out.push({ level: 'warn', msg: `NAV-001: Book_Details row ${f.row} gives ${f.file} (“${f.title}”) level ${f.level}, but the other ${n} chapter rows are level ${usual}. The menu follows the sheet; ask the client whether that row is meant.` })
   }
   const one = (re: RegExp) => opf.match(re)?.[1]?.replace(/&amp;/g, '&').trim() ?? ''
   const isbn = one(/<dc:identifier\b[^>]*>\s*urn:isbn:([^<]+)</)

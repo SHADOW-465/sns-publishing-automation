@@ -17,7 +17,7 @@ export interface BookDetailsFile {
   row: number
   /** "chapter01.xhtml"; empty when the sheet gives no name (the section keeps its own) */
   file: string
-  /** "1" = in the menu; empty = not in the menu */
+  /** "1" = in the menu at the top, "2" = under the row above it, and so on; empty = not in the menu */
   level: string
   title: string
   start?: number
@@ -52,7 +52,7 @@ export function bookDetailsFromWorkbook(sheets: Sheet[], source = ''): BookDetai
   if (!nav) return undefined
   const head = nav.rows[0].map((h) => fold(h ?? ''))
   const col = (re: RegExp) => head.findIndex((h) => re.test(h))
-  const [cFile, cLevel, cTitle, cStart, cEnd, cType] = [/^chapter name/, /^navigation level/, /^title/, /^start page/, /^end page/, /^epub type/].map(col)
+  const [cFile, cLevel, cTitle, cStart, cEnd, cType] = [/^chapter name/, /^(navigation |nav |menu )?level/, /^title/, /^start page/, /^end page/, /^epub type/].map(col)
   const cell = (r: string[], c: number) => (c >= 0 ? (r[c] ?? '').trim() : '')
   const files: BookDetailsFile[] = []
   nav.rows.slice(1).forEach((r, i) => {
@@ -87,6 +87,9 @@ function kindsOf(f: BookDetailsFile): SectionType[] {
     default: return []
   }
 }
+
+/** "1", "2" → 1, 2; blank → 0 (no menu entry); any other mark ("x", "yes") → 1 */
+export const navLevelOf = (level: string): number => (!level.trim() ? 0 : /^\d+$/.test(level.trim()) ? Math.max(1, Math.min(6, Number(level.trim()))) : 1)
 
 const firstPage = (s: Section) => s.body.match(/id="page-([^"]+)"/)?.[1]
 
@@ -166,7 +169,7 @@ export function applyBookDetails(sections: Section[], d: BookDetails, nav: 'plan
     }
     if (file !== s.file) (renamed.push([s.file, file]), target.set(s.file, file))
     // ponytail: a refused row keeps the section's old name, which a later row could also want; the guard (FIL-001) then finds the name missing
-    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? (f.level ? f.title || s.nav : '') : s.nav, body: retag(s.body, f) }
+    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? (f.level ? f.title || s.nav : '') : s.nav, ...(nav === 'plan' ? { navLevel: navLevelOf(f.level) } : {}), body: retag(s.body, f) }
   })
   // a renamed file is linked by its new name everywhere ("chapter02.xhtml#chap2" → "chapter01.xhtml#chap2")
   const relink = (t: string) => t.replace(/(href=")([^"#]*?)(\.xhtml)(#[^"]*)?"/g, (m, a: string, stem: string, ext: string, frag = '') => (target.has(stem + ext) ? `${a}${target.get(stem + ext)!}${frag}"` : m))

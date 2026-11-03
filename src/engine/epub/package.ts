@@ -182,6 +182,8 @@ export interface Section {
   nav: string
   title: string
   parent?: string
+  /** the menu level the client's Book_Details row gives (1 = top, 2 = under the entry above; 0 = no entry). Unset: the book decides. */
+  navLevel?: number
   body: string
 }
 
@@ -388,7 +390,21 @@ export function packageEpub(p: {
   const { navFront, navDepth } = settings()
   // NAV-06: which front and back matter has a menu entry; NAV-05: how deep the menu goes
   const listed = (s: Section) => navFront === 'all' || s.type === 'chapter' || s.type === 'part' || (navFront === 'named' && !['halftitle', 'title', 'copyright', 'toc'].includes(s.type))
+  // (NAV-001) the rows of the client's Book_Details give each file its menu level: the sheet decides, not NAV-05/06
+  const planStack: { level: number; e: Entry }[] = []
   for (const s of sections) {
+    if (s.navLevel !== undefined) {
+      if (!s.navLevel || !(s.nav || s.title)) continue
+      while (planStack.length && planStack[planStack.length - 1].level >= s.navLevel) planStack.pop()
+      const up = planStack[planStack.length - 1]?.e
+      level.set(s.file, planStack.length + 1)
+      if (planStack.length + 1 > navDepth) continue
+      const e: Entry = { label: s.nav || s.title, href: s.file, kids: [] }
+      byFile.set(s.file, e)
+      ;(up ? up.kids : tree).push(e)
+      planStack.push({ level: s.navLevel, e })
+      continue
+    }
     // an untitled page (dedication, epigraph, full-page picture) is listed under its generic name, so every file is reachable
     const label = s.nav || s.title
     if (!label) continue
