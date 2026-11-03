@@ -3,6 +3,16 @@
 Newest first. Each entry says what changed for the people using the tool, and which client
 feedback it answers. Keep this file up to date with every change.
 
+## 2026-11-03 - Client round 5: chapter split, Book_Details publisher and levels, pt-PT, PDF chapter openers
+
+Answers the client's 3 November notes on *Sistemas Partidários* (InDesign + Book_Details) and the all-books test run of the same day.
+
+- **Chapters follow the book again (InDesign).** Chapter and sub-chapter styles are recognised by name in many languages (CAPITULO, SUB-CAPITULO, Kapitel, Chapitre…, with or without accents or hyphens); the output is cover, front pages, intro, chapter01-08 and bib, never bm*.xhtml, with or without Book_Details.
+- **Book_Details decides** the publisher (the printed copyright line is kept and noted) and the menu levels (Level column). pt-PT books are pt-PT even when InDesign's document default says pt-BR. Sub-chapter headings sit one level under the chapter.
+- **PDF to EPUB, chapter openers.** A chapter title set in the number's face stays one chapter; a lone "8." opens a chapter; an unnumbered line under the title is the chapter's subtitle (menu "1. Title: Subtitle"), while numbered subheads stay subheads. No more "1.: Title".
+- **PDF to EPUB, front pages.** The copyright page's "Título:" line finds the real title page; other front pages are front matter ("Front matter"/"Preliminares" in the menu), not a second, third or fourth "Title page". A designed title page keeps the author's name and its artwork. Author and title from labelled "Autor:"/"Título:" lines; the publisher is the house, not "Coordenação editorial: ..." or a social handle.
+- **All-capitals titles** use the small words of Spanish, Portuguese, French, Italian and German ("El Crecimiento del Federalismo ... en Estados Unidos"); a note mark on a chapter title stays out of the menu.
+
 ## 2026-10-10 — Rules instead of edits: Standard EPUB rules, "Check these first", corpus run
 
 The aim: the client changes how a book comes out from the screen, never by asking for a code change.
