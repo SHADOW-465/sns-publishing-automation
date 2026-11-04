@@ -16,6 +16,7 @@ import type { Decision } from './store.ts'
 import { yesNo, type SpecPicture } from '../epub/alt.ts'
 import { layerDataFromWorkbook, layerDataFromReport, markupSheets, type LayerData } from './markup.ts'
 import { bookDetailsFromWorkbook, type BookDetails } from './bookdetails.ts'
+import { LANG_NAMES } from '../lang.ts'
 
 export interface Requirement {
   text: string
@@ -225,7 +226,7 @@ const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 /** "de-DE" → "de-de", "es-MX" → "es-mx", a bare "de" stays "de". Three-letter codes are left unread. */
 function langTag(raw: string): string {
-  const named = LANG_NAME[norm(raw).toLowerCase()]
+  const named = LANG_NAMES[norm(raw).toLowerCase()]
   const src = named ?? norm(raw).replace(/_/g, '-')
   const m = src.match(/^([A-Za-z]{2,3})(?:-([A-Za-z]{2}|\d{3}))?$/)
   if (!m || m[1].length !== 2) return ''
@@ -275,11 +276,6 @@ export function labelsFromWorkbook(sheets: Sheet[]): LabelOverrides | undefined 
     if (Object.keys(out).length) return out
   }
   return undefined
-}
-const LANG_NAME: Record<string, string> = {
-  english: 'en', german: 'de-DE', french: 'fr-FR', spanish: 'es-ES', italian: 'it-IT', portuguese: 'pt-PT',
-  'portugal – portuguese': 'pt-PT', 'portugal - portuguese': 'pt-PT',
-  'mexico – spanish': 'es-MX', 'mexico - spanish': 'es-MX',
 }
 
 /** Suggestions that would change an accessibility rule: shown with the waiver wording. */

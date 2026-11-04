@@ -14,6 +14,7 @@ import { linkIndexLocators, rangeEndAnchor, resolvePageLinks } from '../pdfua/in
 import { bookHasPage, markWordSmallCaps, normTitle, smallCapsRunCount, stampPagesFromPdf, type WordBlock, type WordBook, type WordInline, type WordPara, type WordTable } from './read.ts'
 import { smallCapsSpan } from '../indesign/inline.ts'
 import { settings } from '../settings.ts'
+import { languageTag } from '../lang.ts'
 
 export interface WordBuildInput {
   meta: BookMeta
@@ -139,7 +140,7 @@ interface Draft {
 /** Build an EPUB from a Word manuscript. The cover is still required; the ISBN is left for the reviewer. */
 export function buildWordEpub(book0: WordBook, input: WordBuildInput): WordBuildResult {
   const book: WordBook = { ...book0, blocks: headingsFromTypedContents(book0.blocks) }
-  const { meta } = input
+  const meta = { ...input.meta, language: languageTag(settings().bookDetails?.language) ?? input.meta.language }
   const lang = meta.language || book.language || 'en'
   let printPageCount: number | undefined
   if (input.printPages?.length && settings().wordPagesFromPdf) {

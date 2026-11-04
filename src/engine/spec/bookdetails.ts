@@ -4,20 +4,22 @@
 // the spec loader (requirements.ts); nothing here names a book. The build applies it in packageEpub:
 //   FIL-001  the file of each row gets the name the client gave it
 //   SEM-001  and the epub:type / role of that row
-//   NAV-001/002  the menu entry takes the row's title (level blank = no entry), when the rule FIL-01 says "plan"
+//   NAV-001/002  the menu entry takes the row's title, at the row's Level (blank = level 1), when the rule FIL-01 says "plan"
 // A row is matched to the section of the book it describes by (in this order of weight) its title, the page it starts
 // on, and the kind of section its epub:type names. A row that matches nothing is reported, never guessed.
 // =============================================================================================
 import type { Sheet } from './office.ts'
 import type { Section } from '../epub/package.ts'
 import type { SectionType } from '../epub/locale.ts'
+import { normaliseIsbnChars } from '../epub/imprint.ts'
+import { languageTag } from '../lang.ts'
 
 export interface BookDetailsFile {
   /** the spreadsheet row, for messages */
   row: number
   /** "chapter01.xhtml"; empty when the sheet gives no name (the section keeps its own) */
   file: string
-  /** "1" = in the menu at the top, "2" = under the row above it, and so on; empty = not in the menu */
+  /** "1" = in the menu at the top, "2" = under the row above it, and so on; empty = level 1 (the default) */
   level: string
   title: string
   start?: number
@@ -34,6 +36,8 @@ export interface BookDetails {
   publisher: string
   pageCount?: number
   eisbn: string
+  /** a language tag ("pt-PT") or a language named in words ("Portuguese"); empty when the sheet gives none */
+  language?: string
   files: BookDetailsFile[]
 }
 
@@ -62,7 +66,7 @@ export function bookDetailsFromWorkbook(sheets: Sheet[], source = ''): BookDetai
   const meta = new Map<string, string>()
   for (const s of sheets) if (s !== nav && /^metadata$/i.test(s.name)) for (const r of s.rows) if (r?.[0]) meta.set(fold(r[0]), (r[1] ?? '').trim())
   const m = (...keys: string[]) => keys.map((k) => meta.get(k)).find(Boolean) ?? ''
-  return { source, title: m('title'), author: m('author'), publisher: m('publisher'), pageCount: num(m('page count')), eisbn: m('eisbn', 'e isbn', 'isbn'), files }
+  return { source, title: m('title'), author: m('author'), publisher: m('publisher'), pageCount: num(m('page count')), eisbn: normaliseIsbnChars(m('eisbn', 'e isbn', 'isbn')).trim(), language: languageTag(m('language', 'book language', 'lang')) ?? '', files }
 }
 
 /** The section kinds an epub:type (with its role) can describe. Empty = the type says nothing about the kind; title and page decide. */
@@ -88,8 +92,12 @@ function kindsOf(f: BookDetailsFile): SectionType[] {
   }
 }
 
-/** "1", "2" → 1, 2; blank → 0 (no menu entry); any other mark ("x", "yes") → 1 */
-export const navLevelOf = (level: string): number => (!level.trim() ? 0 : /^\d+$/.test(level.trim()) ? Math.max(1, Math.min(6, Number(level.trim()))) : 1)
+/** "1", "2", "9" → used as written; blank or anything that is not a positive whole number → 1 (the default level). Never corrected. */
+export const navLevelOf = (level: string): number => (/^\d+$/.test(level.trim()) && Number(level.trim()) > 0 ? Number(level.trim()) : 1)
+
+/** Chapters (introduction, chapter, bibliography) are always menu level 1: only the sub-sections of a book can sit deeper (client, 4 Nov). */
+const CHAPTER_KINDS: SectionType[] = ['introduction', 'chapter', 'bibliography']
+export const isChapterKind = (type: SectionType) => CHAPTER_KINDS.includes(type)
 
 const firstPage = (s: Section) => s.body.match(/id="page-([^"]+)"/)?.[1]
 
@@ -169,7 +177,7 @@ export function applyBookDetails(sections: Section[], d: BookDetails, nav: 'plan
     }
     if (file !== s.file) (renamed.push([s.file, file]), target.set(s.file, file))
     // ponytail: a refused row keeps the section's old name, which a later row could also want; the guard (FIL-001) then finds the name missing
-    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? (f.level ? f.title || s.nav : '') : s.nav, ...(nav === 'plan' ? { navLevel: navLevelOf(f.level) } : {}), body: retag(s.body, f) }
+    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? f.title || s.nav : s.nav, ...(nav === 'plan' ? { navLevel: isChapterKind(s.type) ? 1 : navLevelOf(f.level) } : {}), body: retag(s.body, f) }
   })
   // a renamed file is linked by its new name everywhere ("chapter02.xhtml#chap2" → "chapter01.xhtml#chap2")
   const relink = (t: string) => t.replace(/(href=")([^"#]*?)(\.xhtml)(#[^"]*)?"/g, (m, a: string, stem: string, ext: string, frag = '') => (target.has(stem + ext) ? `${a}${target.get(stem + ext)!}${frag}"` : m))

@@ -1,5 +1,6 @@
 import type { Block, Export, Role } from './read.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
+import { normaliseIsbnChars } from '../epub/imprint.ts'
 
 // =============================================================================================
 // Front matter by content, not by position: every printed page before the body is classified
@@ -276,7 +277,7 @@ export function detectMeta(ex: Export, roleOf: (b: PBlock) => Role): FrontMeta {
   if (!publisher) for (const l of copyLines) if (!publisher && l.length < 120 && !/apoya|supports|estimula|www\.|https?:/i.test(l)) publisher = companyOf(l)
   if (publisher) source.publisher = 'copyright page'
 
-  const printIsbn = imprintLines.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d\n]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
+  const printIsbn = normaliseIsbnChars(imprintLines.join('\n')).match(/i\.?\s?s\.?\s?b\.?\s?n[^\d\n]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? ''
   const copies = copyLines.filter((l) => l.includes('©')).map((l) => l.replace(/^d\.\s?r\.\s*/i, '').trim())
   const rights = (publisher && copies.find((l) => norm(l).includes(norm(publisher)))) || copies[0] || ''
   return { title, subtitle, author, publisher, rights, printIsbn, source }

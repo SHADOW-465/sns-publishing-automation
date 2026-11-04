@@ -18,6 +18,14 @@ export const PRINT_ONLY_EXAMPLES = [
   'Printer’s colophon — “Se terminó de imprimir…”, “Achevé d’imprimer…”, “Finito di stampare…”',
 ]
 export const ISBN_LINE = /\bi\.?\s?s\.?\s?b\.?\s?n\b/i
+/** Dash look-alikes (non-breaking hyphen U+2011, figure/en/em dash, minus sign, wave dash…) read as "-", space look-alikes (no-break,
+ *  thin, figure, narrow no-break…) as " ", fullwidth digits as ASCII, and invisible soft hyphens and zero-width marks go. */
+export const normaliseIsbnChars = (s: string): string =>
+  s
+    .replace(/[‐-―−⸺⸻⹀⹝〜〰゠︱︲﹘﹣－֊]/g, '-')
+    .replace(/[   -   　]/g, ' ')
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[­​-‍⁠﻿]/g, '')
 export const PRINT_RIGHTS = /all rights reserved\. no part of this (publication|book)|no part of this (publication|book) may be reproduced/i
 
 export interface CopyrightRules {
@@ -88,10 +96,12 @@ export function transformImprint(
     }
     if (ISBN_LINE.test(p.text) && /\d{3}/.test(p.text)) {
       if (!isbnReplaced && opt.eisbn) {
-        const printNo = p.text.match(/[\d][\d -]{9,16}[\dxX]/)?.[0] ?? ''
-        const shown = /[ -]/.test(opt.eisbn) ? opt.eisbn : formatLike(opt.eisbn, printNo)
+        const eisbn = normaliseIsbnChars(opt.eisbn)
+        const txt = normaliseIsbnChars(p.text)
+        const printNo = txt.match(/[\d][\d -]{9,16}[\dxX]/)?.[0] ?? ''
+        const shown = /[ -]/.test(eisbn) ? eisbn : formatLike(eisbn, printNo)
         // keep the print label ("ISBN", "I.S.B.N.:") unless the language has an e-book label
-        const line = opt.eisbnLabel ? `${opt.eisbnLabel}: ${shown}` : `${p.text.slice(0, p.text.indexOf(printNo)).trim() || 'ISBN'} ${shown}`
+        const line = opt.eisbnLabel ? `${opt.eisbnLabel}: ${shown}` : `${txt.slice(0, txt.indexOf(printNo)).trim() || 'ISBN'} ${shown}`
         out.push({ html: opt.esc(line), cls: p.gap ? 'spaced' : 'tight' })
         isbnReplaced = p.text
       }

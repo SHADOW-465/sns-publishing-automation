@@ -84,8 +84,8 @@ export async function mergeInputs(inp: UaInputs): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false })
 }
 
-import { detectLanguage } from '../lang.ts'
-export { detectLanguage }
+import { bookLanguage } from '../lang.ts'
+import { settings } from '../settings.ts'
 
 const FILEISH = /\.(docx?|indd|pdf)\b|^microsoft word|^untitled/i
 
@@ -170,7 +170,8 @@ export async function analyzeUa(
   const meta = {
     title: (infoTitle && !FILEISH.test(infoTitle) ? infoTitle : titleFromPages || titleCase(firstHeading)).replace(/\s+/g, ' ').trim(),
     author: (/\s/.test(infoAuthor) ? infoAuthor : '') || pageAuthors || (/^[\p{L} .'’-]+$/u.test(book.meta.authors) ? book.meta.authors : '') || infoAuthor,
-    lang: detectLanguage(allText),
+    // the Book_Details sheet, then the language the PDF declares, then the text (lang.ts bookLanguage)
+    lang: bookLanguage(settings().bookDetails?.language, info.catalog.lookupMaybe(PDFName.of('Lang'), PDFString, PDFHexString)?.decodeText(), allText),
     subject: '',
     keywords: book.meta.printIsbn,
     isbn: '',

@@ -6,7 +6,7 @@ import { fillNumbers } from '../pdf/numbers.ts'
 import { sectionTypeOf } from '../epub/locale.ts'
 import { languageFromBook } from '../lang.ts'
 import { readFront } from './front.ts'
-import { ISBN_LINE } from '../epub/imprint.ts'
+import { ISBN_LINE, normaliseIsbnChars } from '../epub/imprint.ts'
 import type { BookMeta } from '../epub/package.ts'
 import { imageObject, type Raster } from '../pdf/raster.ts'
 import { decide, evidence, scoreStyle, type Canon, type Evidence } from '../structure/score.ts'
@@ -443,10 +443,11 @@ export async function analyzePdf(
 
   // ---- metadata guesses ----
   // hyphen look-alikes (U+2010/2011 in "978‑989‑785‑502‑3") read as hyphens, so the ISBN and the dates are found
-  const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => l.text.replace(/[\u2010\u2011\u2012\u2013\u2212]/g, '-')) : []
+  const imprint = imprintPage !== undefined ? pages[imprintPage].lines.filter((l) => l.imprint).map((l) => normaliseIsbnChars(l.text)) : []
   const publisher = imprintPublisher(imprint)
   const year = imprint.join(' ').match(/\b(19|20)\d{2}\b/)?.[0] ?? String(new Date().getFullYear())
-  const printIsbn = (imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? '').replace(/\s+/g, '')
+  // the print ISBN keeps the separators it is printed with (the e-ISBN is written in the same style, epub/imprint.ts formatLike)
+  const printIsbn = (imprint.join('\n').match(/i\.?\s?s\.?\s?b\.?\s?n[^\d]*([\d][\d -]{9,16}[\dxX])/i)?.[1] ?? '').trim()
   const info = await doc.getMetadata().catch(() => null)
   // the language the PDF declares can be wrong or missing: the book's own text decides (a region tag is kept when it agrees)
   const declared = (info?.info?.Language as string | undefined)?.replace(/_/g, '-').trim()

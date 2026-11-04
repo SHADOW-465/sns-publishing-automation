@@ -19,8 +19,9 @@ import { type NoteFinding } from '../structure/notes.ts'
 import { placeEvidence, decidePlacement, candidatePages, type PlaceEvidence, type PicturePlacement } from './placement.ts'
 import { fillMissingPages } from '../pdf/fill-pages.ts'
 import { insertAtMarker } from '../epub/insert.ts'
-import { PRINT_ONLY, ISBN_LINE, formatLike } from '../epub/imprint.ts'
+import { PRINT_ONLY, ISBN_LINE, formatLike, normaliseIsbnChars } from '../epub/imprint.ts'
 import { settings, isHousePrintOnly, variantProps, type StyleRule } from '../settings.ts'
+import { languageTag } from '../lang.ts'
 import { wordsOf, type CheckSource } from '../check/epub.ts'
 import { detectMeta, bodyStart, splitPages, classifyFront } from './front.ts'
 import type { PrintPage } from '../pdf/pages.ts'
@@ -211,7 +212,7 @@ function finishAnalysis(ex: Export, styles: StyleInfo[], pictures: SpecPicture[]
     subtitle: fm.subtitle,
     authors: fm.author,
     publisher: fm.publisher,
-    language: ex.lang,
+    language: languageTag(settings().bookDetails?.language) ?? ex.lang,
     eisbn: '',
     printIsbn: fm.printIsbn,
     rights: fm.rights,
@@ -671,7 +672,7 @@ export function build(a: Analysis, rawInput: BuildInput): BuildResult {
     } else {
       s.stem = s.type === 'other'
         ? `${all.indexOf(s) < all.findIndex((x) => x.type === 'chapter') ? `fm${String(n).padStart(2, '0')}` : `bm${n}`}`
-        : s.type === 'copyright' && (meta.language?.startsWith('pt') || meta.publisher?.toLowerCase().includes('gradiva'))
+        : s.type === 'copyright' && meta.publisher?.toLowerCase().includes('gradiva')
           ? (n > 1 ? `copy${n}` : 'copy')
           : n > 1 ? `${m.file}${n}` : m.file
       s.headId = s.stem
@@ -1641,7 +1642,8 @@ function renderFront(
   let isbnDone = false
   let first = true
   // the e-ISBN is written with the same hyphenation as the print ISBN it replaces
-  const eisbnShown = /[ -]/.test(meta.eisbn) || !meta.printIsbn ? meta.eisbn : formatLike(meta.eisbn, meta.printIsbn)
+  const eisbnN = normaliseIsbnChars(meta.eisbn)
+  const eisbnShown = /[ -]/.test(eisbnN) || !meta.printIsbn ? eisbnN : formatLike(eisbnN, meta.printIsbn)
   // copyright page: print lines broken mid-sentence become one paragraph again
   // ("…en el ámbito de las ideas y el conocimiento," + "promueve la libre expresión…")
   const items: Block[] = []

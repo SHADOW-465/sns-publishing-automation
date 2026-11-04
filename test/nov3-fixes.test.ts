@@ -7,7 +7,7 @@ import { resolve, basename } from 'node:path'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { writeXlsx } from '../src/engine/spec/office.ts'
 import { readRequirements } from '../src/engine/spec/requirements.ts'
-import { navLevelOf } from '../src/engine/spec/bookdetails.ts'
+import { navLevelOf, applyBookDetails } from '../src/engine/spec/bookdetails.ts'
 import { packageEpub, type Section } from '../src/engine/epub/package.ts'
 import { bookDetailsGuards } from '../src/engine/check/guards.ts'
 import { setSettings, DEFAULT_SETTINGS } from '../src/engine/settings.ts'
@@ -52,26 +52,44 @@ const built = (): Section[] => [
 ]
 const meta = { title: 'Livro', subtitle: '', authors: 'Ana', publisher: 'Guerra e Paz', language: 'pt-PT', eisbn: '978-0-306-40615-7', printIsbn: '', rights: '', certifiedBy: 'x', conformsTo: 'x' }
 
-test('NAV-001: the "Level" column is read; blank = no entry, a number = that depth, anything else = level 1', () => {
+test('NAV-001: the "Level" column is read; a number is used as written, blank or not a number = level 1', () => {
   const d = details()
   assert.deepEqual(d.files.map((f) => f.level), ['1', '1', '1', '2', '1', '1', '1'])
-  assert.deepEqual(['', '1', '2', ' 3 ', '9', 'x'].map(navLevelOf), [0, 1, 2, 3, 6, 1])
+  assert.deepEqual(['', '1', '2', ' 3 ', '9', 'x', '0'].map(navLevelOf), [1, 1, 2, 3, 9, 1, 1])
 })
 
-test('NAV-001: the menu nests a level-2 row under the level-1 row before it, and the odd chapter level is flagged', () => {
-  const d = details()
+// a sub-section of chapter 02: not a chapter, so the sheet's level is the menu level
+const SUB = ['sub02.xhtml', '2', 'Subsecção', '25', '30', t('other')]
+const withSub = () => [built()[0], built()[1], built()[2], built()[3], sec('sub02.xhtml', 'other', 'Subsecção', 'other', 25), ...built().slice(4)]
+
+test('NAV-001: the sheet level is applied to sub-sections as-is; a blank level defaults to 1 and still gets a menu entry', () => {
+  const rows = [...ROWS.map((r) => (r[0] === 'chapter02.xhtml' ? [r[0], '', ...r.slice(2)] : r)), ['sub02.xhtml', '4', 'Subsecção', '25', '30', t('other')]]
+  const d = details(rows)
+  const plan = applyBookDetails([...built().slice(0, 4), sec('sub02.xhtml', 'other', 'Subsecção', 'other', 25), ...built().slice(4)], d)
+  const byFile = new Map(plan.sections.map((s) => [s.file, s]))
+  assert.equal(byFile.get('sub02.xhtml')!.navLevel, 4, 'a sub-section sheet level of 4 is not corrected to 1 or clamped')
+  assert.equal(byFile.get('chapter02.xhtml')!.navLevel, 1, 'a blank level is level 1')
+  assert.equal(byFile.get('chapter02.xhtml')!.nav, 'Dois: o meio', 'a blank-level row is still in the menu')
+  setSettings({ bookDetails: d })
+  const { files } = packageEpub({ meta, sections: withSub(), cover: { path: 'images/cover.png', data: PNG }, images: [], usedClasses: new Map(), bodyDecls: {}, review: [], css: 'p{}' })
+  const nav = text(files.get('OEBPS/nav.xhtml')!).replace(/\s+/g, ' ')
+  assert.match(nav, /<li><a href="chapter02\.xhtml">Dois: o meio<\/a> <ol[^>]*> <li><a href="sub02\.xhtml">Subsecção<\/a><\/li> <\/ol><\/li>/, 'the blank-level chapter is a top-level entry; its sub-section nests under it, whatever the sheet level')
+})
+
+test('NAV-001: chapters are always level 1 (a chapter row given 2 is shown at 1 and flagged); a sub-section nests under the chapter above it', () => {
+  const d = details([...ROWS, SUB])
   setSettings({ bookDetails: d })
   const review: import('../src/engine/epub/package.ts').ReviewItem[] = []
-  const { files } = packageEpub({ meta, sections: built(), cover: { path: 'images/cover.png', data: PNG }, images: [], usedClasses: new Map(), bodyDecls: {}, review, css: 'p{}' })
+  const { files } = packageEpub({ meta, sections: withSub(), cover: { path: 'images/cover.png', data: PNG }, images: [], usedClasses: new Map(), bodyDecls: {}, review, css: 'p{}' })
   const nav = text(files.get('OEBPS/nav.xhtml')!).replace(/\s+/g, ' ')
-  assert.match(nav, /<a href="intro\.xhtml">Introdução<\/a> <ol[^>]*> <li><a href="chapter01\.xhtml">Um: o começo<\/a><\/li> <\/ol><\/li>/, 'chapter01 sits under Introdução, as the sheet says')
-  assert.match(nav, /<\/ol><\/li> <li><a href="chapter02\.xhtml">Dois: o meio<\/a><\/li>/, 'the next level-1 row is back at the top')
+  assert.match(nav, /<a href="intro\.xhtml">Introdução<\/a><\/li> <li><a href="chapter01\.xhtml">Um: o começo<\/a><\/li>/, 'chapter01 is a top-level entry, not under Introdução, although the sheet says level 2')
+  assert.match(nav, /<a href="chapter02\.xhtml">Dois: o meio<\/a> <ol[^>]*> <li><a href="sub02\.xhtml">Subsecção<\/a><\/li> <\/ol><\/li>/, 'the level-2 sub-section sits under chapter02')
   const ncx = text(files.get('OEBPS/toc.ncx')!)
   assert.ok(ncx.includes('chapter01.xhtml'))
   const g = bookDetailsGuards(files, d).filter((x) => x.msg.startsWith('NAV-001'))
-  assert.equal(g.length, 1, 'one warning: the single chapter row at another level')
-  assert.match(g[0].msg, /row 5 gives chapter01\.xhtml .* level 2, but the other 3 chapter rows are level 1/)
-  // all chapters at one level: nothing to ask
+  assert.equal(g.length, 1, 'one warning: the chapter row given level 2; the sub-section is not a chapter')
+  assert.match(g[0].msg, /row 5 gives chapter01\.xhtml .* level 2, but chapters are always level 1/)
+  // all chapters at level 1: nothing to ask
   const even = details(ROWS.map((r) => (r[0] === 'chapter01.xhtml' ? [r[0], '1', ...r.slice(2)] : r)))
   setSettings({ bookDetails: even })
   const p2 = packageEpub({ meta, sections: built(), cover: { path: 'images/cover.png', data: PNG }, images: [], usedClasses: new Map(), bodyDecls: {}, review: [], css: 'p{}' })
@@ -132,7 +150,7 @@ test('client book with Book_Details: the publisher and the menu levels are the s
   assert.match(opf, /<dc:language>pt-PT<\/dc:language>/)
   assert.ok(r.review.some((x) => x.msg.startsWith('PKG-005: the publisher is “Guerra e Paz”')))
   const nav = text(r.files.get('OEBPS/nav.xhtml')!).replace(/\s+/g, ' ')
-  assert.match(nav, /<a href="intro\.xhtml">[^<]+<\/a> <ol[^>]*> <li><a href="chapter01\.xhtml">/)
+  assert.match(nav, /<a href="intro\.xhtml">[^<]+<\/a><\/li> <li><a href="chapter01\.xhtml">/, 'chapters are always level 1: chapter01 is not nested under the introduction, whatever the sheet says')
   // a person who typed another publisher under Book details keeps it
   const r2 = build(a, { styles: a.styles, images: a.images, meta: { ...a.meta, publisher: 'Editora X' }, cover: c })
   assert.match(text(r2.files.get('OEBPS/content.opf')!), /<dc:publisher>Editora X<\/dc:publisher>/)

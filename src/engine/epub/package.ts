@@ -6,6 +6,7 @@ import { buildCss, formatCss } from './css.ts'
 import { mediaType } from './image.ts'
 import { validateEpub } from './validate.ts'
 import { settings, htmlLangAttrs, STD_DEFAULTS, DEFAULT_SETTINGS, type StdOptions, type HouseSettings } from '../settings.ts'
+import { languageTag } from '../lang.ts'
 import { applyBookDetails, type PlanResult } from '../spec/bookdetails.ts'
 import { postBuildGuards, bookDetailsGuards, pictureGuards, figureGuards, noteRefGuards, indexRangeGuards, tableGuards, scriptGuards, altGuards, imageSpecGuards, pageMarkGuards, smallCapsGuards, linkGuards } from '../check/guards.ts'
 import { prepareEpubImages, rewriteImagePaths } from './image-spec.ts'
@@ -256,7 +257,8 @@ export interface ImageOut {
 }
 
 const FRONT: SectionType[] = ['halftitle', 'title', 'copyright', 'dedication', 'epigraph', 'toc', 'list']
-export const isbnDigits = (s: string) => s.replace(/[^\dXx]/g, '').toUpperCase()
+// NFKC first: a fullwidth or compatibility digit (９７８) counts as the ASCII one; every dash and space look-alike is dropped with the rest
+export const isbnDigits = (s: string) => s.normalize('NFKC').replace(/[^\dXx]/g, '').toUpperCase()
 
 export function isbn13Valid(s: string): boolean {
   const d = isbnDigits(s)
@@ -313,7 +315,7 @@ export function packageEpub(p: {
     for (const item of review) if (item.where && was.has(item.where)) item.where = was.get(item.where)!
   }
   // PKG-001..005: what the page did not give comes from the workbook
-  const meta0 = details ? { ...p.meta, title: p.meta.title || details.title, authors: p.meta.authors || details.author, publisher: p.meta.publisher || details.publisher, eisbn: p.meta.eisbn || details.eisbn } : p.meta
+  const meta0 = details ? { ...p.meta, title: p.meta.title || details.title, authors: p.meta.authors || details.author, publisher: p.meta.publisher || details.publisher, eisbn: p.meta.eisbn || details.eisbn, language: languageTag(details.language) ?? p.meta.language } : p.meta
   // an empty title is invalid EPUB (RSC-005): fall back to the first titled section and ask the reviewer to type the real one
   // the title page's first line is the book's title far more often than the first section's name ("Créditos")
   const firstLine = (body: string) => {

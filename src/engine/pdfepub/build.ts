@@ -16,6 +16,7 @@ import { entriesOf, rowsOf, norm as cnorm, type ContentsEntry } from './contents
 import { detectTables, type PdfTable } from '../pdf/tables.ts'
 import { resolveAlt, matchSpecPicture, readImageMetadata, isDecorative, isPlaceholderAlt, type SpecPicture, type AltSource, type AltChoice } from '../epub/alt.ts'
 import { settings } from '../settings.ts'
+import { languageTag } from '../lang.ts'
 import { continuesIndexLine, linkIndexLocators, resolvePageLinks } from '../pdfua/indexlinks.ts'
 import { centreIn, decideBook, pdfRoleOf, type PageDecision } from '../pdf/decision.ts'
 import { isLabelLine, mergeLabelSections, mergeOpeners, PART_LABEL } from '../structure/labels.ts'
@@ -181,7 +182,8 @@ export function pdfImgHtml(name: string, choice: AltChoice, className = '', lang
 }
 
 export async function buildPdfEpub(book: PdfBook, input: PdfBuildInput, raster: Raster): Promise<PdfBuildResult> {
-  const { meta } = input
+  // the Book_Details sheet's language first, then the language the PDF gives (lang.ts bookLanguage)
+  const meta = { ...input.meta, language: languageTag(settings().bookDetails?.language) ?? input.meta.language }
   bookLang = meta.language || 'en'
   const L = labelsFor(meta.language)
   const review: ReviewItem[] = []
