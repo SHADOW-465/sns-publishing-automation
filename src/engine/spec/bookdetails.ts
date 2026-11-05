@@ -95,10 +95,6 @@ function kindsOf(f: BookDetailsFile): SectionType[] {
 /** "1", "2", "9" → used as written; blank or anything that is not a positive whole number → 1 (the default level). Never corrected. */
 export const navLevelOf = (level: string): number => (/^\d+$/.test(level.trim()) && Number(level.trim()) > 0 ? Number(level.trim()) : 1)
 
-/** Chapters (introduction, chapter, bibliography) are always menu level 1: only the sub-sections of a book can sit deeper (client, 4 Nov). */
-const CHAPTER_KINDS: SectionType[] = ['introduction', 'chapter', 'bibliography']
-export const isChapterKind = (type: SectionType) => CHAPTER_KINDS.includes(type)
-
 const firstPage = (s: Section) => s.body.match(/id="page-([^"]+)"/)?.[1]
 
 /** How well a row describes a section: title 4 (equal) or 2 (one contains the other), start page 3, kind 1. 0 = no evidence. */
@@ -177,7 +173,7 @@ export function applyBookDetails(sections: Section[], d: BookDetails, nav: 'plan
     }
     if (file !== s.file) (renamed.push([s.file, file]), target.set(s.file, file))
     // ponytail: a refused row keeps the section's old name, which a later row could also want; the guard (FIL-001) then finds the name missing
-    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? f.title || s.nav : s.nav, ...(nav === 'plan' ? { navLevel: isChapterKind(s.type) ? 1 : navLevelOf(f.level) } : {}), body: retag(s.body, f) }
+    return { ...s, file, id: file === s.file ? s.id : file.replace(/\.xhtml$/i, ''), nav: nav === 'plan' ? f.title || s.nav : s.nav, ...(nav === 'plan' ? { navLevel: navLevelOf(f.level) } : {}), body: retag(s.body, f) }
   })
   // a renamed file is linked by its new name everywhere ("chapter02.xhtml#chap2" → "chapter01.xhtml#chap2")
   const relink = (t: string) => t.replace(/(href=")([^"#]*?)(\.xhtml)(#[^"]*)?"/g, (m, a: string, stem: string, ext: string, frag = '') => (target.has(stem + ext) ? `${a}${target.get(stem + ext)!}${frag}"` : m))

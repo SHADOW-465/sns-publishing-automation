@@ -317,9 +317,6 @@ export function bookDetailsGuards(files: Files, d: BookDetails, nav: 'plan' | 'k
     if (nav === 'plan' && entry && !f.level) out.push({ level: 'warn', msg: `NAV-001: ${who} gives ${f.file} no navigation level, so it is set at level 1. Ask the client whether that is meant.` })
     if (nav === 'plan' && !entry && f.level && f.epubType !== 'cover') out.push({ level: 'warn', msg: `NAV-001: ${who} gives level ${f.level}, but ${f.file} is not in the menu.` })
   }
-  // a chapter row given a deeper level: shown at level 1 (chapters are always level 1), so ask whether a sub-chapter was meant
-  if (nav === 'plan')
-    for (const f of d.files) if (['chapter', 'bibliography'].includes(f.epubType) && navLevelOf(f.level) > 1) out.push({ level: 'warn', msg: `NAV-001: Book_Details row ${f.row} gives ${f.file} (“${f.title}”) level ${f.level}, but chapters are always level 1, so it is shown at level 1. Ask the client whether that row is meant as a sub-chapter.` })
   const one = (re: RegExp) => opf.match(re)?.[1]?.replace(/&amp;/g, '&').trim() ?? ''
   const isbn = one(/<dc:identifier\b[^>]*>\s*urn:isbn:([^<]+)</)
   if (d.eisbn && isbn && isbn.replace(/\D/g, '') !== d.eisbn.replace(/\D/g, '')) {
