@@ -1,6 +1,7 @@
 // Browser side of "Fix with AI": asks the app's own server route (/api/ai-fix, Groq). No key is ever in the browser. Any failure
 // (offline, static server without the route, timeout, rate limit) returns undefined and the caller keeps its best guesses.
 import type { DecisionNote } from './decisions.ts'
+import { authHeaders } from '../../auth/token.ts'
 
 export const AI_LABEL = 'AI (Groq llama-3.3-70b)'
 
@@ -8,7 +9,7 @@ export async function callAiFix<T>(body: unknown, opts: { timeoutMs?: number; fe
   const ac = new AbortController()
   const t = setTimeout(() => ac.abort(), opts.timeoutMs ?? 45_000)
   try {
-    const r = await (opts.fetchImpl ?? fetch)(opts.url ?? '/api/ai-fix', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    const r = await (opts.fetchImpl ?? fetch)(opts.url ?? '/api/ai-fix', { method: 'POST', signal: ac.signal, headers: { 'content-type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify(body) })
     if (!r.ok) return undefined
     const d = (await r.json()) as T & { fallback?: boolean }
     return d?.fallback ? undefined : d

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { App } from './App.tsx'
+import { ClerkProvider } from '@clerk/react'
+import { AuthGate, ClerkSession } from './auth/AuthGate.tsx'
 import { ErrorBoundary } from './ui/ErrorBoundary.tsx'
 import './styles.css'
 
@@ -20,7 +21,11 @@ window.addEventListener('vite:preloadError', (e) => {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <AuthGate>
+        <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}>
+          <ClerkSession />
+        </ClerkProvider>
+      </AuthGate>
     </ErrorBoundary>
   </StrictMode>,
 )

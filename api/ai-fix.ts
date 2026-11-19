@@ -1,5 +1,6 @@
 // Server-side "Fix with AI" (Vercel function). The Groq key lives only here, in process.env.GROQ_API_KEY: it is never sent to the
 // browser, never logged and never returned. Any failure answers { fallback: true } and the app keeps its own best guesses.
+import { requireUser } from './_auth.ts'
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 export const MODEL = 'llama-3.3-70b-versatile'
 // Free Groq models, tried in order when the key has no access to one (404 / model_not_found / decommissioned).
@@ -111,7 +112,7 @@ export async function handle(body: Body, key: string, f: typeof fetch = fetch): 
   throw new Error('unknown task')
 }
 
-export async function POST(req: Request): Promise<Response> {
+export async function handleRequest(req: Request): Promise<Response> {
   const key = process.env.GROQ_API_KEY
   if (!key) return json(503, { fallback: true, error: 'AI is not configured' })
   const raw = await req.text()
@@ -124,4 +125,10 @@ export async function POST(req: Request): Promise<Response> {
     // the reason only (status or error name), never the key or the request
     return json(502, { fallback: true, error: 'AI call failed: ' + String((e as Error)?.name === 'AbortError' ? 'timeout' : (e as Error)?.message).split(key).join('***').slice(0, 160) })
   }
+}
+
+export async function POST(req: Request): Promise<Response> {
+  const denied = await requireUser(req)
+  if (denied) return denied
+  return handleRequest(req)
 }

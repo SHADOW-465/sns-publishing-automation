@@ -10,6 +10,7 @@ scratch/
 
 .env
 .env.*
+!.env.example
 
 # generated from the client rulebook workbook (scripts/seed-rulebook.ts)
 data/

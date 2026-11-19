@@ -31,6 +31,10 @@ On a machine with little memory, run the type-check single-threaded: `node_modul
 **Desktop (later):** `dist/` is fully static, uses relative paths (`base: './'`) and bundles the
 pdf.js worker locally, so it can be wrapped as-is in Tauri or Electron and runs offline.
 
+## Sign-in (Clerk)
+
+The web app shows a sign-in screen before any workflow. Copy `.env.example` to `.env.local` and set `VITE_CLERK_PUBLISHABLE_KEY` (browser) and `CLERK_SECRET_KEY` (server only). On Vercel set those same two, and optionally `CLERK_PUBLISHABLE_KEY` (the server falls back to `VITE_CLERK_PUBLISHABLE_KEY`) and `CLERK_AUTHORIZED_PARTIES` (comma-separated origins allowed to call `/api/ai-fix`). The desktop build opens `dist/` over `file://` and skips sign-in, because Clerk cannot run there.
+
 ## The screens
 
 A **Start** page explains the purpose and lets the operator pick by what they have. *InDesign to EPUB* has

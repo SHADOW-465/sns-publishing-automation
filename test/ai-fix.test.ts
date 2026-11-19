@@ -2,8 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { handle, groq, POST, MODELS, VISION_MODELS } from '../api/ai-fix.ts'
+import { handle, groq, POST, handleRequest, MODELS, VISION_MODELS } from '../api/ai-fix.ts'
 import { aiDetails, callAiFix, frontMatterText } from '../src/engine/review/ai-fix.ts'
+import { setTokenGetter } from '../src/auth/token.ts'
 
 const reply = (content: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status, headers })
 
@@ -35,7 +36,7 @@ test('ai-fix route: a failing model call throws (the route answers fallback)', a
 test('ai-fix route: no key -> 503 fallback, key never echoed', async () => {
   const old = process.env.GROQ_API_KEY
   delete process.env.GROQ_API_KEY
-  const r = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: '{}' }))
+  const r = await handleRequest(new Request('http://x/api/ai-fix', { method: 'POST', body: '{}' }))
   assert.equal(r.status, 503)
   assert.equal((await r.json()).fallback, true)
   if (old !== undefined) process.env.GROQ_API_KEY = old
@@ -50,6 +51,21 @@ test('client: any failure falls back (undefined) and Book details stay as they w
   const r = await aiDetails(meta, 'some text', { fetchImpl: down })
   assert.equal(r.meta, meta)
   assert.equal(r.notes.length, 0)
+})
+
+test('client: callAiFix sends the authorization header when a token getter is set', async () => {
+  const seen: string[] = []
+  const f = (async (_u: string, init: RequestInit) => {
+    seen.push((init.headers as Record<string, string>).authorization ?? '')
+    return new Response(JSON.stringify({ ok: 1 }), { status: 200 })
+  }) as unknown as typeof fetch
+  setTokenGetter(async () => 'session-token')
+  try {
+    assert.deepEqual(await callAiFix({ n: 1 }, { fetchImpl: f }), { ok: 1 })
+    assert.equal(seen[0], 'Bearer session-token')
+  } finally {
+    setTokenGetter(null)
+  }
 })
 
 test('client: AI values are applied and written as AI decisions', async () => {
@@ -118,15 +134,15 @@ test('vision: the route answers 200 with the description, 413 for a huge body, 5
   process.env.GROQ_API_KEY = 'gsk_secret_for_test'
   try {
     globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'A brick mill by a canal.' } }] }), { status: 200 })) as typeof fetch
-    const ok = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
+    const ok = await handleRequest(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
     const text = await ok.text()
     assert.equal(ok.status, 200)
     assert.equal(JSON.parse(text).alt, 'A brick mill by a canal.')
     assert.ok(!text.includes('gsk_secret_for_test'))
-    const big = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: 'data:image/jpeg;base64,' + 'A'.repeat(700_000) }) }))
+    const big = await handleRequest(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: 'data:image/jpeg;base64,' + 'A'.repeat(700_000) }) }))
     assert.equal(big.status, 413)
     globalThis.fetch = (async () => new Response('boom gsk_secret_for_test', { status: 500 })) as typeof fetch
-    const bad = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
+    const bad = await handleRequest(new Request('http://x/api/ai-fix', { method: 'POST', body: JSON.stringify({ task: 'vision', image: JPEG }) }))
     assert.equal(bad.status, 502)
     const badText = await bad.text()
     assert.equal(JSON.parse(badText).fallback, true)
@@ -135,5 +151,21 @@ test('vision: the route answers 200 with the description, 413 for a huge body, 5
     globalThis.fetch = realFetch
     if (old === undefined) delete process.env.GROQ_API_KEY
     else process.env.GROQ_API_KEY = old
+  }
+})
+
+test('ai-fix route: POST without CLERK_SECRET_KEY is 503', async () => {
+  const old = process.env.CLERK_SECRET_KEY
+  delete process.env.CLERK_SECRET_KEY
+  try {
+    const r = await POST(new Request('http://x/api/ai-fix', { method: 'POST', body: '{}' }))
+    assert.equal(r.status, 503)
+    const body = await r.json() as { fallback?: boolean; error?: string }
+    assert.equal(body.fallback, true)
+    assert.equal(body.error, 'sign-in is not configured')
+    assert.equal(r.headers.get('cache-control'), 'no-store')
+  } finally {
+    if (old === undefined) delete process.env.CLERK_SECRET_KEY
+    else process.env.CLERK_SECRET_KEY = old
   }
 })

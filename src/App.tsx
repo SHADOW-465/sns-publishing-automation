@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { UserButton } from '@clerk/react'
 import { IndesignFlow } from './ui/IndesignFlow.tsx'
 import { PdfFlow } from './ui/PdfFlow.tsx'
 import { PdfUaFlow } from './ui/PdfUaFlow.tsx'
@@ -87,6 +88,11 @@ export function App() {
           <p className="nav-label">House</p>
           {nav('settings', 'Settings', 'settings')}
         </nav>
+        {location.protocol !== 'file:' && (
+          <div className="side-account">
+            <UserButton />
+          </div>
+        )}
         <p className="side-foot">
           <Icon name="lock" size={15} /> Files never leave this computer
         </p>
