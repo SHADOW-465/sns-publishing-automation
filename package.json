@@ -10,6 +10,7 @@
     "sample": "node --import ./test/setup.ts test/run-sample.ts samples-local/out",
     "sample:pdf": "node --import ./test/setup.ts test/run-pdf-sample.ts samples-local/out-pdf",
     "epubcheck": "node test/epubcheck.ts",
+    "syllabus": "node scripts/syllabus.ts",
     "test": "node --test --test-concurrency=1 --import ./test/setup.ts \"test/**/*.test.ts\"",
     "tools": "node scripts/fetch-tools.mjs",
     "tools:ace": "node scripts/fetch-tools.mjs --ace",
@@ -18,6 +19,8 @@
     "desktop:dir": "node scripts/fetch-tools.mjs && vite build && electron-builder --win dir"
   },
   "devDependencies": {
+    "@clerk/backend": "^3.31.1",
+    "@clerk/react": "^6.19.1",
     "@daisy/axe-core-for-ace": "4.11.2-canary.1",
     "@fontsource-variable/instrument-sans": "^5.3.0",
     "@fontsource-variable/newsreader": "^5.3.0",
@@ -29,15 +32,15 @@
     "electron": "^44.9.0",
     "electron-builder": "^26.15.3",
     "fflate": "^0.8.3",
+    "jpeg-js": "^0.4.4",
     "jsdom": "^29.1.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
-    "jpeg-js": "^0.4.4",
-    "upng-js": "^2.1.0"
+    "upng-js": "^2.1.0",
+    "vite": "^8.3.0"
   },
   "main": "desktop/main.mjs",
   "description": "Automation: InDesign, PDF and Word to accessible EPUB",
