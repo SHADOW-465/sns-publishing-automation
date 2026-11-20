@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { UserButton } from '@clerk/react'
+import { AdminOnly } from './auth/AdminOnly.tsx'
+import { InvitesFlow } from './ui/InvitesFlow.tsx'
 import { IndesignFlow } from './ui/IndesignFlow.tsx'
 import { PdfFlow } from './ui/PdfFlow.tsx'
 import { PdfUaFlow } from './ui/PdfUaFlow.tsx'
@@ -51,7 +53,7 @@ const WORKFLOWS = [
     gives: 'Quality report',
   },
 ] as const
-type Tab = 'home' | 'settings' | (typeof WORKFLOWS)[number]['id']
+type Tab = 'home' | 'settings' | 'invites' | (typeof WORKFLOWS)[number]['id']
 
 const TITLES: Record<Tab, [string, string]> = {
   home: ['Start', ''],
@@ -60,6 +62,7 @@ const TITLES: Record<Tab, [string, string]> = {
   pdfua: ['Accessible PDF', 'Tag the print PDF so screen readers can follow it (PDF/UA).'],
   check: ['Check an EPUB', 'A quality report for any e-book, before it goes out.'],
   settings: ['Settings', 'House rules applied to every book built on this computer.'],
+  invites: ['Invites', 'Invite people to sign in, and choose who is an admin.'],
 }
 
 export function App() {
@@ -87,6 +90,8 @@ export function App() {
           {WORKFLOWS.map((w) => nav(w.id, w.label, w.icon))}
           <p className="nav-label">House</p>
           {nav('settings', 'Settings', 'settings')}
+          {/* Clerk hooks live in AdminOnly, so it is never rendered on file:// (Electron has no ClerkProvider) */}
+          {location.protocol !== 'file:' && <AdminOnly>{nav('invites', 'Invites', 'lock')}</AdminOnly>}
         </nav>
         {location.protocol !== 'file:' && (
           <div className="side-account">
@@ -123,6 +128,13 @@ export function App() {
         <div hidden={tab !== 'settings'}>
           <SettingsFlow />
         </div>
+        {location.protocol !== 'file:' && (
+          <div hidden={tab !== 'invites'}>
+            <AdminOnly>
+              <InvitesFlow />
+            </AdminOnly>
+          </div>
+        )}
       </main>
     </div>
   )

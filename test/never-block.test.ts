@@ -281,6 +281,7 @@ test('the only other disabled conditions are jobs that run, helpers that need a 
     'busy || !text.trim()', // "Read my instruction": a helper that has nothing to read without text; the instruction is optional
     "certifyBlocked && (k === 'certifiedBy' || k === 'conformsTo')", // the certification fields stay empty while AI drafts are unapproved
     "!spec?.layers.some((l) => l.level === 'client')", // a choice in a list
+    "busy || (self && next === 'member')", // admin Invites page: an admin cannot demote themselves (the server refuses too); not a book step
     '!s.enabled', 'plan.disabled', 'at <= 0', 'at >= list.length - 1', // the step bar, Next while busy, Previous/Next page in the print compare
     '!!busy || !ai.apiKey', '!!busy || !confirmed.size', "!rule || r.value === undefined || rule.kind === 'locked'", '!chosen.length || !!busy', // importing a requirements file
   ])
